@@ -128,14 +128,79 @@ One task, one issue, one sub-branch, one PR. Every sub-branch merges into
 `refactor/reuse-driven-shrink`; the integration branch reaches `main` only through a PR, after a
 live `scripts/dev.sh --play` run.
 
-| # | phase | issue | branch | status |
-|---|---|---|---|---|
-| 0 | measure the tree, and make the measurement a gate | [#209](https://github.com/Ashu11-A/NoderaMC/issues/209) | `chore/loc-tooling` | in progress |
-| 1 | delete what nothing can reach | [#210](https://github.com/Ashu11-A/NoderaMC/issues/210) | `refactor/remove-dead-clusters` | not started |
-| 2 | specifications move to `docs/` | [#211](https://github.com/Ashu11-A/NoderaMC/issues/211) | `docs/migrate-spec-comments` | not started |
-| 3 | one integration-test harness | [#212](https://github.com/Ashu11-A/NoderaMC/issues/212) | `refactor/test-harness-dedup` | not started |
-| 4 | decompose god-classes, extract primitives | [#213](https://github.com/Ashu11-A/NoderaMC/issues/213) | `refactor/decompose-<file>` (one per file) | not started |
-| 5 | one codec dispatch, one keep-alive, 0.2.0 | [#214](https://github.com/Ashu11-A/NoderaMC/issues/214) | `release/v0.2.0-wire-bump` | not started |
+| # | phase | issue | PR | `java.main.code` | other |
+|---|---|---|---|---:|---|
+| 0 | measure the tree, and make the measurement a gate | [#209](https://github.com/Ashu11-A/NoderaMC/issues/209) | [#215](https://github.com/Ashu11-A/NoderaMC/pull/215) | — | the tooling |
+| 1 | delete what nothing can reach | [#210](https://github.com/Ashu11-A/NoderaMC/issues/210) | [#217](https://github.com/Ashu11-A/NoderaMC/pull/217) | **−182** | 45 methods |
+| 2 | specifications move to `docs/` | [#211](https://github.com/Ashu11-A/NoderaMC/issues/211) | [#216](https://github.com/Ashu11-A/NoderaMC/pull/216) | 0 | −245 comment |
+| 3 | one integration-test harness | [#212](https://github.com/Ashu11-A/NoderaMC/issues/212) | [#221](https://github.com/Ashu11-A/NoderaMC/pull/221) | 0 | **−768** test |
+| 4 | decompose god-classes, extract primitives | [#213](https://github.com/Ashu11-A/NoderaMC/issues/213) | [#220](https://github.com/Ashu11-A/NoderaMC/pull/220) | **+26** | −42 Rust, −23 TS |
+| 5 | one codec dispatch, one keep-alive, 0.2.0 | [#214](https://github.com/Ashu11-A/NoderaMC/issues/214) | [#219](https://github.com/Ashu11-A/NoderaMC/pull/219) | **−399** | 0 fixture bytes |
+
+### The result
+
+Measured on the six branches merged together, because a per-branch figure does not compose:
+
+| bucket | baseline | merged | delta |
+|---|---:|---:|---:|
+| `java.main.code` | 60,815 | 60,260 | −555 |
+| `java.test.code` | 60,440 | 59,672 | −768 |
+| `rust.main.code` | 31,448 | 31,406 | −42 |
+| `rust.test.code` | 444 | 436 | −8 |
+| `ts.code` | 11,405 | 11,382 | −23 |
+| **total code** | **164,552** | **163,156** | **−1,396 (−0.85%)** |
+
+The target was 30% and the answer is 0.85%. The plan said the headline was directional and that the
+programme would report its honest number, so here it is, along with why.
+
+**Two of the five levers moved the metric and three did not.** Deleting code that no longer runs
+(−182) and collapsing a *literally duplicated* dispatch table — 76 `instanceof` arms plus a 76-case
+`switch` for the same 76 tags (−399) — account for essentially all of the production-Java reduction.
+Extracting shared primitives from god-classes, which the plan treated as lever A and the main event,
+came out **+26**: a primitive carrying real Javadoc costs more lines than the short duplicated loops
+it absorbs, and `HexKeyedStore` at ~95 lines replacing ~72 across two stores is the shape of it.
+Migrating specifications into `docs/` moved 245 comment lines and zero code lines, because the
+comment mass is not concentrated — outside `ControlProtocol.java` only two files in the frozen
+modules exceed 150 comment lines, and ~92% of what was examined is invariants, past-bug
+explanations and public-API contract that the phase's own policy protects.
+
+**So the reduction hypothesis was wrong in a specific and useful way.** Line count falls when the
+same *logic* is written twice and one copy can go. It does not fall when the same *shape* is written
+twice and both call sites survive with a named collaborator between them — that trade buys
+correctness, not size. Phase 4 is worth keeping on those grounds alone: it removed three divergent
+JSON escapes, one of which emitted invalid output, and unified a path-traversal guard that existed
+in two disagreeing versions.
+
+**What the phases found that was not line count**, and is worth more than the 1,396 lines:
+
+- `library/rust/nodera-codec/tests/mutation.rs` read its wire tag from the first two bytes of the
+  `NDR2` **magic**, so every fixture fell through to `DiscoveryMessage` and the rendezvous, service
+  and consensus frames were decode-failed and swallowed by an `if let Ok(...)`. The
+  canonical-mutation invariant had only ever been asserted on one message family. Green throughout.
+- `WorkerTelemetryService.escape` replaced `"` with `'` instead of escaping it, silently altering
+  every error string carrying a quote in the `NODERA-TELEMETRY` reply.
+- `PeerTrafficMeter#snapshot()` has no callers and is the per-peer table's only eviction path
+  ([#218](https://github.com/Ashu11-A/NoderaMC/issues/218)).
+- A shared fixture built through the widest constructor with `null`s orphaned the 11-argument
+  `WorkerControlHandler` overload that `ConfigVerbIT` was the only caller of — a consolidation
+  erasing an API's only exercise, visible to nothing but the structural report.
+- `structureReport` records call edges only from production-origin bytecode, so 92 of 263 candidate
+  "dead" methods are test-driven. **Phase 1 is downstream of phase 3, not parallel to it** — the
+  plan had that ordering wrong.
+- `jscpd` misses duplication that was *retyped* rather than pasted, so the nine validation ITs
+  duplicating 30–80 lines apiece appear in no `REFACTORING.md` register at all.
+
+**Three defects in the measurement tooling**, each surfaced by an agent declining to work around it:
+gating comment counts made deleting documentation the cheapest way to go green; bucketing Java by
+Gradle source set reported the `:testing` harness as production code, so a phase that removed 1,484
+lines of duplicated setup read as +695 lines of growth; and a whole-tree ratchet does not compose
+across parallel branches, so a branch can be red alone and green merged. All three are fixed.
+
+**Ratchet files cannot be merged.** `#210` stamped `never_referenced_methods` 93 and `#213` stamped
+134; the combined tree measures **91**. Taking either side silently loosens the gate, and a
+too-generous limit never fails. Both `fixtures/structure/budget.json` and
+`scripts/lib/loc-baseline.json` must be **re-measured on the merged tree**, never resolved as a text
+conflict.
 
 ### Phase 1 is the only deletion phase
 
