@@ -228,6 +228,41 @@ if [[ ! -f "$APP_DIR/gen/android/app/build.gradle.kts" ]]; then
     || die "tauri android init reported success but produced no app/build.gradle.kts"
 fi
 
+# The launcher icon. `tauri android init` writes ITS OWN placeholder into every mipmap bucket, and
+# because `gen/` is gitignored that placeholder is what every fresh checkout — every CI run, every
+# release build — would ship on the phone. The mark lives in `branding/`; this puts it where the
+# Android build looks.
+#
+# The adaptive foreground is 1.5x the bucket size with the mark centred in it: a launcher may crop
+# anything outside the middle 66% of that canvas, so a mark drawn edge to edge comes back with its
+# corners shaved off on every device that rounds them.
+BRANDING_DIR="$NODERA_ROOT/$(layout_get dir.branding)"
+if [[ -f "$BRANDING_DIR/logo-512.png" ]] && python3 -c 'import PIL' 2>/dev/null; then
+  python3 - "$BRANDING_DIR/logo-512.png" "$APP_DIR/gen/android/app/src/main/res" <<'PYEOF'
+import sys
+from pathlib import Path
+from PIL import Image
+
+source = Image.open(sys.argv[1]).convert("RGBA")
+res = Path(sys.argv[2])
+for bucket, size in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+    directory = res / f"mipmap-{bucket}"
+    directory.mkdir(parents=True, exist_ok=True)
+    icon = source.resize((size, size), Image.LANCZOS)
+    icon.save(directory / "ic_launcher.png")
+    icon.save(directory / "ic_launcher_round.png")
+    canvas = int(size * 1.5)
+    foreground = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    foreground.alpha_composite(icon, ((canvas - size) // 2, (canvas - size) // 2))
+    foreground.save(directory / "ic_launcher_foreground.png")
+PYEOF
+  say "icons      launcher icons cut from $(basename "$BRANDING_DIR")/logo-512.png"
+else
+  # Pillow missing is not a reason to fail a build that otherwise works — but it IS a reason to say
+  # so, because the resulting APK carries Tauri's placeholder and nothing else would mention it.
+  say "icons      no Pillow (or no branding/logo-512.png) — the APK keeps Tauri's placeholder icon"
+fi
+
 # --- 2. the Java worker, as dex ------------------------------------------
 #
 # The phone runs the SAME worker the desktop supervises. Two things make that
