@@ -25,9 +25,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * checked-in copy of it, so the thing being compared is the thing that would actually enforce the
  * policy.
  *
- * <p>Skipped — not failed — when the binary has not been built. This suite runs on the pure-Java
- * gate, which does not build Rust; {@code scripts/e2e-telemetry.sh} and the
- * {@code telemetry} CI job both build it first and therefore always run the comparison.
+ * <p>Skipped — not failed — when the binary has not been built, which is now only true of a local
+ * checkout with no cargo toolchain. The {@code java} job builds {@code nodera-telemetry} before
+ * {@code ./gradlew check} and fails on any skip at all, so this comparison runs on every push;
+ * {@code scripts/e2e-telemetry.sh} and the {@code telemetry} CI job build it too. Add
+ * {@code -Dnodera.test.requireServiceBinaries=true} locally and the skip becomes a failure that
+ * names the binary — see {@link SpawnedService}.
  */
 final class TelemetryRegistryMirrorTest {
 

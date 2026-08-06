@@ -23,6 +23,10 @@ tasks.withType<JavaCompile>().configureEach {
     options.isDeprecation = false
 }
 
+// See NoderaServiceBinaries.kt: a launcher `-D` reaches the daemon, not a test worker, so the
+// promise that this run built the Rust service binaries has to be re-published explicitly.
+val requireServiceBinaries = serviceBinaryRequirement()
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     testLogging {
@@ -31,6 +35,7 @@ tasks.withType<Test>().configureEach {
     }
     maxHeapSize = "1g"
     // jqwik + junit5 coexist on the junit-platform.
+    requireServiceBinaries?.let { systemProperty(REQUIRE_SERVICE_BINARIES_PROPERTY, it) }
 }
 
 // Reproducible archives.

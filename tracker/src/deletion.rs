@@ -187,7 +187,14 @@ impl DeletedWorlds {
         }
     }
 
-    /// Write the tombstone to disk, saying so when it cannot be written.
+    /// Write the tombstone to disk, printing the report when it cannot be written.
+    fn persist(&self, world_id_hex: &str, notice: &[u8]) {
+        if let Err(report) = self.try_persist(world_id_hex, notice) {
+            eprintln!("nodera-tracker: {report}");
+        }
+    }
+
+    /// Write the tombstone to disk, returning what the operator needs to read when it fails.
     ///
     /// Every failure here is loud, and that is the whole point of the function. The tombstone is
     /// the only durable record that an owner deleted their world: if it stays in memory, the next
@@ -195,43 +202,57 @@ impl DeletedWorlds {
     /// came back. A full disk, a read-only mount, and a cross-device `rename` (`EXDEV`, which
     /// happens when the persist directory is a bind mount and the temp file lands beside it) all
     /// produced exactly that silence.
-    fn persist(&self, world_id_hex: &str, notice: &[u8]) {
+    ///
+    /// The report is **returned** rather than only printed so that the three failure branches can
+    /// be driven from a test. `eprintln!` writes to the process's stderr, which a unit test cannot
+    /// read, and a guarded branch nothing asserts on is one revert away from being `let _ =` again
+    /// — which is exactly the state this function was found in. [`Self::persist`] is the one caller
+    /// and does the printing.
+    ///
+    /// # Returns
+    /// `Ok(())` when the notice is on disk, or when this cache is memory-only and never promised to
+    /// put it there. `Err` carries the operator-facing sentence, naming the path, the cause and the
+    /// consequence.
+    fn try_persist(&self, world_id_hex: &str, notice: &[u8]) -> Result<(), String> {
+        if self.dir.is_none() {
+            // Memory-only is a configuration and says so on `dir`; it is not a failed write.
+            return Ok(());
+        }
         let Some(path) = self.file_for(world_id_hex) else {
-            eprintln!(
-                "nodera-tracker: deletion for {world_id_hex} not persisted: the world id is not \
-                 hex, so it has no file name — it will be forgotten at restart"
-            );
-            return;
+            return Err(format!(
+                "deletion for {world_id_hex} not persisted: the world id is not hex, so it has no \
+                 file name — it will be forgotten at restart"
+            ));
         };
         if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                eprintln!(
-                    "nodera-tracker: cannot create {} for the deletion of {world_id_hex}: {e} — \
-                     the deletion will be forgotten at restart and the world listed again",
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "cannot create {} for the deletion of {world_id_hex}: {e} — the deletion will \
+                     be forgotten at restart and the world listed again",
                     parent.display()
-                );
-                return;
-            }
+                )
+            })?;
         }
         // Temp-then-rename: a half-written notice would be dropped at restart, silently un-deleting
         // a world.
         let temp = path.with_extension("tombstone.tmp");
-        if let Err(e) = std::fs::write(&temp, notice) {
-            eprintln!(
-                "nodera-tracker: cannot write {} for the deletion of {world_id_hex}: {e} — the \
-                 deletion will be forgotten at restart and the world listed again",
+        std::fs::write(&temp, notice).map_err(|e| {
+            format!(
+                "cannot write {} for the deletion of {world_id_hex}: {e} — the deletion will be \
+                 forgotten at restart and the world listed again",
                 temp.display()
-            );
-            return;
-        }
-        if let Err(e) = std::fs::rename(&temp, &path) {
-            eprintln!(
-                "nodera-tracker: cannot move {} into place for the deletion of {world_id_hex}: \
-                 {e} — the deletion will be forgotten at restart and the world listed again",
-                temp.display()
-            );
+            )
+        })?;
+        std::fs::rename(&temp, &path).map_err(|e| {
+            // The temp file goes, or every failed write leaves a `.tombstone.tmp` behind for the
+            // operator to wonder about.
             let _ = std::fs::remove_file(&temp);
-        }
+            format!(
+                "cannot move {} into place for the deletion of {world_id_hex}: {e} — the deletion \
+                 will be forgotten at restart and the world listed again",
+                temp.display()
+            )
+        })
     }
 
     fn remove_file(&self, world_id_hex: &str) {

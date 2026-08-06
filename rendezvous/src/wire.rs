@@ -333,6 +333,21 @@ async fn run_reserved(
 /// `idle_timeout_millis` is the operator's `circuit_idle_timeout_seconds`. It used to be a constant
 /// clamp here while the configuration key was loaded, env-overridable and validated as
 /// must-be-positive — so an operator could set it, see it accepted, and change nothing at all.
+///
+/// # Why the old one-second floor is not restored
+///
+/// The clamp this replaced was `reservation.max_duration_millis.clamp(1_000, 60_000)`, and the
+/// lower bound now reads `.max(1)`. That looks like it allows a sub-second idle timeout. Nothing
+/// can reach one: both inputs are second-granularity — `circuit_idle_timeout_seconds` and
+/// `reservation_max_duration_seconds` — and `Config::validate` refuses zero for each, so the
+/// smallest value either side of the `min` can take is 1,000 ms. `no_valid_configuration_can_ask_
+/// for_a_sub_second_idle_timeout` is that statement as a test.
+///
+/// A one-second floor would therefore change no reachable behaviour, and it would restate the
+/// thing that caused this defect: a policy hard-coded here overriding a number the operator set
+/// and the service accepted. `.max(1)` is a guard against zero — `check_time` reads
+/// `elapsed >= 0` as "idle", so a zero timeout tears a circuit down on the tick it opened — and
+/// nothing more.
 fn limits_of(reservation: &RelayReservation, idle_timeout_millis: u64) -> CircuitLimits {
     CircuitLimits {
         max_bytes: reservation.max_bytes,
