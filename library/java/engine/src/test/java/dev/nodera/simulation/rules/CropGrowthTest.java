@@ -1,17 +1,14 @@
 package dev.nodera.simulation.rules;
 
-import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
-import dev.nodera.simulation.RegionExecutionContext;
-import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -35,27 +32,9 @@ final class CropGrowthTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 4242L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 4242L);
     }
 
-    private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (var col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                int section = Math.floorDiv(pos.y() - col.minY(), 16);
-                return col.blockAt(section,
-                        Math.floorMod(pos.x(), 16),
-                        Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return -1;
-    }
 
     /** A field: farmland at y=63 across a patch, with seeds planted on the given columns. */
     private List<ActionEnvelope> field(int cx, int cz, int r, boolean plant) {
@@ -93,7 +72,7 @@ final class CropGrowthTest {
         int total = 0;
         for (int x = 17; x <= 23; x++) {
             for (int z = 17; z <= 23; z++) {
-                int id = blockAt(settled, new NBlockPos(x, 64, z));
+                int id = EngineFixtures.blockAt(settled, new NBlockPos(x, 64, z));
                 assertThat(RandomTickRules.isWheat(id))
                         .as("every planted cell is still wheat at (%d,%d)", x, z)
                         .isTrue();
@@ -120,7 +99,7 @@ final class CropGrowthTest {
         int highest = FlatWorldRules.WHEAT_0;
         for (int x = 39; x <= 41; x++) {
             for (int z = 39; z <= 41; z++) {
-                int id = blockAt(settled, new NBlockPos(x, 64, z));
+                int id = EngineFixtures.blockAt(settled, new NBlockPos(x, 64, z));
                 assertThat(id)
                         .as("every cell is still a wheat stage at (%d,%d)", x, z)
                         .isBetween(FlatWorldRules.WHEAT_0, FlatWorldRules.WHEAT_7);
@@ -152,7 +131,7 @@ final class CropGrowthTest {
 
         RegionSnapshot settled = settle(actions, 1_000);
 
-        assertThat(blockAt(settled, new NBlockPos(60, 64, 60)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(60, 64, 60)))
                 .as("stone is not farmland: the seed sits there forever")
                 .isEqualTo(FlatWorldRules.WHEAT_0);
     }
@@ -171,7 +150,7 @@ final class CropGrowthTest {
 
         RegionSnapshot settled = settle(actions, 1_000);
 
-        assertThat(blockAt(settled, new NBlockPos(80, 64, 80)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(80, 64, 80)))
                 .as("a roofed crop stays at the stage it was planted")
                 .isEqualTo(FlatWorldRules.WHEAT_0);
     }

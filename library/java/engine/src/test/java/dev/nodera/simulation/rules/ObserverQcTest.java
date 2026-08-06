@@ -1,17 +1,14 @@
 package dev.nodera.simulation.rules;
 
-import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
-import dev.nodera.simulation.RegionExecutionContext;
-import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -34,27 +31,9 @@ final class ObserverQcTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 12345L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 12345L);
     }
 
-    private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (var col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                int section = Math.floorDiv(pos.y() - col.minY(), 16);
-                return col.blockAt(section,
-                        Math.floorMod(pos.x(), 16),
-                        Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return -1;
-    }
 
     /** Observer at (5,64,0) watching EAST (6,64,0), wire on its back at (4,64,0). */
     private List<ActionEnvelope> observerRig() {
@@ -77,10 +56,10 @@ final class ObserverQcTest {
         RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot mid = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, observerRig(), 1).delta(), 1L);
-        assertThat(blockAt(mid, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(mid, new NBlockPos(5, 64, 0)))
                 .as("the pulse rises one tick after the observed change")
                 .isEqualTo(FlatWorldRules.OBSERVER_EAST_ON);
-        assertThat(blockAt(mid, new NBlockPos(4, 64, 0)))
+        assertThat(EngineFixtures.blockAt(mid, new NBlockPos(4, 64, 0)))
                 .as("the back wire reads the pulse")
                 .isEqualTo(RedstoneRules.wireWithPower(15));
     }
@@ -90,10 +69,10 @@ final class ObserverQcTest {
         RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot after = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, observerRig(), 3).delta(), 3L);
-        assertThat(blockAt(after, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(after, new NBlockPos(5, 64, 0)))
                 .as("the pulse is transient state — it falls without further input")
                 .isEqualTo(FlatWorldRules.OBSERVER_EAST_OFF);
-        assertThat(blockAt(after, new NBlockPos(4, 64, 0)))
+        assertThat(EngineFixtures.blockAt(after, new NBlockPos(4, 64, 0)))
                 .isEqualTo(FlatWorldRules.WIRE_0);
         // Replica determinism for the two-edge pulse.
         assertThat(executeTicks(base, observerRig(), 3).resultingRoot())
@@ -105,12 +84,12 @@ final class ObserverQcTest {
         RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot mid = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, observerRig(), 1).delta(), 1L);
-        assertThat(blockAt(mid, new NBlockPos(5, 64, 1)))
+        assertThat(EngineFixtures.blockAt(mid, new NBlockPos(5, 64, 1)))
                 .as("side cell reads nothing — the pulse leaves through the back only")
                 .isEqualTo(FlatWorldRules.AIR);
         // The side wire at (4,64,1) is powered only THROUGH the back wire's hop (14), never
         // directly by the observer (which would read 15).
-        assertThat(blockAt(mid, new NBlockPos(4, 64, 1)))
+        assertThat(EngineFixtures.blockAt(mid, new NBlockPos(4, 64, 1)))
                 .isEqualTo(RedstoneRules.wireWithPower(14));
     }
 
@@ -129,7 +108,7 @@ final class ObserverQcTest {
 
         RegionSnapshot advanced = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, actions, 2).delta(), 2L);
-        assertThat(blockAt(advanced, new NBlockPos(10, 64, 10)))
+        assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(10, 64, 10)))
                 .as("QC: the piston extends although only the cell above it is powered")
                 .isEqualTo(FlatWorldRules.PISTON_EXTENDED_BASE + 3);
     }

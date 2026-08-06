@@ -1,20 +1,17 @@
 package dev.nodera.simulation.rules;
 
-import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.BreakBlockAction;
 import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
-import dev.nodera.simulation.RegionExecutionContext;
-import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.border.BorderSignal;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -36,27 +33,9 @@ final class FluidRulesTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 12345L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 12345L);
     }
 
-    private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (var col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                int section = Math.floorDiv(pos.y() - col.minY(), 16);
-                return col.blockAt(section,
-                        Math.floorMod(pos.x(), 16),
-                        Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return -1;
-    }
 
     /** A stone floor at y=63 spanning [cx-r..cx+r]×[cz-r..cz+r] plus a center water source. */
     private List<ActionEnvelope> sourceOnFloor(int cx, int cz, int r) {
@@ -86,15 +65,15 @@ final class FluidRulesTest {
 
         RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, first.delta(), 60L);
-        assertThat(blockAt(settled, new NBlockPos(20, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(20, 64, 20)))
                 .isEqualTo(FlatWorldRules.WATER_SOURCE);
         // One level per orthogonal hop: x+3 carries flow level 3.
-        assertThat(blockAt(settled, new NBlockPos(23, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(23, 64, 20)))
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE + 2);
-        assertThat(blockAt(settled, new NBlockPos(27, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(27, 64, 20)))
                 .as("level 7 is the last reached cell")
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE + 6);
-        assertThat(blockAt(settled, new NBlockPos(28, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(28, 64, 20)))
                 .as("finite: the 8th cell stays dry")
                 .isEqualTo(FlatWorldRules.AIR);
     }
@@ -104,7 +83,7 @@ final class FluidRulesTest {
         RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot spread = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, sourceOnFloor(20, 20, 9), 60).delta(), 60L);
-        assertThat(blockAt(spread, new NBlockPos(22, 64, 20)))
+        assertThat(EngineFixtures.blockAt(spread, new NBlockPos(22, 64, 20)))
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE + 1);
 
         RegionSnapshot rebased = new RegionSnapshot(region, SnapshotVersion.INITIAL,
@@ -116,7 +95,7 @@ final class FluidRulesTest {
                                 new BreakBlockAction(new NBlockPos(20, 64, 20)))), 80).delta(),
                 80L);
         for (int x = 20; x <= 28; x++) {
-            assertThat(blockAt(drained, new NBlockPos(x, 64, 20)))
+            assertThat(EngineFixtures.blockAt(drained, new NBlockPos(x, 64, 20)))
                     .as("cell x=%d drained after the source broke", x)
                     .isEqualTo(FlatWorldRules.AIR);
         }
@@ -139,15 +118,15 @@ final class FluidRulesTest {
 
         RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, actions, 60).delta(), 60L);
-        assertThat(blockAt(settled, new NBlockPos(20, 63, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(20, 63, 20)))
                 .as("the column falls")
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE);
-        assertThat(blockAt(settled, new NBlockPos(20, 62, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(20, 62, 20)))
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE);
-        assertThat(blockAt(settled, new NBlockPos(21, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(21, 64, 20)))
                 .as("a hanging source does not spread sideways")
                 .isEqualTo(FlatWorldRules.AIR);
-        assertThat(blockAt(settled, new NBlockPos(21, 62, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(21, 62, 20)))
                 .as("the pooled bottom spreads on the floor")
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE + 1);
     }
@@ -168,10 +147,10 @@ final class FluidRulesTest {
 
         RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, actions, 200).delta(), 200L);
-        assertThat(blockAt(settled, new NBlockPos(23, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(23, 64, 20)))
                 .as("lava reaches exactly 3 cells")
                 .isEqualTo(FlatWorldRules.LAVA_FLOW_BASE + 2);
-        assertThat(blockAt(settled, new NBlockPos(24, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(24, 64, 20)))
                 .isEqualTo(FlatWorldRules.AIR);
     }
 

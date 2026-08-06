@@ -13,8 +13,8 @@ import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
+import dev.nodera.testkit.engine.EngineFixtures;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -47,9 +47,7 @@ public final class TestFixtures {
 
     /** A single chunk column uniform in {@code uniformStateId} across all sections. */
     public static ChunkColumnState uniformColumn(int chunkX, int chunkZ, int uniformStateId) {
-        int[] palette = new int[DEFAULT_SECTION_COUNT];
-        Arrays.fill(palette, uniformStateId);
-        return new ChunkColumnState(chunkX, chunkZ, palette, DEFAULT_MIN_Y, DEFAULT_SECTION_COUNT);
+        return EngineFixtures.uniformColumn(chunkX, chunkZ, uniformStateId);
     }
 
     /** A single chunk column whose sections are set from the supplied array (defensive copy). */
@@ -65,16 +63,7 @@ public final class TestFixtures {
 
     /** A snapshot covering every owned chunk of {@code region}, each uniform in {@code uniformStateId}. */
     public static RegionSnapshot fullUniformSnapshot(RegionId region, int uniformStateId) {
-        int originX = region.originChunkX();
-        int originZ = region.originChunkZ();
-        ChunkColumnState[] cols = new ChunkColumnState[64];
-        int i = 0;
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                cols[i++] = uniformColumn(originX + dx, originZ + dz, uniformStateId);
-            }
-        }
-        return new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L, Arrays.asList(cols));
+        return EngineFixtures.fullUniformSnapshot(region, uniformStateId);
     }
 
     /** A {@link PlaceBlockAction} on face UP (1). */

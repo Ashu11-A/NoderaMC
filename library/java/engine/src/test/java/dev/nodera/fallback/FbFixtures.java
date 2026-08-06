@@ -10,7 +10,6 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
-import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
@@ -19,9 +18,8 @@ import dev.nodera.simulation.RegionExecutionContext;
 import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.simulation.rules.FlatWorldRules;
+import dev.nodera.testkit.engine.EngineFixtures;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,8 +40,7 @@ final class FbFixtures {
     }
 
     static FlatWorldRegionEngine engine() {
-        return new FlatWorldRegionEngine(
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), hashes());
+        return EngineFixtures.engine();
     }
 
     static RegionId region(int rx, int rz) {
@@ -51,17 +48,7 @@ final class FbFixtures {
     }
 
     static RegionSnapshot fullUniformSnapshot(RegionId region, int stateId) {
-        int ox = region.originChunkX();
-        int oz = region.originChunkZ();
-        List<ChunkColumnState> cols = new ArrayList<>(64);
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                int[] palette = new int[SECTION_COUNT];
-                Arrays.fill(palette, stateId);
-                cols.add(new ChunkColumnState(ox + dx, oz + dz, palette, MIN_Y, SECTION_COUNT));
-            }
-        }
-        return new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L, cols);
+        return EngineFixtures.fullUniformSnapshot(region, stateId);
     }
 
     static ActionEnvelope place(RegionId region, long seq, int x, int y, int z, int stateId) {

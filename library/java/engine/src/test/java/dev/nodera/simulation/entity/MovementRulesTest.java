@@ -21,6 +21,7 @@ import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.simulation.rules.FlatWorldRules;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -42,12 +43,7 @@ final class MovementRulesTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 313131L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 313131L);
     }
 
     private static NodeId actor() {

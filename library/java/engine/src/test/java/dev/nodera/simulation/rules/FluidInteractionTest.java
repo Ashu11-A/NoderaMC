@@ -1,17 +1,14 @@
 package dev.nodera.simulation.rules;
 
-import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
-import dev.nodera.simulation.RegionExecutionContext;
-import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -34,27 +31,9 @@ final class FluidInteractionTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 12345L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 12345L);
     }
 
-    private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (var col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                int section = Math.floorDiv(pos.y() - col.minY(), 16);
-                return col.blockAt(section,
-                        Math.floorMod(pos.x(), 16),
-                        Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return -1;
-    }
 
     /** A stone floor at y=63 across the working area, so fluids sit on solid and can spread. */
     private List<ActionEnvelope> floor(int cx, int cz, int r, long startSeq) {
@@ -92,10 +71,10 @@ final class FluidInteractionTest {
 
         RegionSnapshot settled = settle(actions, 120);
 
-        assertThat(blockAt(settled, new NBlockPos(20, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(20, 64, 20)))
                 .as("the lava source is obsidian, not lava and not water")
                 .isEqualTo(FlatWorldRules.OBSIDIAN);
-        assertThat(blockAt(settled, new NBlockPos(24, 64, 20)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(24, 64, 20)))
                 .as("water is never consumed by the interaction")
                 .isEqualTo(FlatWorldRules.WATER_SOURCE);
     }
@@ -117,12 +96,12 @@ final class FluidInteractionTest {
 
         RegionSnapshot settled = settle(actions, 200);
 
-        assertThat(blockAt(settled, new NBlockPos(40, 64, 40)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(40, 64, 40)))
                 .as("the lava source is far enough away to survive as lava")
                 .isEqualTo(FlatWorldRules.LAVA_SOURCE);
         boolean cobbleSomewhere = false;
         for (int x = 41; x <= 48; x++) {
-            if (blockAt(settled, new NBlockPos(x, 64, 40)) == FlatWorldRules.COBBLESTONE) {
+            if (EngineFixtures.blockAt(settled, new NBlockPos(x, 64, 40)) == FlatWorldRules.COBBLESTONE) {
                 cobbleSomewhere = true;
             }
         }
@@ -145,10 +124,10 @@ final class FluidInteractionTest {
 
         RegionSnapshot settled = settle(actions, 200);
 
-        assertThat(blockAt(settled, new NBlockPos(60, 64, 60)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(60, 64, 60)))
                 .as("lava arriving above water is the flowing-onto-water case: stone")
                 .isEqualTo(FlatWorldRules.STONE);
-        assertThat(blockAt(settled, new NBlockPos(60, 63, 60)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(60, 63, 60)))
                 .as("the water underneath is untouched")
                 .isEqualTo(FlatWorldRules.WATER_SOURCE);
     }
@@ -160,18 +139,18 @@ final class FluidInteractionTest {
         water.add(TestFixtures.envelope(region, 0L, 4000,
                 TestFixtures.place(new NBlockPos(80, 64, 80), FlatWorldRules.WATER_SOURCE)));
         RegionSnapshot settledWater = settle(water, 80);
-        assertThat(blockAt(settledWater, new NBlockPos(80, 64, 80)))
+        assertThat(EngineFixtures.blockAt(settledWater, new NBlockPos(80, 64, 80)))
                 .isEqualTo(FlatWorldRules.WATER_SOURCE);
-        assertThat(blockAt(settledWater, new NBlockPos(81, 64, 80)))
+        assertThat(EngineFixtures.blockAt(settledWater, new NBlockPos(81, 64, 80)))
                 .isEqualTo(FlatWorldRules.WATER_FLOW_BASE);
 
         List<ActionEnvelope> lava = floor(100, 100, 4, 1);
         lava.add(TestFixtures.envelope(region, 0L, 5000,
                 TestFixtures.place(new NBlockPos(100, 64, 100), FlatWorldRules.LAVA_SOURCE)));
         RegionSnapshot settledLava = settle(lava, 120);
-        assertThat(blockAt(settledLava, new NBlockPos(100, 64, 100)))
+        assertThat(EngineFixtures.blockAt(settledLava, new NBlockPos(100, 64, 100)))
                 .isEqualTo(FlatWorldRules.LAVA_SOURCE);
-        assertThat(blockAt(settledLava, new NBlockPos(101, 64, 100)))
+        assertThat(EngineFixtures.blockAt(settledLava, new NBlockPos(101, 64, 100)))
                 .isEqualTo(FlatWorldRules.LAVA_FLOW_BASE);
     }
 

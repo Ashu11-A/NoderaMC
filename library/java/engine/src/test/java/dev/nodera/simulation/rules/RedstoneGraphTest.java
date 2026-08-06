@@ -16,6 +16,7 @@ import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.simulation.rules.ActionRejection.Reason;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -44,19 +45,6 @@ final class RedstoneGraphTest {
         return engine.execute(new RegionExecutionRequest(ctx, base, batch));
     }
 
-    private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (var col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                int section = Math.floorDiv(pos.y() - col.minY(), 16);
-                return col.blockAt(section,
-                        Math.floorMod(pos.x(), 16),
-                        Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return -1;
-    }
 
     private List<ActionEnvelope> wireLineWithLever(int wires) {
         List<ActionEnvelope> actions = new ArrayList<>();
@@ -87,11 +75,11 @@ final class RedstoneGraphTest {
 
         RegionSnapshot advanced = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, first.delta(), 1L);
-        assertThat(blockAt(advanced, new NBlockPos(0, 64, 0)))
+        assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(0, 64, 0)))
                 .isEqualTo(FlatWorldRules.LEVER_ON);
         // Wire adjacent to the source carries 15; each further hop decays by 1.
         for (int x = 1; x <= 5; x++) {
-            assertThat(blockAt(advanced, new NBlockPos(x, 64, 0)))
+            assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(x, 64, 0)))
                     .as("wire at x=%d", x)
                     .isEqualTo(RedstoneRules.wireWithPower(15 - (x - 1)));
         }
@@ -110,7 +98,7 @@ final class RedstoneGraphTest {
         }
         RegionSnapshot powered = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, execute(base, build).delta(), 1L);
-        assertThat(blockAt(powered, new NBlockPos(1, 64, 0)))
+        assertThat(EngineFixtures.blockAt(powered, new NBlockPos(1, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
 
         RegionSnapshot rebased = new RegionSnapshot(region, SnapshotVersion.INITIAL,
@@ -121,7 +109,7 @@ final class RedstoneGraphTest {
         RegionSnapshot depowered = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 rebased, broken.delta(), 1L);
         for (int x = 1; x <= 3; x++) {
-            assertThat(blockAt(depowered, new NBlockPos(x, 64, 0)))
+            assertThat(EngineFixtures.blockAt(depowered, new NBlockPos(x, 64, 0)))
                     .as("wire at x=%d depowered", x)
                     .isEqualTo(FlatWorldRules.WIRE_0);
         }
@@ -145,11 +133,11 @@ final class RedstoneGraphTest {
         RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, execute(base, build).delta(), 1L);
         // Symmetric line: both ends adjacent to a source read 15, the middle reads 13.
-        assertThat(blockAt(settled, new NBlockPos(1, 64, 0)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(1, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
-        assertThat(blockAt(settled, new NBlockPos(3, 64, 0)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(3, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(13));
-        assertThat(blockAt(settled, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(settled, new NBlockPos(5, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
     }
 
@@ -212,7 +200,7 @@ final class RedstoneGraphTest {
         RegionSnapshot advanced = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, result.delta(), 2L);
 
-        assertThat(blockAt(advanced, new NBlockPos(2, 65, 2)))
+        assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(2, 65, 2)))
                 .as("powered support extinguishes the torch after its scheduled delay")
                 .isEqualTo(FlatWorldRules.TORCH_OFF);
         // Replica determinism for the timed path.
@@ -222,12 +210,7 @@ final class RedstoneGraphTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 12345L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 12345L);
     }
 
     @Test
@@ -250,13 +233,13 @@ final class RedstoneGraphTest {
         RegionSnapshot advanced = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, result.delta(), 3L);
         assertThat(result.stats().actionsRejected()).isZero();
-        assertThat(blockAt(advanced, new NBlockPos(1, 64, 0)))
+        assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(1, 64, 0)))
                 .as("powered input switches the repeater ON through the tick queue")
                 .isEqualTo(FlatWorldRules.REPEATER_EAST_ON);
-        assertThat(blockAt(advanced, new NBlockPos(2, 64, 0)))
+        assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(2, 64, 0)))
                 .as("the front wire receives the repeated 15")
                 .isEqualTo(RedstoneRules.wireWithPower(15));
-        assertThat(blockAt(advanced, new NBlockPos(1, 64, 1)))
+        assertThat(EngineFixtures.blockAt(advanced, new NBlockPos(1, 64, 1)))
                 .as("the side wire receives NOTHING — emission is directional")
                 .isEqualTo(FlatWorldRules.WIRE_0);
     }
@@ -287,24 +270,24 @@ final class RedstoneGraphTest {
         // only just been scheduled — the front sits BETWEEN the repeaters.
         RegionSnapshot afterOne = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, actions, 1).delta(), 1L);
-        assertThat(blockAt(afterOne, new NBlockPos(1, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterOne, new NBlockPos(1, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
-        assertThat(blockAt(afterOne, new NBlockPos(2, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterOne, new NBlockPos(2, 64, 0)))
                 .isEqualTo(FlatWorldRules.REPEATER_EAST_ON);
-        assertThat(blockAt(afterOne, new NBlockPos(3, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterOne, new NBlockPos(3, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
-        assertThat(blockAt(afterOne, new NBlockPos(4, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterOne, new NBlockPos(4, 64, 0)))
                 .as("stage 2 lags stage 1 by exactly one tick")
                 .isEqualTo(FlatWorldRules.REPEATER_EAST_OFF);
-        assertThat(blockAt(afterOne, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterOne, new NBlockPos(5, 64, 0)))
                 .isEqualTo(FlatWorldRules.WIRE_0);
 
         // One more tick: stage 2 fires and the whole chain is hot.
         RegionSnapshot afterTwo = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, actions, 2).delta(), 2L);
-        assertThat(blockAt(afterTwo, new NBlockPos(4, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterTwo, new NBlockPos(4, 64, 0)))
                 .isEqualTo(FlatWorldRules.REPEATER_EAST_ON);
-        assertThat(blockAt(afterTwo, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterTwo, new NBlockPos(5, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
 
         // Replica determinism for the staged path.
@@ -327,9 +310,9 @@ final class RedstoneGraphTest {
         // Mid-press: button ON, wire hot.
         RegionSnapshot pressed = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, executeTicks(base, actions, 5).delta(), 5L);
-        assertThat(blockAt(pressed, new NBlockPos(0, 64, 0)))
+        assertThat(EngineFixtures.blockAt(pressed, new NBlockPos(0, 64, 0)))
                 .isEqualTo(FlatWorldRules.BUTTON_ON);
-        assertThat(blockAt(pressed, new NBlockPos(1, 64, 0)))
+        assertThat(EngineFixtures.blockAt(pressed, new NBlockPos(1, 64, 0)))
                 .isEqualTo(RedstoneRules.wireWithPower(15));
 
         // Past the auto-off horizon: released and depowered, all through the hashed queue.
@@ -337,10 +320,10 @@ final class RedstoneGraphTest {
                 base, actions, RedstoneRules.BUTTON_PRESS_TICKS + 2);
         RegionSnapshot released = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, full.delta(), RedstoneRules.BUTTON_PRESS_TICKS + 2);
-        assertThat(blockAt(released, new NBlockPos(0, 64, 0)))
+        assertThat(EngineFixtures.blockAt(released, new NBlockPos(0, 64, 0)))
                 .as("the press auto-releases after BUTTON_PRESS_TICKS")
                 .isEqualTo(FlatWorldRules.BUTTON_OFF);
-        assertThat(blockAt(released, new NBlockPos(1, 64, 0)))
+        assertThat(EngineFixtures.blockAt(released, new NBlockPos(1, 64, 0)))
                 .isEqualTo(FlatWorldRules.WIRE_0);
         assertThat(executeTicks(base, actions, RedstoneRules.BUTTON_PRESS_TICKS + 2)
                 .resultingRoot()).isEqualTo(full.resultingRoot());

@@ -17,6 +17,7 @@ import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -62,19 +63,6 @@ final class PressurePlateStickyPistonTest {
         return dev.nodera.shadow.SnapshotDeltaApplier.apply(base, result.delta(), tick);
     }
 
-    private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (var col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                int section = Math.floorDiv(pos.y() - col.minY(), 16);
-                return col.blockAt(section,
-                        Math.floorMod(pos.x(), 16),
-                        Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return -1;
-    }
 
     /** The uniform base snapshot with {@code entities} present in the root. */
     private RegionSnapshot withEntities(List<PersistedEntityState> entities) {
@@ -112,17 +100,17 @@ final class PressurePlateStickyPistonTest {
     void anEntityStandingOnAPlatePressesItAndPowersTheAdjacentWire() {
         RegionSnapshot empty = withEntities(List.of());
         RegionSnapshot afterEmpty = advance(empty, executeTicks(empty, plateAndWire(), 2), 2L);
-        assertThat(blockAt(afterEmpty, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterEmpty, new NBlockPos(5, 64, 0)))
                 .as("nothing standing there ⇒ the plate stays up")
                 .isEqualTo(FlatWorldRules.PRESSURE_PLATE_OFF);
-        assertThat(blockAt(afterEmpty, new NBlockPos(6, 64, 0))).isEqualTo(FlatWorldRules.WIRE_0);
+        assertThat(EngineFixtures.blockAt(afterEmpty, new NBlockPos(6, 64, 0))).isEqualTo(FlatWorldRules.WIRE_0);
 
         RegionSnapshot occupied = withEntities(List.of(standingAt(1L, 5, 64, 0)));
         RegionSnapshot afterStand =
                 advance(occupied, executeTicks(occupied, plateAndWire(), 2), 2L);
-        assertThat(blockAt(afterStand, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterStand, new NBlockPos(5, 64, 0)))
                 .isEqualTo(FlatWorldRules.PRESSURE_PLATE_ON);
-        assertThat(blockAt(afterStand, new NBlockPos(6, 64, 0)))
+        assertThat(EngineFixtures.blockAt(afterStand, new NBlockPos(6, 64, 0)))
                 .as("a pressed plate is a 15-power omni source like a lever")
                 .isEqualTo(FlatWorldRules.WIRE_15);
     }
@@ -147,7 +135,7 @@ final class PressurePlateStickyPistonTest {
         // non-validated input into the root.
         RegionSnapshot base = withEntities(List.of(ghostAt(2L, 5, 64, 0)));
         RegionSnapshot after = advance(base, executeTicks(base, plateAndWire(), 2), 2L);
-        assertThat(blockAt(after, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(after, new NBlockPos(5, 64, 0)))
                 .isEqualTo(FlatWorldRules.PRESSURE_PLATE_OFF);
     }
 
@@ -158,7 +146,7 @@ final class PressurePlateStickyPistonTest {
         RegionExecutionResult result = executeTicks(base, plateAndWire(), ticks);
         RegionSnapshot after = advance(base, result, ticks);
 
-        assertThat(blockAt(after, new NBlockPos(5, 64, 0)))
+        assertThat(EngineFixtures.blockAt(after, new NBlockPos(5, 64, 0)))
                 .as("a standing entity holds the plate down indefinitely — the timer re-arms")
                 .isEqualTo(FlatWorldRules.PRESSURE_PLATE_ON);
         assertThat(after.scheduledTicks())
@@ -200,10 +188,10 @@ final class PressurePlateStickyPistonTest {
 
             int expectedHead = (sticky ? FlatWorldRules.STICKY_PISTON_HEAD_BASE
                     : FlatWorldRules.PISTON_HEAD_BASE) + 3;
-            assertThat(blockAt(after, new NBlockPos(2, 64, 0)))
+            assertThat(EngineFixtures.blockAt(after, new NBlockPos(2, 64, 0)))
                     .as("the head occupies the front cell (family-aware ids)")
                     .isEqualTo(expectedHead);
-            assertThat(blockAt(after, new NBlockPos(3, 64, 0)))
+            assertThat(EngineFixtures.blockAt(after, new NBlockPos(3, 64, 0)))
                     .as("the pushed stone moved one cell east")
                     .isEqualTo(FlatWorldRules.STONE);
         }
@@ -225,14 +213,14 @@ final class PressurePlateStickyPistonTest {
 
             int retractedId = (sticky ? FlatWorldRules.STICKY_PISTON_RETRACTED_BASE
                     : FlatWorldRules.PISTON_RETRACTED_BASE) + 3;
-            assertThat(blockAt(after, new NBlockPos(1, 64, 0)))
+            assertThat(EngineFixtures.blockAt(after, new NBlockPos(1, 64, 0)))
                     .as("both families retract")
                     .isEqualTo(retractedId);
-            assertThat(blockAt(after, new NBlockPos(2, 64, 0)))
+            assertThat(EngineFixtures.blockAt(after, new NBlockPos(2, 64, 0)))
                     .as(sticky ? "sticky pulls the stone into the vacated head cell"
                             : "a plain piston pulls nothing back")
                     .isEqualTo(sticky ? FlatWorldRules.STONE : FlatWorldRules.AIR);
-            assertThat(blockAt(after, new NBlockPos(3, 64, 0)))
+            assertThat(EngineFixtures.blockAt(after, new NBlockPos(3, 64, 0)))
                     .isEqualTo(sticky ? FlatWorldRules.AIR : FlatWorldRules.STONE);
         }
     }

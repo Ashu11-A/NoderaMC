@@ -1,20 +1,17 @@
 package dev.nodera.simulation.entity;
 
-import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.core.state.RegionSnapshot;
-import dev.nodera.simulation.RegionExecutionContext;
-import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.simulation.rules.FlatWorldRules;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -36,12 +33,7 @@ final class SpawnRulesTest {
 
     private RegionExecutionResult executeTicks(
             RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
-        ActionBatch batch = new ActionBatch(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
-        RegionExecutionContext ctx = new RegionExecutionContext(
-                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 20202L,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
-        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        return EngineFixtures.executeTicks(engine, region, base, actions, tickCount, 20202L);
     }
 
     /** A 48×48 dark shelter: stone floor at y=63 and roof at y=68 over [40,88)². */
