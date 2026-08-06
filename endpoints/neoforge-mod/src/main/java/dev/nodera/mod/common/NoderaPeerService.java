@@ -348,6 +348,33 @@ public final class NoderaPeerService {
     }
 
     /**
+     * Read a list of relay routes, dropping the ones that do not parse.
+     *
+     * <p>Written three times over — twice against the settings and once against the worker's live
+     * list — with the same "one bad route must not lose the others" rule each time. That rule is the
+     * whole reason it is a loop rather than a stream: a relay list is user- and network-supplied, and
+     * refusing the entire list because one entry is malformed would take a player's working relays
+     * away over a typo in an unrelated one.
+     *
+     * @param routes the routes as configured or reported.
+     * @param source where they came from, for the log line a bad one produces.
+     * @return the routes that parsed, in order; possibly empty.
+     */
+    private static List<RendezvousEndpoint> parseRelays(Iterable<? extends String> routes,
+                                                        String source) {
+        List<RendezvousEndpoint> endpoints = new ArrayList<>();
+        for (String route : routes) {
+            try {
+                endpoints.add(RendezvousEndpoint.parse(route));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed rendezvous endpoint '{}' from {}: {}",
+                        route, source, e.getMessage());
+            }
+        }
+        return endpoints;
+    }
+
+    /**
      * Wrap the direct socket in the rendezvous transport when endpoints are configured (Task 29), so
      * the host registers a discoverable, NAT-reachable record. Falls back to the direct socket if the
      * rendezvous service is unreachable — a down relay must never stop a LAN/direct share.
@@ -358,14 +385,7 @@ public final class NoderaPeerService {
         if (routes == null || routes.isEmpty() || worldId == null) {
             return serverTransport;
         }
-        List<RendezvousEndpoint> endpoints = new ArrayList<>();
-        for (String route : routes) {
-            try {
-                endpoints.add(RendezvousEndpoint.parse(route));
-            } catch (IllegalArgumentException e) {
-                LOG.warn("Ignoring malformed rendezvous endpoint '{}': {}", route, e.getMessage());
-            }
-        }
+        List<RendezvousEndpoint> endpoints = parseRelays(routes, "the settings");
         if (endpoints.isEmpty()) {
             return serverTransport;
         }
@@ -413,14 +433,7 @@ public final class NoderaPeerService {
         } catch (RuntimeException malformed) {
             return clientTransport;
         }
-        List<RendezvousEndpoint> endpoints = new ArrayList<>();
-        for (String route : routes) {
-            try {
-                endpoints.add(RendezvousEndpoint.parse(route));
-            } catch (IllegalArgumentException e) {
-                LOG.warn("Ignoring malformed rendezvous endpoint '{}': {}", route, e.getMessage());
-            }
-        }
+        List<RendezvousEndpoint> endpoints = parseRelays(routes, "the settings");
         if (endpoints.isEmpty()) {
             return clientTransport;
         }
@@ -545,15 +558,7 @@ public final class NoderaPeerService {
         if (live.isEmpty()) {
             return;
         }
-        List<RendezvousEndpoint> endpoints = new ArrayList<>();
-        for (String route : live) {
-            try {
-                endpoints.add(RendezvousEndpoint.parse(route));
-            } catch (IllegalArgumentException e) {
-                LOG.warn("Ignoring malformed rendezvous endpoint '{}' from the worker: {}",
-                        route, e.getMessage());
-            }
-        }
+        List<RendezvousEndpoint> endpoints = parseRelays(live, "the worker");
         if (endpoints.isEmpty()) {
             return;
         }
