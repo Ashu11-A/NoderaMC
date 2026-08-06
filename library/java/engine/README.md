@@ -83,9 +83,11 @@ courtesy is not.
 
 ## Tests
 
-508 XML-reported tests: determinism property tests, negative determinism tests (dropping state from the hash must
-be detectable), the headless consensus ITs (`ShadowValidationIT`, `CoordinatorIT`, `CommitteeMvpIT`,
-`FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas.
+444 XML-reported tests (measured 2026-08-06): determinism property tests, negative determinism
+tests (dropping state from the hash must be detectable), the headless routing IT
+(`FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas. The consensus ITs that
+used to be listed here drove the central-coordinator design deleted on 2026-08-06 (#210); the
+end-to-end quorum proof now lives in `:peer` as `WorkerQuorumValidationIT`.
 
 ```bash
 ./gradlew :engine:test

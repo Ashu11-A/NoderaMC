@@ -118,22 +118,36 @@ or a scheduler, which is why an endpoint carries none of the mod's A-7 version-c
 
 ---
 
-## 5. The custody digest
+## 5. The custody digest — **withdrawn 2026-08-06, not implemented**
+
+> **Read this before building on it.** This section described a shipping mechanism. It was not one.
+> `CustodyDigest` and `CustodyAudit` were deleted in commit `0b02aa5` (Plan 11 round 2, issue #210)
+> as part of the archival audit triangle — a closed loop that no production entry point could reach.
+> The digest never rode a tracker announce or a membership gossip; that was
+> [Task 3](Task.3.md) deliverable 3, which was never built. The design below is kept as a record of
+> what was intended and what it would have cost, because the reasoning is sound and the code was
+> not reachable. **Nothing in the tree implements any of it today.**
+
+The intended shape was:
 
 ```
 CustodyDigest = MerkleRoot over  [ (RegionId, head SnapshotVersion) … ]  in canonical RegionOrder
 ```
 
-Rides every tracker announce and every membership gossip alongside the node's `CustodyClass`.
-
-| Property | Why |
+| Property | Why it was wanted |
 |---|---|
 | Canonical `RegionOrder` | two honest nodes with equal state produce equal roots |
-| Merkle, not a flat hash | a peer can spot-check **one** region with an inclusion proof instead of pulling the world |
-| Advertised, never trusted | a failing spot-check downgrades the claim to `VIEW`; the world stays available |
+| Merkle, not a flat hash | a peer could spot-check **one** region with an inclusion proof instead of pulling the world |
+| Advertised, never trusted | a failing spot-check would downgrade the claim to `VIEW`; the world stays available |
 
-Spot-checking reuses [`network/Task.6.md`](../network/Task.6.md)'s `ArchiveAuditTask` /
-`ArchiveRepairService` path — a new claim, not a new mechanism.
+**What is true today.** `CustodyClass` survives, in `dev.nodera.core.region`. The Paper plugin parses
+it from `world.custody` and refuses to enable a `FULL`-and-listed endpoint with no world id. It does
+not ride any wire, it does not break ties in `ViewOwnershipPlanner`, and no node samples it. A false
+`FULL` claim is caught only at fetch time and only by the fetcher: every piece is hash-verified
+against the manifest, and a peer asked for pieces it lacks answers with a `ContentAvailability`
+saying what it actually holds, so the liar fails to answer and is passed over. Nothing detects a
+silently-degraded replica before somebody needs it — see the note in [`TESTING.md`](TESTING.md)
+§2.2 and L-62 in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
 
 ---
 

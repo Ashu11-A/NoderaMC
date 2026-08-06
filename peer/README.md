@@ -140,11 +140,12 @@ long-lived process, so closing Minecraft is a *player-session* leave rather than
 
 ## Tests
 
-857 Gradle test cases, including `SessionContinuityIT`, `DistributionIT`, `MultiBootstrapIT`,
-`ArchiveRepairIT`, `EncryptedDistributionIT`, `CrashRecoveryIT`, `ResidentQuorumIT`,
-`ByzantineMeshIT`, real-binary `TrackerServiceIT`, and — from the former `:worker` —
-`WorldContinuityIT`, `CompanionCrashSurvivalIT`, `SeedRegionVerbIT`, `WorldHostingPersistenceTest`
-and `HeadlessPeerMainStateTest`.
+835 XML-reported test cases (measured 2026-08-06), including `SessionContinuityIT`,
+`DistributionIT`, `DepartureIsRepairedByPlacementTest`, `EncryptedDistributionIT`,
+`EntityTransferCrashRecoveryIT`, `ResidentQuorumIT`, `WorkerQuorumValidationIT`, `ByzantineMeshIT`,
+real-binary `TrackerServiceIT`, and — from the former `:worker` — `WorldContinuityIT`,
+`CompanionCrashSurvivalIT`, `ControlVerbsIT` (every control verb, nested per verb),
+`WorldHostingPersistenceTest` and `HeadlessPeerMainStateTest`.
 
 ```bash
 ./gradlew :peer:test                                     # the gate (excludes the `structure` tag)

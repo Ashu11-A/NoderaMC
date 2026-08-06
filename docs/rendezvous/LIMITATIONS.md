@@ -54,7 +54,7 @@ into a register row here.
 | The service can refuse an introduction | It cannot impersonate (records are Ed25519-signed with trust-on-first-use identity binding) or read traffic (X25519 + AES-GCM before any application byte). Refusal degrades reachability, never correctness |
 | The relay sees traffic volumes and timing | It sees counts, never payloads — the explicit privacy floor. Metadata resistance beyond that is outside this service's scope |
 | Relay limits can cut a circuit | That is the abuse boundary working: no reservation ⇒ no connect, and a circuit that exceeds its byte, duration, or idle budget is torn down **with a reason code** the Java side surfaces |
-| The `Rendezvous*Policy` classes elsewhere are unrelated | `RendezvousPlacementPolicy` and `RendezvousArchivePolicy` are rendezvous *hashing*, in the engine and network categories. The name collision is flagged here to prevent an over-eager cleanup from merging two unrelated concepts |
+| The `Rendezvous*Policy` classes elsewhere are unrelated | `RendezvousArchivePolicy` (network category) is rendezvous *hashing* — ranking peers by `StableHash(manifestRoot, nodeId)` — and has nothing to do with this service. The name collision is flagged here to prevent an over-eager cleanup from merging two unrelated concepts. The engine-side `RendezvousPlacementPolicy` this row also named was deleted on 2026-08-06 (Plan 11 round 2, issue #210) with the central-coordinator design; it was a second implementation of the same hashing, not a rendezvous-service class, and the surviving one is unaffected |
 
 ---
 
