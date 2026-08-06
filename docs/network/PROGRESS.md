@@ -36,6 +36,59 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-06 — One frame helper, and four codecs that were never checked against Java (Plan.11 round 2)
+
+**`CanonicalReader#expectFrame` / `CanonicalWriter#writeFrame`.** The five-line tag guard that opens
+every `Encodable.decode` — `int tag = r.readU16(); if (tag != TypeTags.X) throw …` — was written out
+59 times in `library/java/core` and `library/java/transport`, and the tag+version write 66 times. Both
+are now one call. The wire is byte-identical: no `TypeTags` value, no `WireRegistry` row and no record
+component changed, and `git diff -- fixtures/` shows no byte difference. `java.main.code` −204.
+
+The exception type and message are preserved exactly, which is why `expectFrame` takes the type *name*
+rather than reverse-looking it up: three transport records spell theirs in camel case
+(`ServiceScore`, `SignedPeerRecord`, `PeerCandidate`) and a lookup would have silently reworded three
+dozen exceptions. Two call sites are deliberately **not** converted — `SessionDelegation` throws a
+differently-worded message, and the `GameAction`/`RegionEvent` dispatchers read the tag to *switch* on
+rather than to reject. Five tolerant readers (`RegionSnapshot`, `RegionDelta`, `SignedVote`,
+`ServerAuthorityCertificate`, `ChunkColumnState`) use the two-argument overload and keep their own
+range check, because folding it in would turn a tolerated older body into a decode failure.
+
+Writing the helper found a live trap: `writeFrame` has **no** one-argument overload defaulting to
+`Encodable.ENCODING_VERSION`, because `RegionChunkIndex` declares its own `ENCODING_VERSION = 2` that
+shadows the interface constant. A defaulting overload would have rewritten that type's second wire
+byte from 2 to 1 with every test still green.
+
+**Four Rust codecs on live tracker paths had never been held to the Java bytes.**
+`nodera-codec`'s `SUPPORTED_MESSAGE_TAGS` declares `TrackerCatalogQuery` (44), `TrackerCatalogResponse`
+(45), `TrackerRoutesQuery` (49) and `TrackerRoutesResponse` (50), and `wire.rs` implements all four —
+but their golden bytes sat in `fixtures/wire/java-only/`, which `tests/fixtures.rs` does not read.
+Neither guard saw it: `tag_mirror.rs` only asserts a supported tag is not above the highest assigned
+one, and `WireFixtureTest` named five tags by hand. The four fixtures moved into the shared corpus
+(bytes untouched — the same `MessageSamples` entries, reused rather than re-typed) and all four
+round-trip byte-exactly in Rust. The hand-written list is replaced by a rule **parsed out of
+`tags.rs` itself**, with a cardinality assertion first so a parse that matches nothing fails loudly
+instead of passing vacuously.
+
+**`WorldRevivalGossip` (76) was skipped by every mutation.** `mutation.rs` special-cased 66 only, and
+76 is not 66, not in the rendezvous range and not in the service range — so every mutated
+`world-revival-gossip.bin` fell through to `DiscoveryMessage`, returned `UnknownTag(76)`, and was
+discarded by an `if let Ok(…)`. Same shape as the magic-bytes bug already fixed in the same file.
+Fixed with the routing *and* the swallow: the test now asserts its corpus is non-empty, asserts each
+unmutated golden frame decodes at all (a routing proof), and counts the mutations that actually
+decoded — so a regression making `round_trip_as` always-`Err` can no longer pass having examined zero
+frames.
+
+**`StableHashTest` could not fail.** It computed `EXPECTED_NODERA` by calling the function under test
+at class-init and then asserted equality with it — `x == x`, true for every possible implementation
+including one with different mixing constants, under a Javadoc claiming it "detects any accidental
+change to the mixing algorithm". Replaced with thirteen literal golden vectors covering
+`of(long…)`, `of(long,long)`, `of(String)` (including a two-byte UTF-8 input, which pins the
+"bytes, not chars" half of the contract), `of(UUID)` and `mix`. There is no second implementation of
+`StableHash` in the tree; a future port asserts against exactly these numbers.
+
+Evidence: `:core:test` 320 passed / 0 failed, `:transport:test` 189 passed / 0 failed / 1 skipped,
+`cargo test -p nodera-codec` 79 passed / 0 failed. `git diff --exit-code -- fixtures/` clean.
+
 ### 2026-08-05 — Default-services history moved to REFERENCE.md; a comment-duplication finding logged (Plan.11 phase 2)
 
 `NoderaSettings.defaults()`'s Javadoc carried the history of why the built-in tracker/rendezvous
