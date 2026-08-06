@@ -112,7 +112,7 @@ public record WorldAdminProof(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_ADMIN_PROOF).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_ADMIN_PROOF, ENCODING_VERSION);
         w.writeBytes(worldId);
         w.writeBytes(challenge);
         claimant.encode(w);
@@ -133,11 +133,7 @@ public record WorldAdminProof(
      * @throws IllegalStateException if the next tag is not {@code WORLD_ADMIN_PROOF}.
      */
     public static WorldAdminProof decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_ADMIN_PROOF) {
-            throw new IllegalStateException("expected WORLD_ADMIN_PROOF tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_ADMIN_PROOF, "WORLD_ADMIN_PROOF", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         Bytes challenge = r.readBytesValue();
         NodeId claimant = NodeId.decode(r);

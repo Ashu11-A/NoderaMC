@@ -506,7 +506,7 @@ public record PieceManifest(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PIECE_MANIFEST).writeU16(frameVersion());
+        w.writeFrame(TypeTags.PIECE_MANIFEST, frameVersion());
         region.encode(w);
         version.encode(w);
         w.writeU64(tick);
@@ -541,10 +541,7 @@ public record PieceManifest(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static PieceManifest decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PIECE_MANIFEST) {
-            throw new IllegalStateException("expected PIECE_MANIFEST tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.PIECE_MANIFEST, "PIECE_MANIFEST");
         int frame = r.readU16();
         if (frame != V1 && frame != V2_CHUNK_INDEX) {
             throw new IllegalStateException("unsupported PIECE_MANIFEST version " + frame);

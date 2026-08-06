@@ -64,7 +64,7 @@ public record Piece(int index, long offset, long length, Bytes pieceHash) implem
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PIECE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PIECE, ENCODING_VERSION);
         w.writeU32(Integer.toUnsignedLong(index));
         w.writeU64(offset);
         w.writeU64(length);
@@ -80,11 +80,7 @@ public record Piece(int index, long offset, long length, Bytes pieceHash) implem
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static Piece decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PIECE) {
-            throw new IllegalStateException("expected PIECE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.PIECE, "PIECE", ENCODING_VERSION);
         int index = r.readU32AsInt();
         long offset = r.readU64();
         long length = r.readU64();

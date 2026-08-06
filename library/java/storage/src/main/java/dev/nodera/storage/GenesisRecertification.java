@@ -100,7 +100,7 @@ public record GenesisRecertification(
     /** The canonical bytes every founder signs: root + the COMPLETE declared founding set. */
     public Bytes signedPortion() {
         CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(TypeTags.GENESIS_RECERTIFICATION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.GENESIS_RECERTIFICATION, ENCODING_VERSION);
         genesisRoot.encode(w);
         w.writeList(founders, (ww, f) -> f.encode(ww));
         return w.toBytes();
@@ -138,7 +138,7 @@ public record GenesisRecertification(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.GENESIS_RECERTIFICATION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.GENESIS_RECERTIFICATION, ENCODING_VERSION);
         genesisRoot.encode(w);
         w.writeList(founders, (ww, f) -> f.encode(ww));
         w.writeList(approvals, (ww, a) -> a.encode(ww));
@@ -146,11 +146,7 @@ public record GenesisRecertification(
 
     /** Decode one full frame (tag + version validated). */
     public static GenesisRecertification decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.GENESIS_RECERTIFICATION) {
-            throw new IllegalStateException("expected GENESIS_RECERTIFICATION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.GENESIS_RECERTIFICATION, "GENESIS_RECERTIFICATION", ENCODING_VERSION);
         StateRoot root = StateRoot.decode(r);
         List<Founder> founders = r.readList(Founder::decode);
         List<Approval> approvals = new ArrayList<>(r.readList(Approval::decode));
