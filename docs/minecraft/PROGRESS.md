@@ -33,6 +33,37 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-06 — The non-delegable-entity refusal is retired, on purpose and on the record (#236)
+
+Round 2's dead-code sweep left a contradiction: `docs/network/REFACTORING.md` justified deleting
+`RegionDelegabilityGate` by pointing at the live lane "announcing
+`RegionRefusal.Reason.NON_DELEGABLE_ENTITY`", and a sibling commit in the same merge deleted exactly
+that announcement. Issue #236 asked which ending was intended.
+
+**Evidence, not preference.** `f4ad09e` (PR #120, 2026-07-29) had already removed the sole call to
+`revokeForEntity` — deliberately, replacing it with the `left to vanilla` branch in
+`EntityCaptureBridge.captureJoin` — and [`Task.10.md`](Task.10.md) had filed that call site as one
+of the task's three dominant **defects**: capture defaults to zombies alone, so the first cow, bat
+or item frame deleted the region from the validated lane on every node, and *"in a real world every
+region is revoked within seconds"*. Task 10 deliverable 7 asks for "a species/dimension policy that
+does not revoke". The round-2 sweep swept up an orphan; it did not kill a capability.
+
+So the lane is **retired**, which is the opposite verdict from #232 and #218 — those are mechanisms
+the product wants with no caller; this is a mechanism the product removed whose plumbing outlived
+it. `ObserverLaneRuntime` takes no `ObserverRefusals` (and is now honestly documented as a
+*nameable* no-op, which is what makes the bridge's `LANE:` line able to say "no seats fell here"
+rather than "the lane never activated"); `ObserverRefusals` and `observedNonDelegable` are deleted;
+`RegionRefusal.Reason` code 1 is **reserved for ever** in `WireEnums`, because pre-2026-07-29
+releases send it and the receive half still honours it. #223 is closed on this evidence.
+
+**Evidence for the retirement, and its one gap.** `MobsScenario` G2b had been asserting `refusal
+announced to the mesh` since `f4ad09e` — the same commit that deleted the string's producer also
+carried the assertion over from `e2e-mobs.sh`, so the stage has been unpassable for eight days and
+nobody read it. It now asserts the rule the lane follows (`LANE: … stays vanilla`, plus no revoke
+naming a non-delegable entity) and **has not yet been run live**. L-60 stays RETIRED with its
+evidence rewritten to separate the four fixes that stand from the announcement that was retired,
+and it says plainly that the live evidence for the announcement half is now nothing at all.
+
 ### 2026-07-28 — Documentation sweep: status reconciliation across the category
 
 A category-wide audit (`docs/full-sweep`) reconciled every task header against the current evidence

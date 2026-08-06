@@ -41,6 +41,20 @@ are all silently discarded. Everything else in this file is downstream of that.
 or item frame joining a region triggers `revokeForEntity`, which removes the region and releases its
 chunk ticket. Nothing re-adds it. In a real world every region is revoked within seconds.
 
+> **Half of deliverable 7 landed on 2026-07-29 in `f4ad09e`, and the decision behind it was
+> confirmed on 2026-08-06 in [#236](https://github.com/Ashu11-A/NoderaMC/issues/236).**
+> `revokeForEntity` no longer has a call site, and the method itself is gone: an entity this build's
+> engine does not model is **left to vanilla** in `EntityCaptureBridge.captureJoin` — not captured,
+> not refused — and the region goes on validating blocks and modelled entities. Determinism is
+> untouched, because the capture list is config and identical on every node, so no committee member
+> captures it either; blocks such an entity changes still arrive through `BlockWriteGuard`'s CONVERT
+> mode. The whole refusal lane retired with it: `ObserverRefusals` is deleted and
+> `RegionRefusal.Reason.NON_DELEGABLE_ENTITY` (wire code 1) is reserved with no sender. **Still
+> open in this deliverable:** the defaults themselves — `mobCaptureDimensions=[]` and
+> `mobCaptureSpecies=["minecraft:zombie"]` are the test-shaped defaults described below, and the
+> acceptance criterion "a region survives a passive mob" wants a live run of the rewritten
+> `MobsScenario` G2b to close.
+
 **Client and server derive different ownership plans.** The server plans with the resident worker
 seats; the client plans without them, because `NoderaLanePlanPayload` carries no resident list.
 Primaries agree, validator sets do not — which is the mechanical cause of the
@@ -68,7 +82,7 @@ loading screen that never resolves.
 | 4 | Peer bring-up moves off the client render thread (`onServerSessionInfo`) | ⬜ |
 | 5 | Host activation moves off the server main thread (`NoderaHost.activate`) | ⬜ |
 | 6 | Every waiting screen has a working escape and a deadline | ✅ (`RehostScreen`) |
-| 7 | The capture lane is on by default, with a species/dimension policy that does not revoke | ⬜ |
+| 7 | The capture lane is on by default, with a species/dimension policy that does not revoke | 🚧 the *does not revoke* half landed 2026-07-29 (#236); the defaults and the live run remain |
 | 8 | `NoderaLanePlanPayload` carries residents, so both sides plan the same committee | ⬜ |
 | 9 | Every `Server*Event` / `Client*Event` listener self-catches | ⬜ |
 
@@ -107,6 +121,10 @@ became the shipped ones. Widening them is not enough on its own — the revocati
 being the response to an unrecognised entity, or every widening simply moves which mob kills the
 region first.
 
+That second half is done (2026-07-29, `f4ad09e`; decision recorded in #236): an unrecognised entity
+is left to vanilla instead of refusing the region, so widening the defaults is now a safe change
+rather than a change of which mob kills the region first. The defaults themselves are untouched.
+
 ## Files
 
 | Path | Role |
@@ -127,6 +145,7 @@ region first.
 | A headless `MultiplayerWorldFeed` test over crafted STATE JSON | deliverables 1–3 |
 | `scripts/e2e-live.sh` with one relay pointed at a black hole | deliverable 4: the client stays responsive |
 | A live run with the lane on and a cow in the region | deliverable 7 |
+| `MobsScenario` G2b (rewritten 2026-08-06, **not yet run live**) | deliverable 7's refusal half: an unmodelled species is left to vanilla and the region keeps validating |
 | `ClientJoinPasswordsGateMarkerTest` (3, green) | deliverable 6 — a refused join is distinguishable from a lost host, including when the password was merely wrong |
 
 ## Acceptance criteria
