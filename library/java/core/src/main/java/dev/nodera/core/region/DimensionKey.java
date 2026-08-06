@@ -36,16 +36,12 @@ public record DimensionKey(String namespace, String path) implements Encodable {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.DIMENSION_KEY).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.DIMENSION_KEY, ENCODING_VERSION);
         w.writeString(namespace).writeString(path);
     }
 
     public static DimensionKey decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.DIMENSION_KEY) {
-            throw new IllegalStateException("expected DIMENSION_KEY tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.DIMENSION_KEY, "DIMENSION_KEY", ENCODING_VERSION);
         return new DimensionKey(r.readString(), r.readString());
     }
 }

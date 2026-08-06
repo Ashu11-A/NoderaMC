@@ -55,7 +55,7 @@ public record EntityTransferCertificate(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_TRANSFER_CERT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_TRANSFER_CERT, ENCODING_VERSION);
         descriptor.encode(w);
         sourceProof.encode(w);
         targetProof.encode(w);
@@ -63,11 +63,7 @@ public record EntityTransferCertificate(
 
     /** Decode one complete joint transfer certificate. */
     public static EntityTransferCertificate decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ENTITY_TRANSFER_CERT) {
-            throw new IllegalStateException("expected ENTITY_TRANSFER_CERT tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ENTITY_TRANSFER_CERT, "ENTITY_TRANSFER_CERT", ENCODING_VERSION);
         return new EntityTransferCertificate(
                 EntityTransferDescriptor.decode(r),
                 QuorumCertificate.decode(r),

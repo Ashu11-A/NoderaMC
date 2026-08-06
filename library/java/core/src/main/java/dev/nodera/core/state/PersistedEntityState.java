@@ -80,7 +80,7 @@ public record PersistedEntityState(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PERSISTED_ENTITY_STATE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PERSISTED_ENTITY_STATE, ENCODING_VERSION);
         id.encode(w);
         w.writeU8(kind.ordinal());
         w.writeU32(Integer.toUnsignedLong(typeId));
@@ -99,11 +99,7 @@ public record PersistedEntityState(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static PersistedEntityState decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PERSISTED_ENTITY_STATE) {
-            throw new IllegalStateException("expected PERSISTED_ENTITY_STATE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.PERSISTED_ENTITY_STATE, "PERSISTED_ENTITY_STATE", ENCODING_VERSION);
         NetworkEntityId id = NetworkEntityId.decode(r);
         int kindOrd = r.readU8();
         EntityKind[] kinds = EntityKind.values();

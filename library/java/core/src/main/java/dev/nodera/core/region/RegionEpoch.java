@@ -33,16 +33,12 @@ public record RegionEpoch(long value) implements Encodable, Comparable<RegionEpo
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.REGION_EPOCH).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.REGION_EPOCH, ENCODING_VERSION);
         w.writeU64(value);
     }
 
     public static RegionEpoch decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_EPOCH) {
-            throw new IllegalStateException("expected REGION_EPOCH tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.REGION_EPOCH, "REGION_EPOCH", ENCODING_VERSION);
         return new RegionEpoch(r.readU64());
     }
 }

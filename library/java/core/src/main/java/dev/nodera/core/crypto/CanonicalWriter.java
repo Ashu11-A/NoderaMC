@@ -81,6 +81,32 @@ public final class CanonicalWriter {
         return this;
     }
 
+    // --- framing ---
+
+    /**
+     * Write the {@code u16 typeTag + u16 version} frame that opens every {@link Encodable}.
+     *
+     * <p>Byte-for-byte {@code writeU16(typeTag).writeU16(version)}, and
+     * {@link CanonicalReader#expectFrame(int, String, int)} is its mirror. It exists so the frame
+     * is one named thing rather than two adjacent scalar writes that a new type can get half
+     * right.
+     *
+     * <p>There is deliberately <b>no</b> one-argument overload defaulting to
+     * {@link Encodable#ENCODING_VERSION}. {@code RegionChunkIndex}, {@code SessionDelegation},
+     * {@code Hlc}, {@code ChunkStamp}, {@code BlockEventEntry}, {@code ContainerEntry} and
+     * {@code ScheduledTickEntry} each declare their own {@code ENCODING_VERSION} constant that
+     * <i>shadows</i> the interface one, and {@code RegionChunkIndex}'s is <b>2</b> — a defaulting
+     * overload would have silently rewritten that type's second wire byte from 2 to 1. The
+     * version is always passed explicitly so the constant the call site meant is the constant
+     * that is written.
+     *
+     * @param typeTag the {@link TypeTags} constant this value answers to.
+     * @param version the body version to emit.
+     */
+    public CanonicalWriter writeFrame(int typeTag, int version) {
+        return writeU16(typeTag).writeU16(version);
+    }
+
     // --- variable-length ---
 
     public CanonicalWriter writeBytes(byte[] bytes) {

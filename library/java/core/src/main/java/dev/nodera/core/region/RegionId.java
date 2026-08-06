@@ -59,18 +59,14 @@ public record RegionId(DimensionKey dimension, int regionX, int regionZ) impleme
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.REGION_ID).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.REGION_ID, ENCODING_VERSION);
         dimension.encode(w);
         w.writeU32(Integer.toUnsignedLong(regionX));
         w.writeU32(Integer.toUnsignedLong(regionZ));
     }
 
     public static RegionId decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_ID) {
-            throw new IllegalStateException("expected REGION_ID tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.REGION_ID, "REGION_ID", ENCODING_VERSION);
         DimensionKey dim = DimensionKey.decode(r);
         int rx = (int) r.readU32();
         int rz = (int) r.readU32();

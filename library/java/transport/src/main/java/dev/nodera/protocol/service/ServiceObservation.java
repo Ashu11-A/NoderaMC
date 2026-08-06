@@ -72,7 +72,7 @@ public record ServiceObservation(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SERVICE_OBSERVATION).writeU16(Encodable.ENCODING_VERSION);
+        w.writeFrame(TypeTags.SERVICE_OBSERVATION, Encodable.ENCODING_VERSION);
         service.encode(w);
         w.writeU8(kind.ordinal());
         w.writeU32(probes);
@@ -91,10 +91,7 @@ public record ServiceObservation(
      * @Thread-context one reader per decode call.
      */
     public static ServiceObservation decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SERVICE_OBSERVATION) {
-            throw new IllegalStateException("expected ServiceObservation tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SERVICE_OBSERVATION, "ServiceObservation");
         int version = r.readU16();
         if (version != Encodable.ENCODING_VERSION) {
             throw new IllegalStateException("unsupported ServiceObservation version " + version);

@@ -18,7 +18,7 @@ public record EntityTransferAcceptedEvent(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_TRANSFER_ACCEPTED_EVENT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_TRANSFER_ACCEPTED_EVENT, ENCODING_VERSION);
         w.writeU64(transferId);
         counterpart.encode(w);
         entityId.encode(w);

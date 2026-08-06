@@ -37,7 +37,7 @@ public record InventoryCredit(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.INVENTORY_CREDIT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.INVENTORY_CREDIT, ENCODING_VERSION);
         actor.encode(w);
         entityId.encode(w);
         w.writeU32(Integer.toUnsignedLong(itemStackId));
@@ -46,11 +46,7 @@ public record InventoryCredit(
 
     /** Decode one full inventory-credit frame. */
     public static InventoryCredit decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.INVENTORY_CREDIT) {
-            throw new IllegalStateException("expected INVENTORY_CREDIT tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.INVENTORY_CREDIT, "INVENTORY_CREDIT", ENCODING_VERSION);
         return new InventoryCredit(
                 NodeId.decode(r),
                 NetworkEntityId.decode(r),

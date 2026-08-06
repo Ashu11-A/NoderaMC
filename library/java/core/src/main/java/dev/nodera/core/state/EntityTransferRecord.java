@@ -57,7 +57,7 @@ public record EntityTransferRecord(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_TRANSFER_RECORD).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_TRANSFER_RECORD, ENCODING_VERSION);
         w.writeU8(stage.ordinal());
         descriptor.encode(w);
         sourceDelta.encode(w);
@@ -71,11 +71,7 @@ public record EntityTransferRecord(
 
     /** Decode one durable transfer record. */
     public static EntityTransferRecord decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ENTITY_TRANSFER_RECORD) {
-            throw new IllegalStateException("expected ENTITY_TRANSFER_RECORD tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ENTITY_TRANSFER_RECORD, "ENTITY_TRANSFER_RECORD", ENCODING_VERSION);
         int ordinal = r.readU8();
         if (ordinal >= Stage.values().length) {
             throw new IllegalStateException("unknown transfer stage " + ordinal);

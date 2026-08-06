@@ -101,7 +101,7 @@ public record ServiceRecord(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SERVICE_RECORD).writeU16(Encodable.ENCODING_VERSION);
+        w.writeFrame(TypeTags.SERVICE_RECORD, Encodable.ENCODING_VERSION);
         service.encode(w);
         w.writeBytes(publicKey);
         w.writeU8(kind.ordinal());
@@ -167,10 +167,7 @@ public record ServiceRecord(
      * @Thread-context one reader per decode call.
      */
     public static ServiceRecord decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SERVICE_RECORD) {
-            throw new IllegalStateException("expected ServiceRecord tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SERVICE_RECORD, "ServiceRecord");
         int version = r.readU16();
         if (version != Encodable.ENCODING_VERSION) {
             throw new IllegalStateException("unsupported ServiceRecord version " + version);

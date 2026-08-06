@@ -233,7 +233,7 @@ public record RegionDelta(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.REGION_DELTA).writeU16(bodyVersion);
+        w.writeFrame(TypeTags.REGION_DELTA, bodyVersion);
         region.encode(w);
         baseVersion.encode(w);
         resultingVersion.encode(w);
@@ -262,10 +262,7 @@ public record RegionDelta(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static RegionDelta decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_DELTA) {
-            throw new IllegalStateException("expected REGION_DELTA tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.REGION_DELTA, "REGION_DELTA");
         int bodyVersion = r.readU16();
         if (bodyVersion < 1 || bodyVersion > CONTAINER_ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_DELTA encoding version " + bodyVersion);

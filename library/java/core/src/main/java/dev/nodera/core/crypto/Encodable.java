@@ -12,9 +12,10 @@ package dev.nodera.core.crypto;
  *   <li>{@code encode} writes ALL semantic fields. A type carrying its own signature
  *       (e.g. {@code ActionEnvelope}, {@code SignedVote}) MUST exclude that signature from its
  *       encoded form; use {@code signedPortion()} to obtain the bytes that are actually signed.
- *   <li>Every implementation begins its body with
- *       {@code w.writeU16(TypeTags.XXX); w.writeU16(ENCODING_VERSION);}
- *       (the typeTag + version frame) so a single stream of {@code Encodable}s is self-describing.
+ *   <li>Every implementation begins its body with the typeTag + version frame —
+ *       {@link CanonicalWriter#writeFrame(int, int)}, whose decode mirror is
+ *       {@link CanonicalReader#expectFrame(int, String, int)} — so a single stream of
+ *       {@code Encodable}s is self-describing.
  *   <li>Big-endian fixed-width ints; no varints. Strings = UTF-8 with u32 length. Lists = u32
  *       count + elements. Optionals = u8 presence + payload. No floats in hashed state for MVP.
  * </ol>

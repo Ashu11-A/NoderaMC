@@ -157,7 +157,8 @@ no point negotiating a version space that should not exist.
 | `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/server/entity/PoseCodes.java` | Minecraft's `Pose`, renumbered into a table Nodera owns |
 | `library/rust/nodera-codec/src/{frame,tlv,wire}.rs` | The Rust half of the frame, TLV, and the 24 kinds the services speak |
 | `library/rust/nodera-codec/src/kinds.rs` | **Generated** from `WireRegistry.java` — never edited by hand |
-| `fixtures/wire/*.bin`, `fixtures/wire/java-only/*.bin` | The `NDR2` corpus — never edited by hand |
+| `fixtures/wire/*.bin` | The **cross-language** corpus — never edited by hand. `tests/fixtures.rs` reads exactly this directory, so every tag in `nodera-codec`'s `SUPPORTED_MESSAGE_TAGS` must have a file here; `WireFixtureTest` derives that requirement from `tags.rs` rather than listing tags |
+| `fixtures/wire/java-only/*.bin` | Golden bytes for the tags Rust deliberately does not implement. A fixture here is **not** checked against the Rust codec |
 | `fixtures/wire/v1-rejected/*.bin` | The retired pre-`NDR2` corpus, asserted to be **refused** by both languages |
 | `fixtures/wire/manifest.json` | **Generated**: which kind each fixture pins, and which plane governs it |
 | `.github/workflows/cross-version.yml` | The mixed-release job |

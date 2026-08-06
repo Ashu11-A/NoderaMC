@@ -604,6 +604,21 @@ final class CodecRegistry {
                     Bytes joinerKey = r.readBytesValue();
                     // Trailing, tolerantly-read field: a peer built before the client-agent field
                     // simply announces without one, and joins exactly as it did before.
+                    //
+                    // This is the construct `CanonicalMutationFuzzTest`'s DOCUMENTED_EXCEPTIONS
+                    // Javadoc describes: a positional body with an optional tail makes no statement
+                    // of its own length, so a PeerJoin cut just before this field is byte-for-byte a
+                    // valid older PeerJoin and no decoder can tell the two apart. `MessageCodec`'s
+                    // trailing-byte rejection does not help — such a frame has no trailing bytes.
+                    //
+                    // It is left exactly as it is because the ambiguity is not reachable. PeerJoin
+                    // is kind 19 on the INFRASTRUCTURE plane, so every frame off the network is
+                    // decoded by `InfrastructureCodec`'s TLV shape (id 6, present or absent, and a
+                    // truncated body fails). The only production callers of `MessageCodec.decode`
+                    // are `WireCodec.decodeFrame` for CONSENSUS-plane kinds — which 19 is not — and
+                    // `InfrastructureCodec.wholeSignedFrame`, which is used for kinds 33 and 71 only
+                    // and type-checks its result. Making this strict would change no byte any peer
+                    // sends and could only break the legacy frames still pinned in the fixtures.
                     String clientVersion = r.available() > 0 ? r.readString() : "";
                     return new PeerJoin(joiner, listenRoute, capabilities, bootstrap, joinerKey,
                             clientVersion);

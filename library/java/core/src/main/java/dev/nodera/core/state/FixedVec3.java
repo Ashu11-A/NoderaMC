@@ -88,7 +88,7 @@ public record FixedVec3(long x, long y, long z) implements Encodable {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.FIXED_VEC3).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.FIXED_VEC3, ENCODING_VERSION);
         w.writeU64(x); // raw two's-complement i64 bits, big-endian
         w.writeU64(y);
         w.writeU64(z);
@@ -101,11 +101,7 @@ public record FixedVec3(long x, long y, long z) implements Encodable {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static FixedVec3 decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.FIXED_VEC3) {
-            throw new IllegalStateException("expected FIXED_VEC3 tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.FIXED_VEC3, "FIXED_VEC3", ENCODING_VERSION);
         long x = r.readU64();
         long y = r.readU64();
         long z = r.readU64();

@@ -33,7 +33,7 @@ public record BlockEventEntry(NBlockPos pos, int type, int param, int phase)
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.BLOCK_EVENT_ENTRY).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.BLOCK_EVENT_ENTRY, ENCODING_VERSION);
         pos.encode(w);
         w.writeU32(Integer.toUnsignedLong(type));
         w.writeU32(Integer.toUnsignedLong(param));
@@ -42,11 +42,7 @@ public record BlockEventEntry(NBlockPos pos, int type, int param, int phase)
 
     /** Full-frame decode (tag + version validated). */
     public static BlockEventEntry decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.BLOCK_EVENT_ENTRY) {
-            throw new IllegalStateException("expected BLOCK_EVENT_ENTRY tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.BLOCK_EVENT_ENTRY, "BLOCK_EVENT_ENTRY", ENCODING_VERSION);
         NBlockPos pos = NBlockPos.decode(r);
         int type = r.readU32AsInt();
         int param = r.readU32AsInt();
