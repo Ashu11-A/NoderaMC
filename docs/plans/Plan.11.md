@@ -102,10 +102,14 @@ primitive is more lines than any single call site it replaces and fewer lines th
 | **D** — specifications out of comments | the high-density files | block comments become `docs/<category>/Task.<n>.md`, with a one-line pointer left behind |
 | **E** — split the monoliths | `nodera-core`, `tracker/service.rs`, `app/ui/src` | focused modules, `ui/primitives.tsx` |
 
-Two rules constrain all five. **Frozen modules** — `:core`, `:transport`, `:endpoint` — may have
-comments moved and nothing else; their contracts are versioned. And **wire tags are append-only**:
-lever B rewrites how a codec is dispatched, never what number it answers to. Renumbering a tag is a
-network split, not a refactor.
+Two rules constrain all five. **Frozen modules** — `:core`, `:transport`, `:endpoint` — carry
+versioned contracts, so in phases 1 through 4 their comments may move and their code may not change
+at all. The single exception is phase 5, which is a version bump: `AGENTS.md` §4.4 says a frozen
+contract changes only with one, and phase 5 is that one. `library/java/transport/.../MessageCodec.java`
+(1,585 lines) is therefore phase 5's work and nobody else's.
+
+And **wire tags are append-only**: phase 5 rewrites how a codec is dispatched, never what number it
+answers to. Renumbering a tag is a network split, not a refactor.
 
 ---
 
@@ -149,6 +153,34 @@ consolidation that quietly drops assertions is the most likely way this phase fa
 is what catches it. Read the skipped column too: an `assumeTrue` guard against a path that moved is
 a SKIP, not a failure.
 
+### Phase 4's targets, with the paths verified
+
+The programme was scoped against file sizes taken by `wc -l`. These are code lines, and the paths
+are the ones that exist — the earlier scoping put `WorkerControlHandler` under `peer/control/` when
+it lives in `peer/headless/`, which is exactly the drift a plan quietly dies of.
+
+| file | code | comment |
+|---|---|---|
+| `peer/…/peer/validation/WorkerValidationService.java` | 2,026 | 546 |
+| `peer/…/headless/WorkerControlHandler.java` | 1,439 | 579 |
+| `peer/…/headless/WorldArchiveService.java` | 1,196 | 942 |
+| `endpoints/neoforge-mod/…/common/NoderaHost.java` | 1,034 | 676 |
+| `peer/…/peer/PeerRuntime.java` | 714 | 460 |
+| `endpoints/neoforge-mod/…/common/NoderaPeerService.java` | 721 | 422 |
+| `peer/…/headless/WorldHostingService.java` | 646 | 598 |
+| `library/rust/nodera-core/src/core.rs` | 1,080 | 242 |
+| `library/rust/nodera-core/src/settings.rs` | 1,058 | 397 |
+| `library/rust/nodera-core/src/launch/mod.rs` | 692 | 121 |
+| `app/ui/src/TrackerStores.tsx` | 939 | 113 |
+| `app/ui/src/Settings.tsx` | 762 | 181 |
+| `app/ui/src/components.tsx` | 691 | 155 |
+
+Alongside them, three redundancies that are not files but patterns: nine `core/action/*` classes with
+parallel `encode`/`decode`/`tag` (a sealed `GameAction` plus an `ActionCodec<T>` registry replaces
+them, and the eight dead `decode(CanonicalReader)` entries the structural report flags are exactly
+the decoders that disappear), 74 `LoggerFactory.getLogger(...)` sites, and five inline `*Json()`
+builders in `WorkerControlHandler` open-coding string concatenation.
+
 ### Phase 5 needs two clients
 
 Dropping `SessionKeepAlive` v1 is the one change here that no unit test fully clears. The exit is a
@@ -180,7 +212,8 @@ tree that shrank.
 - **Remove a feature.** Not one, in any phase, under any measurement pressure.
 - **Repackage `dev.nodera.research.*` out of the build.** Rejected; see Context.
 - **Renumber a wire tag.**
-- **Change code in `:core`, `:transport` or `:endpoint`.** Comments only.
+- **Change code in `:core`, `:transport` or `:endpoint` outside phase 5.** Comments only until the
+  version bump that is allowed to touch a frozen contract.
 - **Lose test coverage.** The PASS count is flat or higher at every merge.
 - **Hit 30% in Java by finding something else to call "not code".** If production Java lands at 24%,
   the plan reports 24%.
