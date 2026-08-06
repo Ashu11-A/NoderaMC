@@ -21,18 +21,20 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
  */
 function frontendSources() {
   const out = [];
-  const walk = (dir) => {
+  const walk = (root, dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const child = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(child);
-      else if (/\.tsx?$/.test(entry.name)) out.push(readFileSync(child, "utf8"));
+      if (entry.isDirectory()) walk(root, child);
+      else if (/\.tsx?$/.test(entry.name))
+        out.push([path.relative(root, child), readFileSync(child, "utf8")]);
     }
   };
-  for (const root of frontendRoots()) walk(root);
-  return out.join("\n");
+  for (const root of frontendRoots()) walk(root, root);
+  return out;
 }
 
-const frontend = frontendSources();
+const frontendFiles = frontendSources();
+const frontend = frontendFiles.map(([, source]) => source).join("\n");
 
 /**
  * Every desktop screen the shell can show, and the module that draws it.
@@ -324,6 +326,44 @@ test("the six A-UX-5 commands are each resolved, and stay resolved", () => {
   // carries; the tray now just requests a push. One truth, one path.
   assert.doesNotMatch(lib, /nodera:\/\/pause/, "the orphan pause event is back");
   assert.doesNotMatch(frontend, /nodera:\/\/pause/, "the orphan pause event has a listener again");
+});
+
+/**
+ * One name, one component.
+ *
+ * The launcher had two called `Banner` — one exported from `components.tsx`, one declared privately
+ * in `TrackerStores.tsx` — and they disagreed about something that matters: only the local one set
+ * `role="alert"`, so eleven of the launcher's thirteen banners announced a failure to a screen
+ * reader as ordinary text that had appeared somewhere. Nothing could have noticed. `tsc` is happy
+ * (different scopes), the token audit is happy (both class sets resolve), and a reviewer reading
+ * either file sees one `Banner` and no reason to look for another.
+ *
+ * DECLARED, not exported: the one that caused this was module-private, and an export-only check
+ * would have found nothing. `function X(` only — this tree does not write components as arrow
+ * constants, and a regex that allowed them would also catch every capitalised constant in the file.
+ *
+ * The tempting second half — "a screen must not open-code an element the shared module exports" —
+ * is deliberately absent. Run over this tree it flags around forty places and most are correct as
+ * written: a `<button>` carrying `role="tab"` and `aria-selected` is not a `Button`, and forcing it
+ * through one means either widening `Button` to pass arbitrary ARIA or fighting Tailwind's class
+ * ordering with an override that silently loses. A check wrong two times in five gets suppressed.
+ */
+test("no component name is declared in two modules", () => {
+  const declaredIn = new Map();
+  for (const [file, source] of frontendFiles) {
+    for (const [, name] of source.matchAll(/^(?:export )?function ([A-Z][A-Za-z0-9]*)\s*[(<]/gm)) {
+      declaredIn.set(name, [...new Set([...(declaredIn.get(name) ?? []), file])]);
+    }
+  }
+  // The cardinality first. Zero collisions out of zero components is what a walker pointed at a
+  // directory the code has left produces, and it renders identically to a clean tree.
+  assert.ok(declaredIn.size > 40, `only ${declaredIn.size} components were inspected`);
+
+  const collisions = [...declaredIn]
+    .filter(([, files]) => files.length > 1)
+    .map(([name, files]) => `${name}: ${files.sort().join(", ")}`)
+    .sort();
+  assert.deepEqual(collisions, [], `two modules declare the same component:\n  ${collisions.join("\n  ")}`);
 });
 
 /**

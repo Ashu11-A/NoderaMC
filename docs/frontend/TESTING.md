@@ -15,18 +15,27 @@
 
 | Surface | Last run | Result |
 |---|---|---|
-| Desktop launcher + shared core | 2026-08-01 | **303 tests** (270 shared core + 2 shell, one intentionally ignored + 31 frontend): 302 passed, 1 ignored |
+| Desktop launcher + shared core | 2026-08-06 | **342 tests** (270 shared core + 2 shell, one intentionally ignored + 70 frontend): 341 passed, 1 ignored |
 | Android | last build 2026-08-01 · last physical run 2026-08-01 | `scripts/android-e2e.sh` **5 passed, 0 failed** on a Xiaomi 2210129SG (Android 15 / API 35) |
-| Website | — | No gate yet; [task 18](Task.18.md) and [task 20](Task.20.md) name the ones that will close them |
+| Website | 2026-08-06 | **140 passed, 0 failed** — `scripts/build-site.sh` runs the suite and now counts it |
 
 ```bash
 cd app && cargo test        # REQUIRED — root workspace does not cover the Tauri shell
 cargo test                  # includes library/rust/nodera-core
-cd app/ui && bun run test   # type-check + bundle + emitted-CSS contracts
-cd app/ui && bun run build  # same production gate used by CI
+scripts/build-app-ui.sh     # type-check + bundle + emitted-CSS contracts, counted and stamped
+scripts/build-site.sh       # the website, same treatment
 scripts/android-apk.sh      # the phone, end to end, including the dexed worker
 scripts/android-e2e.sh      # the only one that proves the phone is still a node
 ```
+
+Both frontend counts above are **measured, not typed**. `cd app/ui && bun run build` ends in
+`node --test "tests/*.test.mjs"`, which answers a glob that matches no file with `# pass 0` and
+**exit 0** — so until 2026-08-06 the whole of this row could have gone to zero without one thing
+turning red, and the `app/ui/tests` figure below had drifted to less than half of the truth. The
+build scripts now pipe the suite through `tee`, read the count with `scripts/test-totals.sh --tap`,
+and hold it to README's module-status table with `scripts/test-counts.sh --check <package>`. Both
+totals also reach the test badges. Re-stamp with `scripts/test-counts.sh --write <package>` in the
+same commit as the test that moved the number.
 
 ---
 
@@ -60,17 +69,22 @@ The app is deliberately the thinnest layer in the project, and its test strategy
   holds — a control may not be shown as enforced unless the worker confirmed it.
 - **Log ring** and **system sampling**.
 
-#### Test counts (run 2026-08-01)
+#### Test counts (run 2026-08-06)
 
 A run count, not a source estimate. Shared behavior moved to root-workspace `nodera-core`; the Tauri
 shell now has only platform integration tests. Frontend tests run after production Vite output exists.
+
+The two frontend rows are the ones a build script re-measures and a gate holds to README; they are
+not to be hand-edited here. `app/ui/tests` read 31 for months against a suite of 70, which is how a
+count typed into a document behaves — and why nothing but a measurement belongs in this column.
 
 | Suite | Tests |
 |---|---:|
 | `library/rust/nodera-core` | 270 |
 | `app` Tauri shell | 2 (1 ignored: opens a real browser) |
-| `app/ui/tests` | 31 |
-| **Total** | **303** |
+| `app/ui/tests` | 70 |
+| `web/tests` | 140 |
+| **Total** | **482** |
 
 ### A3. Manual smoke, per increment
 
