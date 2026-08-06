@@ -145,22 +145,40 @@ right.
   suites used to skip on every machine including CI because nothing built the jar they looked for;
   a skip that is structural rather than circumstantial is a suite that never runs.
 
-  The twelve JUnit skips are the same failure in the unit gate: every one is "a cargo binary or the
-  peer distribution was not built", and the `java` job that runs `./gradlew check` is not the job
-  that builds them. `dev.nodera.testkit.harness.SpawnedService` is the Java half of the fix — it
+  The twelve JUnit skips were the same failure in the unit gate: every one was "a cargo binary or
+  the peer distribution was not built", and the `java` job that runs `./gradlew check` was not the
+  job that built them. `dev.nodera.testkit.harness.SpawnedService` is the Java half of the fix — it
   locates the binary, and when `nodera.test.requireServiceBinaries` (or
   `NODERA_REQUIRE_SERVICE_BINARIES`) is set it **throws instead of letting the caller assume**, so a
-  job that promises to build them cannot silently stop. **The workflow half is not wired yet.** For
-  the twelve to run, the `java` job needs, before `./gradlew check`:
+  job that promises to build them cannot silently stop. The workflow half is wired: the `java` job
+  now runs, before `./gradlew check`:
 
   ```yaml
   - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
   - run: ./gradlew :peer:installDist
-  - run: ./gradlew check build -Dnodera.test.requireServiceBinaries=true
   ```
 
-  Until then the twelve skip exactly as before, and `2,423 passed · 12 skipped` overstates what CI
-  proves by twelve tests.
+  and a `Nothing skipped into green` step fails the job on a non-zero skip count. To run the same
+  gate locally, promise the binaries explicitly:
+
+  ```bash
+  cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
+  ./gradlew :peer:installDist
+  ./gradlew check build -Dnodera.test.requireServiceBinaries=true
+  ```
+
+  **That `-D` works only because the build forwards it.** A launcher `-D` sets a property on the
+  Gradle *daemon*, and a `Test` task inherits the *daemon's* environment rather than the invoking
+  shell's, so neither the property nor the variable reaches a forked test worker on its own.
+  `library/java/build-logic/src/main/kotlin/NoderaServiceBinaries.kt` reads both through
+  `providers` and re-publishes the value as a system property on every `Test` task; the flag is a
+  task input, so flipping it re-runs the suites rather than restoring a cached green.
+  `SpawnedServiceRequirementTest` holds the Java half to it.
+
+  The skip guard and the promise flag overlap on purpose. `Nothing skipped into green` catches the
+  *outcome* — any skip, from any cause, including one nobody has thought of. The flag catches the
+  *cause*, at the suite that skipped, naming the binary and the directory it searched, and it works
+  on a developer's machine where no workflow step runs.
 - **Timeouts are written in plain seconds** and scaled once, centrally, by
   `NODERA_E2E_TIMEOUT_MULT`. CI runners are slower by a factor nobody can predict from the code, and
   scaling waits individually is how one stage ends up still timing out on the slow machine.

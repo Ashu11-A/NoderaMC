@@ -37,6 +37,13 @@ import java.util.concurrent.TimeUnit;
  * property or environment variable {@value #REQUIRE_ENV}) turns the absence into a failure, so a CI
  * job that promises to build the binaries cannot silently stop doing so.
  *
+ * <p><b>The flag reaches this JVM only because the build forwards it.</b> A launcher {@code -D}
+ * sets a property on the Gradle <i>daemon</i>, and a {@code Test} task inherits the daemon's
+ * environment rather than the invoking shell's, so neither source arrives in a forked test worker
+ * on its own. {@code library/java/build-logic/src/main/kotlin/NoderaServiceBinaries.kt} reads both
+ * and re-publishes the value as a system property on every {@code Test} task. Without that, this
+ * whole mechanism is unreachable — which it was, until the round-2 review found it.
+ *
  * <p>Thread-context: constructed and closed on the test thread; one daemon thread per instance
  * drains the child's output so a full pipe can never block it.
  */

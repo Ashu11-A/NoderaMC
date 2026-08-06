@@ -333,6 +333,21 @@ async fn run_reserved(
 /// `idle_timeout_millis` is the operator's `circuit_idle_timeout_seconds`. It used to be a constant
 /// clamp here while the configuration key was loaded, env-overridable and validated as
 /// must-be-positive — so an operator could set it, see it accepted, and change nothing at all.
+///
+/// # Why the old one-second floor is not restored
+///
+/// The clamp this replaced was `reservation.max_duration_millis.clamp(1_000, 60_000)`, and the
+/// lower bound now reads `.max(1)`. That looks like it allows a sub-second idle timeout. Nothing
+/// can reach one: both inputs are second-granularity — `circuit_idle_timeout_seconds` and
+/// `reservation_max_duration_seconds` — and `Config::validate` refuses zero for each, so the
+/// smallest value either side of the `min` can take is 1,000 ms. `no_valid_configuration_can_ask_
+/// for_a_sub_second_idle_timeout` is that statement as a test.
+///
+/// A one-second floor would therefore change no reachable behaviour, and it would restate the
+/// thing that caused this defect: a policy hard-coded here overriding a number the operator set
+/// and the service accepted. `.max(1)` is a guard against zero — `check_time` reads
+/// `elapsed >= 0` as "idle", so a zero timeout tears a circuit down on the tick it opened — and
+/// nothing more.
 fn limits_of(reservation: &RelayReservation, idle_timeout_millis: u64) -> CircuitLimits {
     CircuitLimits {
         max_bytes: reservation.max_bytes,
@@ -512,6 +527,63 @@ mod tests {
             limits_of(&brief, config.circuit_idle_timeout_millis()).idle_timeout_millis,
             5_000
         );
+    }
+
+    /// The lower clamp moved from 1,000 ms to 1 ms with the fix above, and this is the record that
+    /// the move is inert rather than an unremarked behaviour change.
+    ///
+    /// Both inputs to the `min` are second-granularity and `validate` refuses zero for each, so the
+    /// smallest idle timeout any accepted configuration can produce is a full second. Restoring a
+    /// one-second floor would change nothing reachable — and would restate the hard-coded policy
+    /// that was the defect: a number the operator set, the service accepted, and the bridge
+    /// overrode. `.max(1)` guards only zero, which `check_time` reads as "already idle".
+    #[test]
+    fn no_valid_configuration_can_ask_for_a_sub_second_idle_timeout() {
+        // The smallest thing an operator can validly ask for on both sides at once.
+        let config = Config {
+            circuit_idle_timeout_seconds: 1,
+            reservation_max_duration_seconds: 1,
+            ..Config::default()
+        };
+        config
+            .validate()
+            .expect("one second of each is a valid ask");
+        let reservation = RelayReservation {
+            accepted: true,
+            relay_route: String::new(),
+            expires_at_epoch_millis: 0,
+            max_bytes: 1 << 20,
+            max_duration_millis: config.reservation_max_duration_millis(),
+            proof: Vec::new(),
+            reason: String::new(),
+        };
+        assert_eq!(
+            limits_of(&reservation, config.circuit_idle_timeout_millis()).idle_timeout_millis,
+            1_000,
+            "the floor is the second, and it comes from the unit the key is written in"
+        );
+
+        // Zero is not a configuration, which is what makes the sentence above true.
+        for zeroed in [
+            Config {
+                circuit_idle_timeout_seconds: 0,
+                ..Config::default()
+            },
+            Config {
+                reservation_max_duration_seconds: 0,
+                ..Config::default()
+            },
+        ] {
+            assert!(zeroed.validate().is_err());
+        }
+
+        // And the guard that is left does exactly one thing: it refuses to hand `check_time` a
+        // zero, which it would read as "idle since before it started".
+        let unreachable = RelayReservation {
+            max_duration_millis: 0,
+            ..reservation
+        };
+        assert_eq!(limits_of(&unreachable, 0).idle_timeout_millis, 1);
     }
 
     async fn spawn_service() -> (SocketAddr, Arc<Mutex<Rendezvous>>) {
