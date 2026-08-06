@@ -24,9 +24,11 @@ import java.util.TreeSet;
  * vanilla, unseen chunks are not simulated.
  *
  * <p>The result is fully deterministic: every peer that knows the same player views computes the same
- * plan, so peers agree on who owns and validates each shared region without asking anyone. This is the
- * substitute for the server-side {@code RegionAllocator} in the decentralized model; the emitted
- * {@link RegionClaim}s feed the same lease/epoch/quorum machinery.
+ * plan, so peers agree on who owns and validates each shared region without asking anyone. It is the
+ * <i>only</i> allocator there is: the server-side capability-ranking one this replaced,
+ * {@code coordinator.RegionAllocator}, was deleted with the retired central-coordinator design on
+ * 2026-08-06 (Plan 11 round 2, issue #210). The emitted {@link RegionClaim}s feed the
+ * lease/epoch/quorum machinery unchanged.
  *
  * <p>Thread-context: stateless; {@link #plan} is a pure function, safe from any thread.
  */

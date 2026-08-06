@@ -12,10 +12,20 @@ import java.util.TreeSet;
 /**
  * "Re-replicate these pieces onto {@code assignee}" — a repair coordinator's directive (Task 21).
  *
- * <p>Sent when an {@code ArchiveAuditTask} finds a manifest under-replicated (a holder died or
- * evicted pieces). The {@code assignee} is the next-ranked peer by rendezvous placement; it pulls
- * each listed piece by hash from any current holder (Task 19's {@code ContentRequest}), verifies,
- * and answers with an {@link ArchiveReplicaAck}.
+ * <p><b>Nothing sends this today.</b> The push-side repair lane that produced it — an audit task
+ * that found a manifest under-replicated and directed the next-ranked peer to take the missing
+ * replicas, answering with an {@link ArchiveReplicaAck} — was deleted on 2026-08-06 (Plan 11 round
+ * 2, issue #210) as a closed loop with no production entry point. Repair is now pull-side and
+ * implicit: placement is a pure function of the live peer set
+ * ({@code dev.nodera.peer.archival.RendezvousArchivePolicy}), so a holder's departure re-ranks the
+ * worlds it held and {@code WorldReplicationService}'s next sweep adopts them without anyone being
+ * told to. See {@code dev.nodera.peer.archival.package-info} for why the sweep holds the durability
+ * property better than the directive did.
+ *
+ * <p>The record and its wire tag stay: tag 30 is frozen in {@code WireRegistry} so a released peer
+ * never re-uses the number, and the codec still round-trips it. Only the sender is gone. Treat this
+ * as a reserved shape, not as live protocol — if a push-side repair lane is ever wanted again, this
+ * is the word it should speak.
  *
  * <p>{@code pieceIndexes} is canonicalised — de-duplicated and sorted ascending — so the same
  * directive always encodes identically, and an audit that re-runs produces a byte-identical

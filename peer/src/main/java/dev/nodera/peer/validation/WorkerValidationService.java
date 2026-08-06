@@ -90,7 +90,8 @@ import java.util.function.Consumer;
  * previously unconsumed {@code simulationmsg} wire family ({@link ActionBatchMsg},
  * {@link RegionProposal}, {@link ValidationVote}, {@link CommitAnnounce}) into the live worker.
  *
- * <p>Flow per batch (the headless {@code CommitteeMvpIT} pipeline, distributed):
+ * <p>Flow per batch (pinned end-to-end by {@code WorkerQuorumValidationIT}, which forms this
+ * committee out of three companion-only workers with no Minecraft process anywhere):
  * <ol>
  *   <li>the primary re-executes locally ({@link CommitteeMember#computeAndVote}), submits its own
  *       vote, and sends {@link ActionBatchMsg} + {@link RegionProposal} to every validator;</li>

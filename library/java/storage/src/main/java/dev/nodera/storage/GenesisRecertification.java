@@ -22,7 +22,11 @@ import java.util.Set;
  * quorum of the founding peers. Each founder signs the same portion — the genesis root plus the
  * complete declared founding set — so no subset can re-declare a different set, and
  * {@link #verify} accepts only when a strict majority of DISTINCT founders' signatures check out
- * against their declared keys (the {@code CommitteeChangeCertificate} approval pattern).
+ * against their declared keys — the same shape {@code HaloEndorsement} uses for a committee-signed
+ * slice, and the reason the count is over distinct signers rather than over signatures. (This once
+ * pointed at {@code CommitteeChangeCertificate} as the reference implementation of the pattern; it
+ * was deleted with the retired central-coordinator design on 2026-08-06, Plan 11 round 2, issue
+ * #210, and nothing about the shape here changed with it.)
  *
  * <p>Wire form (tag {@value TypeTags#GENESIS_RECERTIFICATION}, version 1):
  * {@code [u16 tag][u16 version][StateRoot genesisRoot][u32 founderCount]

@@ -12,11 +12,18 @@ import java.util.TreeSet;
 /**
  * "I now hold these pieces" — an assignee's answer to an {@link ArchiveReplicaAssignment} (Task 21).
  *
- * <p>The ack is a claim, not proof: the coordinator does not trust it blindly. It re-runs the audit
- * (reading the {@code ArchiveInventory}, which the assignee refreshes by gossiping an
- * {@code InventoryAdvertisement}) and confirms the manifest is back at its replication factor. A
- * lying assignee that acks without actually fetching is caught by the next audit — and penalised by
- * Task 22's reliability scoring. State, as always, self-verifies; peer claims do not.
+ * <p><b>Nothing sends this today</b>, because nothing sends the assignment it answers. The
+ * push-side repair lane — audit task, repair service, and the inventory cache that told the
+ * coordinator whether the ack was honest — was deleted on 2026-08-06 (Plan 11 round 2, issue #210);
+ * repair is now the pull-side placement sweep described on {@link ArchiveReplicaAssignment}.
+ *
+ * <p>The design point survives the deletion and is worth keeping: an ack was always a claim, not
+ * proof. A coordinator would have re-run its own audit rather than believe it, because state
+ * self-verifies and peer claims do not. The sweep inherits that stance — a peer is an expected
+ * holder because placement says so, never because it said it was.
+ *
+ * <p>The record and its wire tag stay: tag 31 is frozen in {@code WireRegistry} and the codec still
+ * round-trips it. Treat this as a reserved shape, not as live protocol.
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *

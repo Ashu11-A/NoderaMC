@@ -36,11 +36,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * L-18's last literal exit clause: <b>Byzantine ITs green under adversarial peers</b>.
  *
- * <p>{@code ByzantineWorkerTest} proves the engine's {@code CommitteeSession} folds lying ballots
- * correctly, but it hands those ballots in directly — no adversary ever spoke the wire. The peers
- * here are genuinely adversarial: a raw {@link MessageHandler} on the mesh that reads the primary's
- * {@link RegionProposal} and answers it dishonestly. Everything the honest members do is the
- * production path.
+ * <p>The peers here are genuinely adversarial: a raw {@link MessageHandler} on the mesh that reads
+ * the primary's {@link RegionProposal} and answers it dishonestly. Everything the honest members do
+ * is the production path — {@link dev.nodera.peer.validation.WorkerValidationService} and the
+ * {@code VoteCollector} it drives, not a test double.
+ *
+ * <p>This is now the <b>only</b> Byzantine coverage there is. A sibling suite,
+ * {@code ByzantineWorkerTest}, used to fold lying ballots into an engine-side {@code CommitteeSession}
+ * by handing them in directly — no adversary ever spoke the wire — and both it and the session it
+ * drove were deleted on 2026-08-06 (Plan 11 round 2, issue #210) as unreachable from any production
+ * entry point. Nothing was lost that this file does not cover over the real transport.
  *
  * <p>Three attacks, three defences that already had to hold:
  * <ul>
