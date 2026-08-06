@@ -621,6 +621,18 @@ public final class WorkerValidationService {
      * region, never commit anything, so a lying peer costs a region its validated lane and nothing
      * else — the same thing that peer could achieve by simply not participating.
      *
+     * <p><b>No production caller, and that is two separate facts</b> (issue #236, 2026-08-06).
+     * {@code NON_DELEGABLE_ENTITY} used to arrive here from the entity lane; that refusal was
+     * retired on 2026-07-29 because it emptied the validated lane in any world containing animals,
+     * so this method will never be called with it again. The other five reasons
+     * {@link dev.nodera.protocol.simulationmsg.RegionRefusal.Reason} declares have simply never had
+     * an evaluator — {@code DelegabilityPolicy} is a rule table nothing drives — and this is the
+     * announcement path they would use when one is written, which is why the method stays.
+     *
+     * <p>It is not dead in the ratchet's sense: {@code RegionRefusalIT} drives it against the live
+     * receive half ({@link #onRegionRefusal}), which is what keeps a refusal from a peer on an
+     * older release working.
+     *
      * @return {@code true} if this was the first refusal of the region (callers log once).
      */
     public boolean refuseRegion(RegionId region, RegionRefusal.Reason reason) {
