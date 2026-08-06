@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * Task 32/33 (live lane): the worker's world-hosting engine — the part that makes a shared world
@@ -1049,13 +1050,13 @@ public final class WorldHostingService implements AutoCloseable {
      * padded or upper-cased therefore created an entry that {@code stop} could not remove and that
      * kept announcing until the process died — a duplicate that outlived the thing that made it. Hex
      * has no meaningful case, so normalising costs nothing.
+     *
+     * <p>Not a static import of {@link WorldIds#key} because this class also has a
+     * {@code key(String, int)} for endpoint health, and a local overload hides a static import
+     * of the same name outright.
      */
     private static String key(String worldIdHex) {
-        return worldIdHex.trim().toLowerCase(java.util.Locale.ROOT);
-    }
-
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
+        return WorldIds.key(worldIdHex);
     }
 
     /** One world this worker is keeping discoverable on the network. */

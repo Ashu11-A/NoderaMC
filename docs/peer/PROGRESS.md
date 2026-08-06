@@ -79,6 +79,20 @@ constant's short wire-form line, the invariant `NO_VALUE` explains (the "Teste 1
 and a one-line pointer per multi-paragraph entry naming the doc section that holds the rest — 270
 comment lines remain, code line count unchanged (46). No behaviour changed; `:peer:compileJava`
 verified green.
+### 2026-08-05 — Four primitives, and the security guard that existed in two versions
+
+Plan 11 phase 4 (issue #213) against `REFACTORING.md` §1. `SignedGossipRelay` replaces the four
+copies of the mesh flood in `WorldOwnershipService`, `WorldGrantGossipService` and
+`WorldDeletionService`; `WorldIds` replaces seven copies of `shortId` and the world-id normaliser;
+`Json` replaces ten hand-concatenated control replies and the twice-written world row, taking two of
+the category's three JSON escapes with it. The one that matters most is `HexKeyedStore`: a world id
+becomes a path component, so the hex-only check IS the path-traversal guard, and it had been written
+twice — `WorldKeyStore` with an even-length check and a resolved-path containment re-check,
+`WorldTombstoneStore` with neither. The tombstone store now has both.
+
+`WorldReplicationService` was audited against the relay as the register asked and does not carry the
+shape; its row now says so rather than leaving the question open. Evidence: `./gradlew :peer:test`
+green with no test file changed, and `scripts/loc-metrics.py --diff`.
 
 ### 2026-08-03 — Replicated worlds reach the companion before their download completes
 

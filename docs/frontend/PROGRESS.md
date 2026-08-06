@@ -72,6 +72,21 @@ that category's own sub-deliverable ledger, preserved because the milestone note
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — The enforcement table reads as a table, and four buttons become one
+
+Plan 11 phase 4 (issue #213). `settings.rs`'s `ENFORCEMENT` is what decides the badge beside every
+control, and each row was a six-line expansion that put "how is this enforced" four lines from the
+key it belongs to; `const fn live/local/never` put it back on one line and took 74 lines with it.
+`TrackerStores.tsx`'s `PrimaryButton`/`SecondaryButton`/`GhostButton`/`DangerButton` are one
+`StoreButton` with a variant — the four class strings survive verbatim, because
+`tests/tracker-stores-style.test.mjs` asserts every `--tracker-store-*` declaration reaches the built
+CSS, which is also why the screen still cannot simply adopt `components.tsx`'s `Button`.
+
+Evidence: `cargo test -p nodera-core` (287 passed), `cargo clippy -p nodera-core --all-targets -D
+warnings` clean, `tsc --noEmit` clean over `TrackerStores.tsx`. `REFACTORING.md` gains two Completed
+rows and two new candidates, including the three-times-written "a launch failure closes its tunnel"
+in `NoderaCore::start_play`.
+
 ### 2026-08-05 — Two categories become one, and three lanes open against it
 
 The `app` and `mobile` categories are now one, `frontend`, covering every user-facing

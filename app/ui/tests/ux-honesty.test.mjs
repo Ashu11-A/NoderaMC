@@ -134,8 +134,28 @@ test("the notifications toggle is badged with why it is not in force", () => {
   );
   // The backing declaration is asserted on the Rust side
   // (`appearance_notifications_is_declared_unenforced_with_a_reason`); this half only proves the
-  // screen actually shows the badge that declaration produces.
-  assert.match(readCrate("nodera-core", "src/settings.rs"), /Enforcement::Never \{\s*reason: "desktop notifications/);
+  // screen actually shows the badge that declaration produces, and that the declaration lives in
+  // the Rust rather than only in this UI.
+  //
+  // Found by its KEY, not by the syntax of the enforcement table. This assertion used to read
+  // `/Enforcement::Never \{\s*reason: "desktop notifications/` and broke the day the table was
+  // collapsed behind `never(...)` constructors — while the declaration it checks for still existed
+  // and still said the same thing. The key is wire contract (the worker pins the same strings); how
+  // a row spells its variant is not, so the test is written against the part that cannot move.
+  const table = readCrate("nodera-core", "src/settings.rs");
+  const keyAt = table.indexOf('"appearance.notifications"');
+  assert.notEqual(keyAt, -1, "the enforcement table must declare appearance.notifications");
+  const row = table.slice(keyAt, keyAt + 400);
+  assert.match(
+    row,
+    /\bnever\b|\bEnforcement::Never\b/,
+    "appearance.notifications must be declared never-enforced, however that is spelled",
+  );
+  assert.match(
+    row,
+    /desktop notifications are not wired up in this build/,
+    "the declaration must carry the reason the UI shows in its badge",
+  );
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-3 */

@@ -462,12 +462,25 @@ pub enum Enforcement {
 /// The two `Never` rows are a recorded product decision: both controls stay in the UI, permanently
 /// badged with the reason, rather than being deleted — removing them would silently drop settings
 /// users have already saved, and would hide the fact that the limitation is known.
+/// `Live`, confirmed by the named key. See [`Enforcement::Live`] for when it is not the key itself.
+const fn live(confirmed_by: &'static str) -> Enforcement {
+    Enforcement::Live { confirmed_by }
+}
+
+/// `Local`, applied by this app with no worker involved.
+const fn local(how: &'static str) -> Enforcement {
+    Enforcement::Local { how }
+}
+
+/// `Never`, with the structural reason the user is shown.
+const fn never(reason: &'static str) -> Enforcement {
+    Enforcement::Never { reason }
+}
+
 pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     (
         "appearance.theme",
-        Enforcement::Local {
-            how: "applied by this window as it renders",
-        },
+        local("applied by this window as it renders"),
     ),
     // Declared unenforced rather than `Local`: this build raises no notification at all (there is
     // no `tauri-plugin-notification` dependency, capability, or read site), so reporting it as `Live`
@@ -476,55 +489,41 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     // is badged "not supported" with this reason. See A-UX-2.
     (
         "appearance.notifications",
-        Enforcement::Never {
-            reason: "desktop notifications are not wired up in this build; the toggle is saved \
-                     but no notification is raised",
-        },
+        never(
+            "desktop notifications are not wired up in this build; the toggle is saved \
+             but no notification is raised",
+        ),
     ),
     // `Local`, and honestly so: the window that renders this document is the thing that applies a
     // custom theme, immediately, with no worker involved. It is never pushed over NODERA-CONFIG.
     (
         "appearance.themes",
-        Enforcement::Local {
-            how: "stored on this computer and applied by this window as it renders",
-        },
+        local("stored on this computer and applied by this window as it renders"),
     ),
     (
         "behavior.auto_start",
-        Enforcement::Local {
-            how: "registered with the OS as a login item",
-        },
+        local("registered with the OS as a login item"),
     ),
+    // The four battery controls are all decided HERE and reach the worker only as
+    // `behavior.transfers_paused`, so that is the key whose confirmation proves the whole rule is
+    // being honoured.
     (
         "behavior.only_when_charging",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "behavior.battery_control",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "behavior.battery_threshold_percent",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "behavior.power_rules_during_game",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
-    (
-        "network.default_trackers",
-        Enforcement::Live {
-            confirmed_by: "network.default_trackers",
-        },
-    ),
+    ("network.default_trackers", live("network.default_trackers")),
     // The worker binds its rendezvous clients once, at startup.
     ("network.rendezvous_endpoints", Enforcement::AtRestart),
     // A store feeds both lists. The tracker half goes live the moment it is pushed, which is what
@@ -532,81 +531,49 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     // restart, which that row already says. Claiming `AtRestart` here would under-report the half
     // that does take effect immediately, and a badge that is wrong in the pessimistic direction
     // still teaches people not to read it.
-    (
-        "network.tracker_stores",
-        Enforcement::Live {
-            confirmed_by: "network.default_trackers",
-        },
-    ),
+    ("network.tracker_stores", live("network.default_trackers")),
     // Decided here and pushed as the same one flag the battery rules use: the worker has no idea
     // what kind of link it is on, and a phone is the only thing that does.
     (
         "network.transfer_network",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "network.unlimited_connections_only",
-        Enforcement::Never {
-            reason:
-                "no peer advertises a connection cap on the wire, so there is nothing to filter on",
-        },
+        never("no peer advertises a connection cap on the wire, so there is nothing to filter on"),
     ),
     // Bind-time: the listening socket is opened once, at startup.
     ("network.use_random_port", Enforcement::AtRestart),
     ("network.port_range", Enforcement::AtRestart),
-    (
-        "network.max_connections",
-        Enforcement::Live {
-            confirmed_by: "network.max_connections",
-        },
-    ),
+    ("network.max_connections", live("network.max_connections")),
     (
         "network.max_connections_per_world",
-        Enforcement::Never {
-            reason: "the transport has no world dimension; a socket is not owned by a world",
-        },
+        never("the transport has no world dimension; a socket is not owned by a world"),
     ),
     (
         "network.max_upload_slots_per_world",
-        Enforcement::Live {
-            confirmed_by: "network.max_upload_slots_per_world",
-        },
+        live("network.max_upload_slots_per_world"),
     ),
     (
         "network.max_upload_bytes_per_sec",
-        Enforcement::Live {
-            confirmed_by: "network.max_upload_bytes_per_sec",
-        },
+        live("network.max_upload_bytes_per_sec"),
     ),
     (
         "network.max_download_bytes_per_sec",
-        Enforcement::Live {
-            confirmed_by: "network.max_download_bytes_per_sec",
-        },
+        live("network.max_download_bytes_per_sec"),
     ),
     // Applied live: the worker relocates the content store in place (`contentStore.relocateTo`)
     // rather than requiring a restart. This row said `AtRestart` until the Java side was read: the
     // badge happened to render correctly anyway, because `applied` is checked first — but a table
     // that disagrees with the worker is a table nobody can trust the next time they read it.
-    (
-        "storage.peer_worlds_dir",
-        Enforcement::Live {
-            confirmed_by: "storage.peer_worlds_dir",
-        },
-    ),
+    ("storage.peer_worlds_dir", live("storage.peer_worlds_dir")),
     (
         "storage.replication_budget_bytes",
-        Enforcement::Live {
-            confirmed_by: "storage.replication_budget_bytes",
-        },
+        live("storage.replication_budget_bytes"),
     ),
     (
         "storage.replication_sweep_seconds",
-        Enforcement::Live {
-            confirmed_by: "storage.replication_sweep_seconds",
-        },
+        live("storage.replication_sweep_seconds"),
     ),
 ];
 
