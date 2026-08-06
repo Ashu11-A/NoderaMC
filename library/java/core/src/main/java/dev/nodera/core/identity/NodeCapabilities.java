@@ -11,7 +11,7 @@ import java.util.Set;
 
 /**
  * Static, self-declared resource/capability profile of a node (Task 9 peer-runtime). Used by the
- * coordinator / {@code CommitteeManager} to nominate primaries and validators: more cores, more
+ * committee planner to nominate primaries and validators: more cores, more
  * memory, lower latency and higher reliability raise a node's candidacy.
  *
  * <p>{@code reliability} is a capability SCALAR (an EMA maintained by the peer), not a

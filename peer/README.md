@@ -43,14 +43,10 @@ split keeps the first guarantee — `tasks.jar` carries `main` only, asserted on
 dev.nodera.peer               PeerRuntime: membership, gossip, heartbeats, GatewayElection,
 │                             TickSync, JoinAdmission, WorldReplicationService,
 │                             WorldGrantGossipService, PeerShutdownHook
-├── discovery/                PeerDirectory, ArchiveInventory (both LRU-bounded),
-│                             BootstrapClient (3 mechanisms), InvitationCodec,
-│                             CachedPeerStore, PersistentIdentityStore, TrackerClient,
-│                             PeerDiscoveryService
-├── archival/                 RendezvousArchivePolicy, ReplicationFactors, SeedFloorPolicy,
-│                             ArchiveAuditTask, ArchiveRepairService, ArchiveManager,
-│                             RetentionPolicy
-├── committee/                CommitteeManager — certified membership changes, rotation, resize
+├── discovery/                TrackerClient, PeerDiscoveryService, RendezvousDirectory,
+│                             ServiceScoreBoard, CommonsPresence, PersistentIdentityStore
+├── archival/                 RendezvousArchivePolicy, ReplicationFactors, ReplicationTarget,
+│                             ArchivePlacementPolicy, RetentionPolicy
 ├── validation/               WorkerValidationService — committee re-execution out of game
 ├── sync/                     EventSyncService — certified forward sync over the transport
 ├── metric/ · view/           per-peer meters and peer-facing view models

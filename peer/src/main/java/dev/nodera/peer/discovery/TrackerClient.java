@@ -43,10 +43,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@code nodera-tracker} endpoints and queries them for a world's peers and seeders.
  *
  * <p>It replaces the <b>serving</b> role that Task 20 embedded in a Java peer
- * ({@code TrackerService}, deleted with this class's arrival — see {@code docs/tracker/LIMITATIONS.fixed.md}). The
- * peer-local caches it fed, {@link PeerDirectory} and {@link ArchiveInventory}, stay exactly where
- * they were: repair and rarest-first selection still read them. Only the process that answers
- * strangers moved out.
+ * ({@code TrackerService}, deleted with this class's arrival — see {@code docs/tracker/LIMITATIONS.fixed.md}).
+ * Only the process that answers strangers moved out; what this client learns is handed to
+ * {@link PeerDiscoveryService}, which is what dials.
  *
  * <h2>Nothing here is trusted</h2>
  *
