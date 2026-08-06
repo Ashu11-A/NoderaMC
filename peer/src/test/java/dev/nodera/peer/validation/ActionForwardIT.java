@@ -1,34 +1,23 @@
 package dev.nodera.peer.validation;
 
-import dev.nodera.core.Bytes;
 import dev.nodera.core.action.ActionEnvelope;
-import dev.nodera.core.action.PlaceBlockAction;
-import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.region.RegionLease;
-import dev.nodera.core.state.ChunkColumnState;
-import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
+import dev.nodera.core.state.StateRoot;
 import dev.nodera.coordinator.LeaseManager;
-import dev.nodera.peer.PeerRuntime;
-import dev.nodera.peer.PeerRuntimeConfig;
-import dev.nodera.simulation.engine.FlatWorldRegionEngine;
-import dev.nodera.simulation.rules.FlatWorldRules;
-import dev.nodera.storage.event.InMemoryCertificateStore;
-import dev.nodera.testkit.LoopbackTransport;
-import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
-import dev.nodera.transport.PeerAddress;
+import dev.nodera.testkit.peer.Await;
+import dev.nodera.testkit.peer.PeerTestHarness;
+import dev.nodera.testkit.peer.RegionFixtures;
+import dev.nodera.testkit.peer.ValidationNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,181 +31,93 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class ActionForwardIT {
 
-    private static final long WORLD_SEED = 0x4E4F4445_5241L;
-    private static final int MIN_Y = -64;
-    private static final int SECTION_COUNT = 24;
-
-    private final HashService hashes = new HashService();
+    private final PeerTestHarness harness = PeerTestHarness.create();
     private final RegionId region = new RegionId(DimensionKey.overworld(), 0, 0);
-    private final List<PeerRuntime> runtimes = new ArrayList<>();
 
     @AfterEach
     void tearDown() {
-        for (PeerRuntime rt : runtimes) {
-            rt.stop();
-        }
+        harness.close();
     }
 
     @Test
-    void capturedActionIsForwardedToTheOwningPlayerAndCommitsInQuorum() throws Exception {
-        LoopbackNetwork net = LoopbackNetwork.newNetwork();
-        NodeIdentity owner = NodeIdentity.generate();     // the player who OWNS the region
-        NodeIdentity capturer = NodeIdentity.generate();  // the member that merely captured
+    void capturedActionIsForwardedToTheOwningPlayerAndCommitsInQuorum() {
         NodeIdentity actor = NodeIdentity.generate();     // the acting player identity
-
-        Worker ownerNode = worker(net, owner);
-        Worker capturerNode = worker(net, capturer);
-        for (Worker w : List.of(ownerNode, capturerNode)) {
-            w.service.registerActor(actor.nodeId(), actor.publicKeyBytes());
-        }
-        ownerNode.service.registerPeer(capturer.nodeId(),
-                PeerAddress.of(capturer.nodeId(), "loopback"), capturer.publicKeyBytes());
-        capturerNode.service.registerPeer(owner.nodeId(),
-                PeerAddress.of(owner.nodeId(), "loopback"), owner.publicKeyBytes());
+        ValidationNode owner = harness.validationNode().build();     // the player who OWNS the region
+        ValidationNode capturer = harness.validationNode().build();  // the member that merely captured
+        ValidationNode.mesh(List.of(owner, capturer), actor);
 
         // The OWNER is the primary; the capturer is the (only) validator — quorum 2-of-2.
-        RegionSnapshot base = fullUniformSnapshot(region, 0);
+        RegionSnapshot base = RegionFixtures.fullUniformSnapshot(region, 0);
         RegionLease lease = new LeaseManager(200).issue(
                 region, owner.nodeId(), List.of(capturer.nodeId()), 0);
-        ownerNode.service.activateRegion(base, lease);
-        capturerNode.service.activateRegion(base, lease);
+        owner.service().activateRegion(base, lease);
+        capturer.service().activateRegion(base, lease);
 
         // A signed action lands on the NON-owner: it must be forwarded, not proposed locally.
-        ActionEnvelope unsigned = new ActionEnvelope(
-                actor.nodeId(), 1, 1, 1, region,
-                new PlaceBlockAction(new NBlockPos(5, 70, 5), 1, 1), Bytes.empty());
-        ActionEnvelope signed = new ActionEnvelope(
-                actor.nodeId(), 1, 1, 1, region,
-                new PlaceBlockAction(new NBlockPos(5, 70, 5), 1, 1),
-                actor.sign(unsigned.signedPortion()));
-        assertThat(capturerNode.service.forwardToPrimary(signed))
+        ActionEnvelope signed = RegionFixtures.place(actor, region, 1, 1, 5, 70, 5, 1);
+        assertThat(capturer.service().forwardToPrimary(signed))
                 .as("the non-owner forwards instead of proposing").isTrue();
-        assertThat(ownerNode.service.forwardToPrimary(signed))
+        assertThat(owner.service().forwardToPrimary(signed))
                 .as("the owner never forwards its own region").isFalse();
 
         // L-16: the commit observer (the client's LocalReplicaView feed) sees every commit.
-        java.util.concurrent.atomic.AtomicReference<dev.nodera.core.state.StateRoot> observed =
-                new java.util.concurrent.atomic.AtomicReference<>();
-        ownerNode.service.onCommit((snapshot, root) -> observed.set(root));
+        AtomicReference<StateRoot> observed = new AtomicReference<>();
+        owner.service().onCommit((snapshot, root) -> observed.set(root));
 
         // The owner proposes, the capturer votes, quorum commits — on both members.
-        long deadline = System.currentTimeMillis() + 10_000;
-        while (System.currentTimeMillis() < deadline) {
-            var head = ownerNode.service.headRoot(region);
-            var mirrored = capturerNode.service.headRoot(region);
-            if (head.isPresent() && mirrored.isPresent() && head.equals(mirrored)
-                    && ownerNode.service.currentSnapshot(region).orElseThrow().version()
-                            .value() > SnapshotVersion.INITIAL.value()) {
-                break;
-            }
-            Thread.sleep(50);
-        }
-        assertThat(ownerNode.service.currentSnapshot(region).orElseThrow().version().value())
+        awaitConvergedCommit(owner, capturer, 10_000);
+        assertThat(owner.service().currentSnapshot(region).orElseThrow().version().value())
                 .as("the owner committed the forwarded action")
                 .isGreaterThan(SnapshotVersion.INITIAL.value());
-        assertThat(capturerNode.service.headRoot(region))
+        assertThat(capturer.headRoot(region))
                 .as("the capturer converged on the identical committed root")
-                .isEqualTo(ownerNode.service.headRoot(region));
-        assertThat(ownerNode.service.latestCertificate(region))
+                .isEqualTo(owner.headRoot(region));
+        assertThat(owner.service().latestCertificate(region))
                 .as("a co-signed quorum certificate exists").isPresent();
-        assertThat(ownerNode.service.snapshot().committeeCommits()).isGreaterThan(0);
+        assertThat(owner.service().snapshot().committeeCommits()).isGreaterThan(0);
         assertThat(observed.get())
                 .as("the L-16 commit observer received the committed root")
-                .isEqualTo(ownerNode.service.headRoot(region).orElseThrow());
+                .isEqualTo(owner.headRoot(region).orElseThrow());
     }
 
     @Test
-    void forwardedActionWithSkewedSignedTickStillCommits() throws Exception {
+    void forwardedActionWithSkewedSignedTickStillCommits() {
         // Clean-slate skew repro (issue #33 / L-50): the actor signed targetTick against the
         // CAPTURER's replica clock, which differs from the primary's next tick. The primary must
         // bracket its batch window around the signed tick instead of silently rejecting the
         // forward — the capturer may already have suppressed the vanilla outcome.
-        LoopbackNetwork net = LoopbackNetwork.newNetwork();
-        NodeIdentity owner = NodeIdentity.generate();
-        NodeIdentity capturer = NodeIdentity.generate();
         NodeIdentity actor = NodeIdentity.generate();
+        ValidationNode owner = harness.validationNode().build();
+        ValidationNode capturer = harness.validationNode().build();
+        ValidationNode.mesh(List.of(owner, capturer), actor);
 
-        Worker ownerNode = worker(net, owner);
-        Worker capturerNode = worker(net, capturer);
-        for (Worker w : List.of(ownerNode, capturerNode)) {
-            w.service.registerActor(actor.nodeId(), actor.publicKeyBytes());
-        }
-        ownerNode.service.registerPeer(capturer.nodeId(),
-                PeerAddress.of(capturer.nodeId(), "loopback"), capturer.publicKeyBytes());
-        capturerNode.service.registerPeer(owner.nodeId(),
-                PeerAddress.of(owner.nodeId(), "loopback"), owner.publicKeyBytes());
-
-        RegionSnapshot base = fullUniformSnapshot(region, 0);
+        RegionSnapshot base = RegionFixtures.fullUniformSnapshot(region, 0);
         RegionLease lease = new LeaseManager(200).issue(
                 region, owner.nodeId(), List.of(capturer.nodeId()), 0);
-        ownerNode.service.activateRegion(base, lease);
-        capturerNode.service.activateRegion(base, lease);
+        owner.service().activateRegion(base, lease);
+        capturer.service().activateRegion(base, lease);
 
         // Signed tick 7: the primary's own next tick is 1 (base snapshot tick 0).
-        ActionEnvelope unsigned = new ActionEnvelope(
-                actor.nodeId(), 1, 1, 7, region,
-                new PlaceBlockAction(new NBlockPos(5, 70, 5), 1, 1), Bytes.empty());
-        ActionEnvelope signed = new ActionEnvelope(
-                actor.nodeId(), 1, 1, 7, region,
-                new PlaceBlockAction(new NBlockPos(5, 70, 5), 1, 1),
-                actor.sign(unsigned.signedPortion()));
-        assertThat(capturerNode.service.forwardToPrimary(signed)).isTrue();
+        ActionEnvelope signed = RegionFixtures.place(actor, region, 1, 7, 5, 70, 5, 1);
+        assertThat(capturer.service().forwardToPrimary(signed)).isTrue();
 
         // Wait for BOTH members to converge (the capturer applies the commit asynchronously —
         // waiting on the owner alone races the capturer's vote/apply on slow runners).
-        long deadline = System.currentTimeMillis() + 15_000;
-        while (System.currentTimeMillis() < deadline) {
-            var head = ownerNode.service.headRoot(region);
-            var mirrored = capturerNode.service.headRoot(region);
-            if (head.isPresent() && mirrored.isPresent() && head.equals(mirrored)
-                    && ownerNode.service.currentSnapshot(region).orElseThrow().version()
-                            .value() > SnapshotVersion.INITIAL.value()) {
-                break;
-            }
-            Thread.sleep(50);
-        }
-        assertThat(ownerNode.service.currentSnapshot(region).orElseThrow().version().value())
+        awaitConvergedCommit(owner, capturer, 15_000);
+        assertThat(owner.service().currentSnapshot(region).orElseThrow().version().value())
                 .as("the skewed-tick forward must commit, not be silently dropped")
                 .isGreaterThan(SnapshotVersion.INITIAL.value());
-        assertThat(capturerNode.service.headRoot(region))
-                .isEqualTo(ownerNode.service.headRoot(region));
+        assertThat(capturer.headRoot(region)).isEqualTo(owner.headRoot(region));
     }
 
-    // --- fixture -----------------------------------------------------------------------------
-
-    private record Worker(NodeIdentity id, WorkerValidationService service) {
-    }
-
-    private Worker worker(LoopbackNetwork net, NodeIdentity id) {
-        LoopbackTransport tx = net.register(id.nodeId());
-        PeerRuntime runtime = PeerRuntime.bootstrap(id, NodeCapabilities.initial(), tx,
-                () -> "loopback",
-                new PeerRuntimeConfig(Duration.ofMillis(100), Duration.ofMillis(500)), null);
-        runtimes.add(runtime);
-        WorkerValidationService service = new WorkerValidationService(id, tx,
-                new FlatWorldRegionEngine(
-                        FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), hashes),
-                hashes, new InMemoryCertificateStore(hashes), WORLD_SEED,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), 5_000L);
-        runtime.onApplicationMessage(service::onMessage);
-        return new Worker(id, service);
-    }
-
-    private ChunkColumnState uniformColumn(int chunkX, int chunkZ, int stateId) {
-        int[] palette = new int[SECTION_COUNT];
-        Arrays.fill(palette, stateId);
-        return new ChunkColumnState(chunkX, chunkZ, palette, MIN_Y, SECTION_COUNT);
-    }
-
-    private RegionSnapshot fullUniformSnapshot(RegionId r, int stateId) {
-        int ox = r.originChunkX();
-        int oz = r.originChunkZ();
-        List<ChunkColumnState> cols = new ArrayList<>(64);
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                cols.add(uniformColumn(ox + dx, oz + dz, stateId));
-            }
-        }
-        return new RegionSnapshot(r, SnapshotVersion.INITIAL, 0L, cols);
+    /** Both members hold the same head, and it is past genesis. */
+    private void awaitConvergedCommit(ValidationNode owner, ValidationNode capturer, long millis) {
+        Await.quietly(millis, () -> {
+            var head = owner.headRoot(region);
+            var mirrored = capturer.headRoot(region);
+            return head.isPresent() && head.equals(mirrored)
+                    && owner.service().currentSnapshot(region).orElseThrow().version().value()
+                            > SnapshotVersion.INITIAL.value();
+        });
     }
 }

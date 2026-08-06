@@ -1,23 +1,18 @@
 package dev.nodera.headless;
 
 import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
-import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.PeerRole;
 import dev.nodera.distribution.PieceManifest;
-import dev.nodera.peer.PeerRuntime;
-import dev.nodera.peer.PeerRuntimeConfig;
+import dev.nodera.distribution.WorldArchive;
 import dev.nodera.peer.control.ControlProtocol;
-import dev.nodera.peer.control.ControlServer;
-import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.protocol.NoderaMessage;
-import dev.nodera.protocol.codec.MessageCodec;
-import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.testkit.LoopbackTransport;
+import dev.nodera.protocol.wire.WireCodec;
+import dev.nodera.storage.fs.FsContentStore;
+import dev.nodera.testkit.peer.PeerTestHarness;
+import dev.nodera.testkit.peer.WorkerNode;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
@@ -25,15 +20,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Base64;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -46,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The claim this suite exists to test is not "the verb parses" — it is <b>a setting actually
  * changed worker behaviour</b>.
  *
- * <p>So it stands up the real thing: a loopback {@link ControlServer} over a real
+ * <p>So it stands up the real thing: a loopback control endpoint over a real
  * {@link WorkerControlHandler} over a real {@link WorldArchiveService}, seeds an archive so the
  * node genuinely has bytes to serve, then pushes {@code behavior.transfers_paused:true} through
  * {@code NODERA-CONFIG} and drives a real {@link ContentRequest} into the archive lane. A paused
@@ -60,100 +49,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 final class ConfigVerbIT {
 
-    private final HashService hashes = new HashService();
+    private final PeerTestHarness harness = PeerTestHarness.create();
+    private final HashService hashes = harness.hashes();
+    private final RecordingTransport contentTransport = new RecordingTransport();
 
-    private ControlServer control;
-    private WorldArchiveService archive;
-    private WorldHostingService hosting;
-    private WorldReplicationService replication;
-    private TrackerClient tracker;
-    private PeerRuntime runtime;
-    private LoopbackTransport meshTransport;
-    private RecordingTransport contentTransport;
+    private WorkerNode worker;
+    private FsContentStore diskStore;
 
     @AfterEach
     void tearDown() {
-        closeQuietly(control::close);
-        closeQuietly(() -> {
-            if (replication != null) {
-                replication.close();
-            }
-        });
-        closeQuietly(() -> {
-            if (archive != null) {
-                archive.close();
-            }
-        });
-        closeQuietly(() -> {
-            if (hosting != null) {
-                hosting.close();
-            }
-        });
-        closeQuietly(() -> {
-            if (tracker != null) {
-                tracker.close();
-            }
-        });
-        closeQuietly(() -> {
-            if (runtime != null) {
-                runtime.stop();
-            }
-        });
-        closeQuietly(() -> {
-            if (meshTransport != null) {
-                meshTransport.stop();
-            }
-        });
-    }
-
-    private static void closeQuietly(Runnable action) {
-        try {
-            action.run();
-        } catch (RuntimeException ignored) {
-            // teardown is best-effort; a failure here must not mask the test's own failure.
-        }
+        harness.close();
     }
 
     /** Boot the worker's real lanes behind a real control endpoint. */
-    private dev.nodera.storage.fs.FsContentStore diskStore;
-
-    private NodeIdentity worker() {
-        return worker(null);
+    private void worker() throws java.io.IOException {
+        worker(null);
     }
 
-    private NodeIdentity worker(java.nio.file.Path archiveDir) {
-        NodeIdentity identity = NodeIdentity.generate();
-        NodeCapabilities caps = NodeCapabilities.initial()
-                .withRoles(EnumSet.of(PeerRole.FULL_ARCHIVE, PeerRole.BOOTSTRAP));
-
-        meshTransport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
-        meshTransport.start();
-        runtime = PeerRuntime.bootstrap(identity, caps, meshTransport,
-                () -> "loopback", PeerRuntimeConfig.defaults(), null);
-
-        contentTransport = new RecordingTransport();
-        tracker = new TrackerClient(List.of(), identity);
-        diskStore = archiveDir == null ? null
-                : new dev.nodera.storage.fs.FsContentStore(archiveDir, hashes);
-        archive = new WorldArchiveService(identity, contentTransport,
-                diskStore != null ? diskStore : new InMemoryContentStore(hashes), tracker);
-        hosting = new WorldHostingService(identity, caps, runtime::selfRoute, tracker,
-                List.of(), archive::holdingsFor);
-        replication = new WorldReplicationService(identity.nodeId(), tracker, archive, hosting,
-                WorldReplicationService.DEFAULT_BUDGET_BYTES, 300);
-
-        WorkerControlHandler handler = new WorkerControlHandler("config-test", identity, caps,
-                runtime, new dev.nodera.diagnostics.metric.TrafficMeter(), hosting, null, archive,
-                null, null,
-                new WorkerControlHandler.ConfigSeams(archive.content(), replication, null, tracker,
-                        diskStore));
-        control = new ControlServer("127.0.0.1", 0, handler);
-        try {
-            control.start();
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException("control server did not bind", e);
-        }
-        return identity;
+    /**
+     * @param archiveDir where the archive's blobs live, or {@code null} for an in-memory store —
+     *                   the relocation test needs a directory to move content out of.
+     */
+    private void worker(Path archiveDir) throws java.io.IOException {
+        diskStore = archiveDir == null ? null : new FsContentStore(archiveDir, hashes);
+        PeerTestHarness.WorkerNodeBuilder builder = harness.workerNode("config-test")
+                .roles(PeerRole.FULL_ARCHIVE, PeerRole.BOOTSTRAP)
+                .sharedTracker()
+                .contentTransport(contentTransport)
+                .withReplication()
+                .withConfigSeams();
+        worker = (diskStore == null ? builder.inMemoryArchive() : builder.archive(diskStore))
+                .build();
     }
 
     @Test
@@ -166,7 +92,7 @@ final class ConfigVerbIT {
                 .toHex();
         byte[] blob = new byte[300_000];
         new java.util.Random(7L).nextBytes(blob);
-        PieceManifest manifest = archive.seedArchive(worldIdHex, blob);
+        PieceManifest manifest = worker.archive().seedArchive(worldIdHex, blob);
         assertTrue(manifest.pieceCount() > 0);
 
         PeerAddress requester = PeerAddress.of(NodeId.random(), "peer:1");
@@ -174,7 +100,7 @@ final class ConfigVerbIT {
 
         // Baseline: unconfigured, the node serves. (If it did not, the pause assertion below would
         // be vacuous.)
-        archive.onMessage(requester, request);
+        worker.archive().onMessage(requester, request);
         assertEquals(1, contentTransport.chunks().size(), "an unpaused node must serve the piece");
         contentTransport.clear();
 
@@ -184,20 +110,20 @@ final class ConfigVerbIT {
         assertTrue(reply.contains("\"applied\":[\"behavior.transfers_paused\"]"), reply);
 
         // --- the actual claim -------------------------------------------------------------------
-        archive.onMessage(requester, request);
+        worker.archive().onMessage(requester, request);
         assertTrue(contentTransport.chunks().isEmpty(),
                 "a paused worker must emit no ContentChunk, got: " + contentTransport.chunks());
 
         // …and the pause is visible to the dashboard, so it never looks like a fault.
-        assertTrue(request(ControlProtocol.STATE + " 2").contains("\"transfers_paused\":true"));
+        assertTrue(worker.state().contains("\"transfers_paused\":true"));
 
         // --- and back ---------------------------------------------------------------------------
         String resumed = config("{\"behavior.transfers_paused\":false}");
         assertTrue(resumed.contains("\"applied\":[\"behavior.transfers_paused\"]"), resumed);
-        archive.onMessage(requester, request);
+        worker.archive().onMessage(requester, request);
         assertEquals(1, contentTransport.chunks().size(),
                 "resuming must make the very same request serve again");
-        assertTrue(request(ControlProtocol.STATE + " 2").contains("\"transfers_paused\":false"));
+        assertTrue(worker.state().contains("\"transfers_paused\":false"));
     }
 
     @Test
@@ -216,8 +142,8 @@ final class ConfigVerbIT {
 
         // Applied: the two keys backed by a live seam — and they really moved.
         assertTrue(reply.contains("network.max_upload_bytes_per_sec"), reply);
-        assertEquals(65536L, archive.content().serveBandwidthBudget());
-        assertEquals(600, replication.sweepSeconds());
+        assertEquals(65536L, worker.archive().content().serveBandwidthBudget());
+        assertEquals(600, worker.replication().sweepSeconds());
 
         // Restart-required: read once at spawn, so the app offers a restart instead of a fib.
         assertTrue(reply.contains("\"restart_required\":[\"network.port_range\"]"), reply);
@@ -243,9 +169,9 @@ final class ConfigVerbIT {
      * The cross-language key contract, pinned against the companion app's own golden string.
      *
      * <p>The JSON below is copied verbatim from
-     * {@code rust/nodera-app/src/config.rs::default_settings_serialise_to_the_agreed_json}, which is
-     * what the app actually puts on the wire for a default settings document. Every key in it must
-     * be one this worker recognises.
+     * {@code app/src/config.rs::default_settings_serialise_to_the_agreed_json}, which is what the
+     * app actually puts on the wire for a default settings document. Every key in it must be one
+     * this worker recognises.
      *
      * <p>This test exists because the two sides were written independently and <b>did</b> drift:
      * the worker originally expected its own internal names ({@code network.tracker_endpoints},
@@ -256,20 +182,20 @@ final class ConfigVerbIT {
      * output into the other can catch it.
      */
     @Test
-    void changingTheArchiveDirectoryRelocatesWhatThisNodeIsSeeding(@TempDir java.nio.file.Path tmp)
+    void changingTheArchiveDirectoryRelocatesWhatThisNodeIsSeeding(@TempDir Path tmp)
             throws Exception {
         // L-58: this key used to be reported as restart_required, which quietly stranded the
         // node's seeding obligations — the world would stay listed while every piece request
         // missed. The content has to move with the setting.
-        java.nio.file.Path oldDir = tmp.resolve("old");
-        java.nio.file.Path newDir = tmp.resolve("new");
+        Path oldDir = tmp.resolve("old");
+        Path newDir = tmp.resolve("new");
         worker(oldDir);
 
         String worldIdHex = hashes.sha256("relocating-world".getBytes(StandardCharsets.UTF_8))
                 .toHex();
         byte[] blob = new byte[128_000];
         new java.util.Random(11L).nextBytes(blob);
-        var manifest = archive.seedArchive(worldIdHex, blob);
+        var manifest = worker.archive().seedArchive(worldIdHex, blob);
         assertTrue(diskStore.size() > 0, "the node is actually holding something to strand");
 
         String reply = config("{\"storage.peer_worlds_dir\":\"" + newDir + "\"}");
@@ -281,7 +207,7 @@ final class ConfigVerbIT {
         assertTrue(diskStore.contentRoot().startsWith(newDir), diskStore.contentRoot().toString());
         assertTrue(diskStore.has(manifest.blob()),
                 "the seeded blob survived the move, so the swarm's requests still hit");
-        assertFalse(archive.holdingsFor(worldIdHex).isEmpty(),
+        assertFalse(worker.archive().holdingsFor(worldIdHex).isEmpty(),
                 "and the node still advertises what it holds");
     }
 
@@ -341,9 +267,9 @@ final class ConfigVerbIT {
                 .toHex();
         // Three whole archive pieces, so "served everything asked for" and "served some of it" are
         // distinguishable counts rather than one chunk either way.
-        byte[] blob = new byte[3 * dev.nodera.distribution.WorldArchive.ARCHIVE_PIECE_BYTES];
+        byte[] blob = new byte[3 * WorldArchive.ARCHIVE_PIECE_BYTES];
         new java.util.Random(29L).nextBytes(blob);
-        PieceManifest manifest = archive.seedArchive(worldIdHex, blob);
+        PieceManifest manifest = worker.archive().seedArchive(worldIdHex, blob);
         assertEquals(3, manifest.pieceCount());
 
         String reply = config("{\"network.max_upload_bytes_per_sec\":0,"
@@ -354,25 +280,25 @@ final class ConfigVerbIT {
         PeerAddress requester = PeerAddress.of(NodeId.random(), "peer:1");
         ContentRequest wholeWorld =
                 new ContentRequest(manifest.manifestRoot(), List.of(0, 1, 2));
-        archive.onMessage(requester, wholeWorld);
+        worker.archive().onMessage(requester, wholeWorld);
         assertEquals(3, contentTransport.chunks().size(),
                 "0 means 'no limit' to the app, so an unconfigured cap must not stop the upload");
 
         // And the read-back speaks the app's dialect: an unlimited bound reports as 0, not as the
         // saturation value the enforcer happens to use.
-        String effective = request(ControlProtocol.CONFIG + " 2");
+        String effective = worker.request(ControlProtocol.CONFIG + " 2");
         assertTrue(effective.contains("\"network.max_upload_bytes_per_sec\":0"), effective);
         assertTrue(effective.contains("\"network.max_upload_slots_per_world\":0"), effective);
 
         // A real cap is still a real cap — "0 is unlimited" must not become "every value is".
         assertFalse(config("{\"network.max_upload_bytes_per_sec\":65536}")
                 .startsWith(ControlProtocol.ERR));
-        assertEquals(65536L, archive.content().serveBandwidthBudget());
+        assertEquals(65536L, worker.archive().content().serveBandwidthBudget());
         contentTransport.clear();
         // A fresh window, so the throttle below is the new budget refusing the piece and not the
         // bytes the unlimited run above already spent.
-        archive.content().resetServeWindow();
-        archive.onMessage(requester, wholeWorld);
+        worker.archive().content().resetServeWindow();
+        worker.archive().onMessage(requester, wholeWorld);
         assertTrue(contentTransport.chunks().isEmpty(),
                 "a 64 KiB/s budget cannot pass a 256 KiB piece, got "
                         + contentTransport.chunks().size());
@@ -381,8 +307,8 @@ final class ConfigVerbIT {
     /**
      * The app's default storage settings must not switch replication off.
      *
-     * <p>`rust/nodera-app/src/settings.rs` documents `replication_budget_bytes: 0` as "the worker's
-     * default" and ships it as the DEFAULT value, pushed on every connect.
+     * <p>`app/src/settings.rs` documents `replication_budget_bytes: 0` as "the worker's default"
+     * and ships it as the DEFAULT value, pushed on every connect.
      * {@link WorldReplicationService#start()} reads a zero budget as "hold nothing for anybody" and
      * schedules no sweep at all — so every worker running under the app quietly stopped adopting
      * worlds, and a peer supporting somebody else's world received not one piece of it. The live
@@ -398,14 +324,15 @@ final class ConfigVerbIT {
         assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
         assertTrue(reply.contains("storage.replication_budget_bytes"), reply);
 
-        assertEquals(WorldReplicationService.DEFAULT_BUDGET_BYTES, replication.budgetBytes(),
+        assertEquals(WorldReplicationService.DEFAULT_BUDGET_BYTES, worker.replication().budgetBytes(),
                 "0 means 'your default' to the app; a zero budget here disables the lane entirely");
-        assertEquals(WorldReplicationService.DEFAULT_SWEEP_SECONDS, replication.sweepSeconds());
+        assertEquals(WorldReplicationService.DEFAULT_SWEEP_SECONDS,
+                worker.replication().sweepSeconds());
 
         // A real budget is still a real budget — "0 is the default" must not become "any value is".
         assertFalse(config("{\"storage.replication_budget_bytes\":65536}")
                 .startsWith(ControlProtocol.ERR));
-        assertEquals(65536L, replication.budgetBytes());
+        assertEquals(65536L, worker.replication().budgetBytes());
     }
 
     @Test
@@ -417,12 +344,12 @@ final class ConfigVerbIT {
         // settings screen is a second facade over the first one.
         config("{\"storage.replication_sweep_seconds\":5,\"network.max_download_bytes_per_sec\":2048}");
 
-        String effective = request(ControlProtocol.CONFIG + " 2");
+        String effective = worker.request(ControlProtocol.CONFIG + " 2");
         assertFalse(effective.startsWith(ControlProtocol.ERR), effective);
         assertTrue(effective.contains("\"storage.replication_sweep_seconds\":30"), effective);
         assertTrue(effective.contains("\"network.max_download_bytes_per_sec\":2048"), effective);
         assertTrue(effective.contains("\"behavior.transfers_paused\":false"), effective);
-        assertEquals(30, replication.sweepSeconds());
+        assertEquals(30, worker.replication().sweepSeconds());
     }
 
     /**
@@ -443,7 +370,7 @@ final class ConfigVerbIT {
         for (long huge : new long[] {1L << 31, 1L << 32, Long.MAX_VALUE}) {
             String reply = config("{\"storage.replication_sweep_seconds\":" + huge + "}");
             assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
-            assertEquals(Integer.MAX_VALUE, replication.sweepSeconds(),
+            assertEquals(Integer.MAX_VALUE, worker.replication().sweepSeconds(),
                     huge + " must saturate, not wrap round to the 30 s floor");
         }
     }
@@ -451,13 +378,13 @@ final class ConfigVerbIT {
     @Test
     void malformedBase64IsAnErrorRatherThanAnEmptyConfig() throws Exception {
         worker();
-        archive.content().setTransfersPaused(true);
+        worker.archive().content().setTransfersPaused(true);
 
-        String reply = request(ControlProtocol.CONFIG + " 2 !!!!not-base64!!!!");
+        String reply = worker.request(ControlProtocol.CONFIG + " 2 !!!!not-base64!!!!");
         assertTrue(reply.startsWith(ControlProtocol.ERR), reply);
         // The pre-existing setting survived: an unreadable payload must never be read as "unset
         // everything", which would silently undo the user's configuration.
-        assertTrue(archive.content().transfersPaused());
+        assertTrue(worker.archive().content().transfersPaused());
     }
 
     /**
@@ -470,7 +397,7 @@ final class ConfigVerbIT {
      * {@code network.default_trackers} and pushes them over {@code NODERA-CONFIG}
      * ({@code config.rs::a_stores_trackers_are_pushed_to_a_running_worker}); this is the other half
      * — that the running worker changes which trackers it dials when it arrives. One shared
-     * {@link TrackerClient} is what makes that reach every lane at once.
+     * {@code TrackerClient} is what makes that reach every lane at once.
      *
      * <p>Nothing here is desktop-specific: on Android the same push crosses the same control
      * endpoint into a worker living in the app's own process.
@@ -478,7 +405,8 @@ final class ConfigVerbIT {
     @Test
     void aStoresTrackersChangeWhichTrackerARunningWorkerDials() throws Exception {
         worker();
-        assertTrue(tracker.endpoints().isEmpty(), "the worker starts with no tracker configured");
+        assertTrue(worker.tracker().endpoints().isEmpty(),
+                "the worker starts with no tracker configured");
 
         String reply = config("{\"network.default_trackers\":"
                 + "[\"tcp://store-one.example:25600\",\"tcp://store-two.example:25601\"]}");
@@ -488,7 +416,7 @@ final class ConfigVerbIT {
         assertTrue(reply.contains("\"rejected\":{}"), reply);
         assertTrue(reply.contains("\"applied\":[\"network.default_trackers\"]"), reply);
 
-        List<String> dialled = tracker.endpoints().stream()
+        List<String> dialled = worker.tracker().endpoints().stream()
                 .map(e -> e.host() + ":" + e.port())
                 .toList();
         assertEquals(List.of("store-one.example:25600", "store-two.example:25601"), dialled,
@@ -498,28 +426,14 @@ final class ConfigVerbIT {
         // store in the app would leave the worker dialling it forever.
         assertFalse(config("{\"network.default_trackers\":[\"tcp://store-three.example:25602\"]}")
                 .startsWith(ControlProtocol.ERR));
-        assertEquals(List.of("store-three.example:25602"), tracker.endpoints().stream()
+        assertEquals(List.of("store-three.example:25602"), worker.tracker().endpoints().stream()
                 .map(e -> e.host() + ":" + e.port()).toList());
     }
 
     // --- helpers ---------------------------------------------------------------------------------
 
-    private String config(String json) throws Exception {
-        return request(ControlProtocol.CONFIG + " 2 " + Base64.getEncoder()
-                .encodeToString(json.getBytes(StandardCharsets.UTF_8)));
-    }
-
-    /** Send one control line, return the single reply line. */
-    private String request(String line) throws Exception {
-        try (Socket s = new Socket()) {
-            s.connect(new InetSocketAddress("127.0.0.1", control.boundPort()), 2000);
-            s.setSoTimeout(15_000);
-            OutputStream out = s.getOutputStream();
-            out.write((line + "\n").getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            return new BufferedReader(
-                    new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8)).readLine();
-        }
+    private String config(String json) {
+        return worker.request(ControlProtocol.CONFIG + " 2 " + WorkerNode.b64(json));
     }
 
     /**

@@ -16,7 +16,9 @@ use nodera_codec::rendezvous::RendezvousMessage;
 use nodera_codec::service::ServiceMessage;
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::WorldDeletionGossip;
-use std::path::PathBuf;
+
+mod common;
+use common::{fixture_files, name_of, tag_of};
 
 /// Bit patterns XOR-ed into a byte: low bit, high bit, and a full flip.
 const PATTERNS: [u8; 3] = [0x01, 0x80, 0xFF];
@@ -27,22 +29,6 @@ const MAX_SITES: usize = 96;
 /// Body mutations start after the 22-byte `NDR2` header: mutating the header
 /// selects a different message rather than corrupting this one.
 const HEADER_BYTES: usize = nodera_codec::frame::HEADER_BYTES;
-
-fn fixtures_dir() -> PathBuf {
-    nodera_codec::repo::wire_fixtures()
-}
-
-fn fixture_files() -> Vec<PathBuf> {
-    let dir = fixtures_dir();
-    let entries = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read fixtures dir {}: {e}", dir.display()));
-    let mut files: Vec<PathBuf> = entries
-        .map(|e| e.expect("dir entry").path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "bin"))
-        .collect();
-    files.sort();
-    files
-}
 
 /// Decode with the family that owns `tag` and re-encode, or report why it was rejected.
 fn round_trip_as(tag: u16, bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -85,8 +71,13 @@ fn decoded_mutations_re_encode_to_their_own_bytes() {
 
     for path in fixture_files() {
         let golden = std::fs::read(&path).expect("read fixture");
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let tag = u16::from_be_bytes([golden[0], golden[1]]);
+        let name = name_of(&path);
+        // Through `common::tag_of`, which reads the NDR2 header. This line used to be
+        // `u16::from_be_bytes([golden[0], golden[1]])` — the first two bytes of the magic, which
+        // is no tag at all, so `round_trip_as` fell through to `DiscoveryMessage` for every
+        // fixture and the rendezvous and service frames were decode-failed and silently skipped.
+        // Extracting the helper is what made the two files' disagreement visible.
+        let tag = tag_of(&golden);
         let stride = std::cmp::max(1, golden.len() / MAX_SITES);
 
         let mut offset = HEADER_BYTES;

@@ -1,11 +1,6 @@
 package dev.nodera.peer.validation;
 
-import dev.nodera.core.Bytes;
 import dev.nodera.core.NoderaConstants;
-import dev.nodera.core.action.ActionEnvelope;
-import dev.nodera.core.action.PlaceBlockAction;
-import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.DimensionKey;
@@ -14,25 +9,17 @@ import dev.nodera.core.region.RegionClaim;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.region.RegionLease;
 import dev.nodera.core.region.ViewOwnershipPlanner;
-import dev.nodera.core.state.ChunkColumnState;
-import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.coordinator.LeaseManager;
-import dev.nodera.peer.PeerRuntime;
-import dev.nodera.peer.PeerRuntimeConfig;
-import dev.nodera.simulation.engine.FlatWorldRegionEngine;
-import dev.nodera.simulation.rules.FlatWorldRules;
-import dev.nodera.storage.event.InMemoryCertificateStore;
-import dev.nodera.testkit.LoopbackTransport;
-import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
-import dev.nodera.transport.PeerAddress;
+import dev.nodera.testkit.peer.Await;
+import dev.nodera.testkit.peer.PeerTestHarness;
+import dev.nodera.testkit.peer.RegionFixtures;
+import dev.nodera.testkit.peer.ValidationNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,19 +40,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class ResidentQuorumIT {
 
-    private static final long WORLD_SEED = 0x4E4F4445_5241L;
-    private static final int MIN_Y = -64;
-    private static final int SECTION_COUNT = 24;
-
-    private final HashService hashes = new HashService();
+    private final PeerTestHarness harness = PeerTestHarness.create();
     private final RegionId region = new RegionId(DimensionKey.overworld(), 0, 0);
-    private final List<PeerRuntime> runtimes = new ArrayList<>();
 
     @AfterEach
     void tearDown() {
-        for (PeerRuntime rt : runtimes) {
-            rt.stop();
-        }
+        harness.close();
     }
 
     @Test
@@ -108,71 +88,56 @@ final class ResidentQuorumIT {
     }
 
     @Test
-    void aWorldKeepsCommittingAfterTheSecondPlayerLeavesBecauseWorkersHoldTheSeats() throws Exception {
-        LoopbackNetwork net = LoopbackNetwork.newNetwork();
-        NodeIdentity playerA = NodeIdentity.generate();
-        NodeIdentity playerB = NodeIdentity.generate();
-        NodeIdentity worker1 = NodeIdentity.generate();
-        NodeIdentity worker2 = NodeIdentity.generate();
+    void aWorldKeepsCommittingAfterTheSecondPlayerLeavesBecauseWorkersHoldTheSeats() {
         NodeIdentity actor = NodeIdentity.generate();
-
-        Worker a = worker(net, playerA);
-        Worker b = worker(net, playerB);
-        Worker w1 = worker(net, worker1);
-        Worker w2 = worker(net, worker2);
-        List<Worker> all = List.of(a, b, w1, w2);
-        for (Worker w : all) {
-            w.service.registerActor(actor.nodeId(), actor.publicKeyBytes());
-            for (Worker other : all) {
-                if (other != w) {
-                    w.service.registerPeer(other.id.nodeId(),
-                            PeerAddress.of(other.id.nodeId(), "loopback"),
-                            other.id.publicKeyBytes());
-                }
-            }
-        }
+        ValidationNode a = harness.validationNode().build();
+        ValidationNode b = harness.validationNode().build();
+        ValidationNode w1 = harness.validationNode().build();
+        ValidationNode w2 = harness.validationNode().build();
+        ValidationNode.mesh(List.of(a, b, w1, w2), actor);
 
         // Phase 1 — two players in the same region, one worker on the third seat.
         LeaseManager leases = new LeaseManager(200);
-        RegionSnapshot base = fullUniformSnapshot(region, 0);
-        RegionLease epoch0 = leases.issue(region, playerA.nodeId(),
-                List.of(playerB.nodeId(), worker1.nodeId()), 0);
-        for (Worker w : List.of(a, b, w1)) {
-            w.service.activateRegion(base, epoch0);
+        RegionSnapshot base = RegionFixtures.fullUniformSnapshot(region, 0);
+        RegionLease epoch0 = leases.issue(region, a.nodeId(),
+                List.of(b.nodeId(), w1.nodeId()), 0);
+        for (ValidationNode w : List.of(a, b, w1)) {
+            w.service().activateRegion(base, epoch0);
         }
-        a.service.proposeBatch(region, 1, 1, List.of(place(actor, 5, 70, 5, 1)));
+        a.service().proposeBatch(region, 1, 1,
+                List.of(RegionFixtures.place(actor, region, 1, 1, 5, 70, 5, 1)));
         awaitVersionAbove(a, SnapshotVersion.INITIAL.value());
-        long afterFirst = a.service.currentSnapshot(region).orElseThrow().version().value();
+        long afterFirst = a.service().currentSnapshot(region).orElseThrow().version().value();
         assertThat(afterFirst).isGreaterThan(SnapshotVersion.INITIAL.value());
 
         // Phase 2 — player B leaves the world for good.
-        b.service.revokeRegion(region);
-        stop(b);
+        b.service().revokeRegion(region);
+        b.stop();
 
         // The re-plan seats BOTH workers; the region reopens at the next epoch on the survivors.
-        RegionSnapshot head = a.service.currentSnapshot(region).orElseThrow();
-        RegionLease epoch1 = leases.issue(region, playerA.nodeId(),
-                List.of(worker1.nodeId(), worker2.nodeId()), 100);
+        RegionSnapshot head = a.service().currentSnapshot(region).orElseThrow();
+        RegionLease epoch1 = leases.issue(region, a.nodeId(),
+                List.of(w1.nodeId(), w2.nodeId()), 100);
         assertThat(1 + epoch1.validators().size()).isEqualTo(NoderaConstants.QUORUM_MVP_SIZE);
-        for (Worker w : List.of(a, w1, w2)) {
-            w.service.activateRegion(head, epoch1);
+        for (ValidationNode w : List.of(a, w1, w2)) {
+            w.service().activateRegion(head, epoch1);
         }
 
         // Phase 3 — the world commits again with no second player anywhere on it.
-        a.service.proposeBatch(region, head.tick() + 1, head.tick() + 1,
-                List.of(place(actor, 6, 70, 6, 2)));
+        a.service().proposeBatch(region, head.tick() + 1, head.tick() + 1,
+                List.of(RegionFixtures.place(actor, region, 2, 2, 6, 70, 6, 1)));
         awaitVersionAbove(a, afterFirst);
 
-        assertThat(a.service.currentSnapshot(region).orElseThrow().version().value())
+        assertThat(a.service().currentSnapshot(region).orElseThrow().version().value())
                 .as("the surviving player's region still commits after the other player left")
                 .isGreaterThan(afterFirst);
-        var certificate = a.service.latestCertificate(region).orElseThrow();
+        var certificate = a.service().latestCertificate(region).orElseThrow();
         assertThat(certificate.votes().stream().map(v -> v.voter()).distinct())
                 .as("the quorum is co-signed by peers that are not the proposer")
                 .hasSizeGreaterThanOrEqualTo(2);
         assertThat(certificate.votes().stream().map(v -> v.voter()))
                 .as("a standing worker — no Minecraft process — carried the quorum")
-                .containsAnyOf(worker1.nodeId(), worker2.nodeId());
+                .containsAnyOf(w1.nodeId(), w2.nodeId());
     }
 
     // --- fixture -----------------------------------------------------------------------------
@@ -192,64 +157,8 @@ final class ResidentQuorumIT {
         return new PlayerView(DimensionKey.overworld(), chunkX, chunkZ, 4);
     }
 
-    private ActionEnvelope place(NodeIdentity actor, int x, int y, int z, long seq) {
-        long tick = seq;
-        ActionEnvelope unsigned = new ActionEnvelope(actor.nodeId(), seq, seq, tick, region,
-                new PlaceBlockAction(new NBlockPos(x, y, z), 1, 1), Bytes.empty());
-        return new ActionEnvelope(actor.nodeId(), seq, seq, tick, region,
-                new PlaceBlockAction(new NBlockPos(x, y, z), 1, 1),
-                actor.sign(unsigned.signedPortion()));
-    }
-
-    private void awaitVersionAbove(Worker w, long version) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 15_000;
-        while (System.currentTimeMillis() < deadline) {
-            var snap = w.service.currentSnapshot(region);
-            if (snap.isPresent() && snap.get().version().value() > version) {
-                return;
-            }
-            Thread.sleep(50);
-        }
-    }
-
-    private record Worker(NodeIdentity id, WorkerValidationService service, PeerRuntime runtime) {
-    }
-
-    private void stop(Worker w) {
-        w.runtime.stop();
-        runtimes.remove(w.runtime);
-    }
-
-    private Worker worker(LoopbackNetwork net, NodeIdentity id) {
-        LoopbackTransport tx = net.register(id.nodeId());
-        PeerRuntime runtime = PeerRuntime.bootstrap(id, NodeCapabilities.initial(), tx,
-                () -> "loopback",
-                new PeerRuntimeConfig(Duration.ofMillis(100), Duration.ofMillis(500)), null);
-        runtimes.add(runtime);
-        WorkerValidationService service = new WorkerValidationService(id, tx,
-                new FlatWorldRegionEngine(
-                        FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), hashes),
-                hashes, new InMemoryCertificateStore(hashes), WORLD_SEED,
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), 5_000L);
-        runtime.onApplicationMessage(service::onMessage);
-        return new Worker(id, service, runtime);
-    }
-
-    private ChunkColumnState uniformColumn(int chunkX, int chunkZ, int stateId) {
-        int[] palette = new int[SECTION_COUNT];
-        Arrays.fill(palette, stateId);
-        return new ChunkColumnState(chunkX, chunkZ, palette, MIN_Y, SECTION_COUNT);
-    }
-
-    private RegionSnapshot fullUniformSnapshot(RegionId r, int stateId) {
-        int ox = r.originChunkX();
-        int oz = r.originChunkZ();
-        List<ChunkColumnState> cols = new ArrayList<>(64);
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                cols.add(uniformColumn(ox + dx, oz + dz, stateId));
-            }
-        }
-        return new RegionSnapshot(r, SnapshotVersion.INITIAL, 0L, cols);
+    private void awaitVersionAbove(ValidationNode node, long version) {
+        Await.quietly(15_000, () -> node.service().currentSnapshot(region)
+                .map(snapshot -> snapshot.version().value() > version).orElse(false));
     }
 }

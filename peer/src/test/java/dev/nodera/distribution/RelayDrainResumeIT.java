@@ -6,10 +6,13 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.testkit.LoopbackTransport;
+import dev.nodera.testkit.peer.Await;
+import dev.nodera.testkit.peer.PeerTestHarness;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
 import dev.nodera.transport.TransportException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -55,6 +58,13 @@ final class RelayDrainResumeIT {
      */
     private static final int PIECE_TARGET = 64;
     private static final long TIMEOUT_SECONDS = 30L;
+
+    private final PeerTestHarness harness = PeerTestHarness.create();
+
+    @AfterEach
+    void tearDown() {
+        harness.close();
+    }
 
     /** Relay membership for a set of peers, plus the drain that cuts what it was bridging. */
     private static final class RelayFabric {
@@ -143,15 +153,34 @@ final class RelayDrainResumeIT {
     private static final long ONE_WINDOW_BYTES = 4L * PIECE_TARGET;
 
     /** Wait for the first pieces of a throttled download to land, then for it to go quiet. */
-    private static void awaitProgress(PieceDownloader downloader) throws InterruptedException {
-        for (int guard = 0; guard < 1000 && downloader.verifiedCount() == 0; guard++) {
-            Thread.sleep(2);
-        }
+    private static void awaitProgress(PieceDownloader downloader) {
+        Await.quietly(2_000, () -> downloader.verifiedCount() > 0);
         int last = -1;
         while (last != downloader.verifiedCount()) {
             last = downloader.verifiedCount();
-            Thread.sleep(50);
+            Await.sleep(50);
         }
+    }
+
+    /**
+     * The pair of peers this suite needs: real content services over a modelled relay fabric.
+     *
+     * <p>Not {@code DistFixtures.peer}, and that is the point — the transport under the service is
+     * a {@link RelayedTransport} rather than the loopback one, because a drain is a property of the
+     * relay and there is nothing to cut on a direct carrier.
+     */
+    private ContentTransferService relayed(RelayFabric fabric, long idBits, int slots) {
+        NodeId id = DistFixtures.node(idBits);
+        LoopbackTransport loop = harness.network().register(id);
+        RelayedTransport transport = new RelayedTransport(id, loop, fabric);
+        ContentTransferService content = new ContentTransferService(
+                id, transport, new DistFixtures.MapContentStore(),
+                node -> PeerAddress.of(node, "relay"), slots, 64L * 1024 * 1024);
+        loop.setHandler(content);
+        fabric.join(id, "relay-a", content);
+        transport.start();
+        harness.onClose(transport::stop);
+        return content;
     }
 
     @Test
@@ -161,75 +190,51 @@ final class RelayDrainResumeIT {
         int pieceCount = layout.manifest().pieceCount();
         assertThat(pieceCount).isGreaterThanOrEqualTo(8);
 
-        LoopbackTransport.LoopbackNetwork network = LoopbackTransport.LoopbackNetwork.newNetwork();
         RelayFabric fabric = new RelayFabric();
-
-        NodeId seederId = DistFixtures.node(41);
-        NodeId leecherId = DistFixtures.node(42);
-        LoopbackTransport seederLoop = network.register(seederId);
-        LoopbackTransport leecherLoop = network.register(leecherId);
-        RelayedTransport seederTransport = new RelayedTransport(seederId, seederLoop, fabric);
-        RelayedTransport leecherTransport = new RelayedTransport(leecherId, leecherLoop, fabric);
-
         // A deliberately narrow serve budget: the seeder answers a few pieces per window, so the
         // transfer is guaranteed to be genuinely in flight — not finished — when the grace period
         // expires. That is the case the row is about.
-        ContentTransferService seeder = new ContentTransferService(
-                seederId, seederTransport, new DistFixtures.MapContentStore(),
-                node -> PeerAddress.of(node, "relay"), 2, 64L * 1024 * 1024);
-        ContentTransferService leecher = new ContentTransferService(
-                leecherId, leecherTransport, new DistFixtures.MapContentStore(),
-                node -> PeerAddress.of(node, "relay"), 8, 64L * 1024 * 1024);
+        ContentTransferService seeder = relayed(fabric, 41, 2);
+        ContentTransferService leecher = relayed(fabric, 42, 8);
         leecher.setDownloadBandwidthBudget(ONE_WINDOW_BYTES);
-        seederLoop.setHandler(seeder);
-        leecherLoop.setHandler(leecher);
-        fabric.join(seederId, "relay-a", seeder);
-        fabric.join(leecherId, "relay-a", leecher);
-        seederTransport.start();
-        leecherTransport.start();
 
-        try {
-            seeder.publish(layout.manifest(), layout.blob());
+        seeder.publish(layout.manifest(), layout.blob());
 
-            PieceDownloader downloader = leecher.download(layout.manifest(), null);
-            downloader.addHolder(seeder.availability());
-            CompletableFuture<Bytes> done = downloader.start();
+        PieceDownloader downloader = leecher.download(layout.manifest(), null);
+        downloader.addHolder(seeder.availability());
+        CompletableFuture<Bytes> done = downloader.start();
 
-            // The download's own request budget is the throttle, and it is what makes this test
-            // deterministic rather than a race with a fast loopback: with one window's worth of
-            // bytes granted, the leecher asks for a handful of pieces and then goes quiet until the
-            // caller opens the next window. The drain lands in that quiet, mid-transfer.
-            awaitProgress(downloader);
-            int carriedAcrossTheDrain = downloader.verifiedCount();
-            assertThat(carriedAcrossTheDrain).isPositive().isLessThan(pieceCount);
-            assertThat(done).isNotDone();
+        // The download's own request budget is the throttle, and it is what makes this test
+        // deterministic rather than a race with a fast loopback: with one window's worth of
+        // bytes granted, the leecher asks for a handful of pieces and then goes quiet until the
+        // caller opens the next window. The drain lands in that quiet, mid-transfer.
+        awaitProgress(downloader);
+        int carriedAcrossTheDrain = downloader.verifiedCount();
+        assertThat(carriedAcrossTheDrain).isPositive().isLessThan(pieceCount);
+        assertThat(done).isNotDone();
 
-            // --- the grace period expires with the circuit still bridged ---------------------
-            fabric.drain("relay-a", "relay-b");
-            assertThat(fabric.cutCircuits).isPositive();
-            assertThat(done).isNotDone();
+        // --- the grace period expires with the circuit still bridged ---------------------
+        fabric.drain("relay-a", "relay-b");
+        assertThat(fabric.cutCircuits).isPositive();
+        assertThat(done).isNotDone();
 
-            // --- resume: the caller's existing stall nudge is the whole recovery path ---------
-            // WorldArchiveService already calls retryPending() every couple of seconds while a
-            // fetch is not progressing; nothing new has to be wired for a drained relay.
-            for (int guard = 0; guard < 2000 && !done.isDone(); guard++) {
-                downloader.retryPending();
-                leecher.resetDownloadWindow();
-                Thread.sleep(2);
-            }
-
-            Bytes assembled = done.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            assertThat(assembled).isEqualTo(layout.blob());
-            // It resumed rather than restarting: the pieces verified before the cut were kept, and
-            // the peer whose circuit was cut is the one that served the rest.
-            assertThat(downloader.verifiedCount()).isEqualTo(pieceCount);
-            assertThat(downloader.holdersRestored()).isPositive();
-            assertThat(leecher.heldPieces(layout.manifest().manifestRoot()).cardinality())
-                    .isEqualTo(pieceCount);
-        } finally {
-            leecherTransport.stop();
-            seederTransport.stop();
+        // --- resume: the caller's existing stall nudge is the whole recovery path ---------
+        // WorldArchiveService already calls retryPending() every couple of seconds while a
+        // fetch is not progressing; nothing new has to be wired for a drained relay.
+        for (int guard = 0; guard < 2000 && !done.isDone(); guard++) {
+            downloader.retryPending();
+            leecher.resetDownloadWindow();
+            Await.sleep(2);
         }
+
+        Bytes assembled = done.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(assembled).isEqualTo(layout.blob());
+        // It resumed rather than restarting: the pieces verified before the cut were kept, and
+        // the peer whose circuit was cut is the one that served the rest.
+        assertThat(downloader.verifiedCount()).isEqualTo(pieceCount);
+        assertThat(downloader.holdersRestored()).isPositive();
+        assertThat(leecher.heldPieces(layout.manifest().manifestRoot()).cardinality())
+                .isEqualTo(pieceCount);
     }
 
     /**
@@ -242,50 +247,28 @@ final class RelayDrainResumeIT {
         RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 91L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
 
-        LoopbackTransport.LoopbackNetwork network = LoopbackTransport.LoopbackNetwork.newNetwork();
         RelayFabric fabric = new RelayFabric();
-        NodeId seederId = DistFixtures.node(51);
-        NodeId leecherId = DistFixtures.node(52);
-        LoopbackTransport seederLoop = network.register(seederId);
-        LoopbackTransport leecherLoop = network.register(leecherId);
-        RelayedTransport seederTransport = new RelayedTransport(seederId, seederLoop, fabric);
-        RelayedTransport leecherTransport = new RelayedTransport(leecherId, leecherLoop, fabric);
-        ContentTransferService seeder = new ContentTransferService(
-                seederId, seederTransport, new DistFixtures.MapContentStore(),
-                node -> PeerAddress.of(node, "relay"), 2, 64L * 1024 * 1024);
-        ContentTransferService leecher = new ContentTransferService(
-                leecherId, leecherTransport, new DistFixtures.MapContentStore(),
-                node -> PeerAddress.of(node, "relay"), 8, 64L * 1024 * 1024);
+        ContentTransferService seeder = relayed(fabric, 51, 2);
+        ContentTransferService leecher = relayed(fabric, 52, 8);
         leecher.setDownloadBandwidthBudget(ONE_WINDOW_BYTES);
-        seederLoop.setHandler(seeder);
-        leecherLoop.setHandler(leecher);
-        fabric.join(seederId, "relay-a", seeder);
-        fabric.join(leecherId, "relay-a", leecher);
-        seederTransport.start();
-        leecherTransport.start();
 
-        try {
-            seeder.publish(layout.manifest(), layout.blob());
-            PieceDownloader downloader = leecher.download(layout.manifest(), null);
-            downloader.addHolder(seeder.availability());
-            CompletableFuture<Bytes> done = downloader.start();
-            awaitProgress(downloader);
-            assertThat(downloader.verifiedCount())
-                    .isPositive().isLessThan(layout.manifest().pieceCount());
+        seeder.publish(layout.manifest(), layout.blob());
+        PieceDownloader downloader = leecher.download(layout.manifest(), null);
+        downloader.addHolder(seeder.availability());
+        CompletableFuture<Bytes> done = downloader.start();
+        awaitProgress(downloader);
+        assertThat(downloader.verifiedCount())
+                .isPositive().isLessThan(layout.manifest().pieceCount());
 
-            fabric.drain("relay-a", "relay-b");
-            // No retryPending(): the holder stays in the lost set, exactly as it stayed forgotten
-            // before it was remembered at all. Opening window after window changes nothing, because
-            // there is no holder left to spend them on.
-            for (int guard = 0; guard < 20; guard++) {
-                leecher.resetDownloadWindow();
-                Thread.sleep(10);
-            }
-            assertThat(done).isNotDone();
-            assertThat(downloader.verifiedCount()).isLessThan(layout.manifest().pieceCount());
-        } finally {
-            leecherTransport.stop();
-            seederTransport.stop();
+        fabric.drain("relay-a", "relay-b");
+        // No retryPending(): the holder stays in the lost set, exactly as it stayed forgotten
+        // before it was remembered at all. Opening window after window changes nothing, because
+        // there is no holder left to spend them on.
+        for (int guard = 0; guard < 20; guard++) {
+            leecher.resetDownloadWindow();
+            Await.sleep(10);
         }
+        assertThat(done).isNotDone();
+        assertThat(downloader.verifiedCount()).isLessThan(layout.manifest().pieceCount());
     }
 }

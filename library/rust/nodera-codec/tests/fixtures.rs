@@ -12,7 +12,9 @@ use nodera_codec::rendezvous::RendezvousMessage;
 use nodera_codec::service::ServiceMessage;
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::{WorldDeletionGossip, WorldRevivalGossip};
-use std::path::PathBuf;
+
+mod common;
+use common::{fixture_files, fixtures_dir, name_of, tag_of};
 
 /// Decode a golden frame with whichever family owns `tag`, and re-encode it.
 ///
@@ -95,31 +97,6 @@ fn round_trip_as(tag: u16, bytes: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-/// The wire kind a golden fixture declares.
-///
-/// Read out of the `NDR2` header rather than the first two bytes: the frame now opens on a magic
-/// number, which is the point — a caller that reaches for bytes 0..2 as a tag is reading a frame
-/// from the previous generation.
-fn tag_of(golden: &[u8]) -> u16 {
-    nodera_codec::frame::NoderaFrame::peek_kind(golden).unwrap_or(u16::MAX)
-}
-
-fn fixtures_dir() -> PathBuf {
-    nodera_codec::repo::wire_fixtures()
-}
-
-fn fixture_files() -> Vec<PathBuf> {
-    let dir = fixtures_dir();
-    let entries = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read fixtures dir {}: {e}", dir.display()));
-    let mut files: Vec<PathBuf> = entries
-        .map(|e| e.expect("dir entry").path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "bin"))
-        .collect();
-    files.sort();
-    files
-}
-
 #[test]
 fn every_java_fixture_round_trips_byte_exactly() {
     let files = fixture_files();
@@ -130,7 +107,7 @@ fn every_java_fixture_round_trips_byte_exactly() {
     );
     for path in files {
         let golden = std::fs::read(&path).expect("read fixture");
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let name = name_of(&path);
         let reencoded = round_trip_as(tag_of(&golden), &golden)
             .unwrap_or_else(|e| panic!("{name}: Java-emitted fixture failed to decode: {e}"));
         assert_eq!(
@@ -148,7 +125,7 @@ fn truncating_a_fixture_is_rejected_rather_than_panicking() {
     for path in fixture_files() {
         let golden = std::fs::read(&path).expect("read fixture");
         let tag = tag_of(&golden);
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let name = name_of(&path);
         for cut in 1..golden.len() {
             assert!(
                 round_trip_as(tag, &golden[..cut]).is_err(),
