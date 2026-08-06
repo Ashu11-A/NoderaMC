@@ -77,13 +77,12 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     private final java.util.Map<RegionId, ServerLevel> boundLevels =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
-    /**
-     * Regions this node has SEEN a non-delegable entity in. Separate from the validation lane's
-     * refused set because the two answer different questions: "has the mesh been told" versus "has
-     * this node ever said so out loud", and only the second one keeps a live drive honest.
-     */
-    private final Set<RegionId> observedNonDelegable =
-            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    // There is no `observedNonDelegable` set here any more, and its absence is a decision rather
+    // than a tidy-up (issue #236). It deduplicated the once-per-region log line that `revokeForEntity`
+    // wrote when this lane refused a region for an entity the engine does not model — and that
+    // refusal was retired on 2026-07-29, because it deleted every region from the validated lane
+    // within seconds of a real world loading (docs/minecraft/Task.10.md). An unmodelled entity is
+    // left to vanilla in `EntityCaptureBridge.captureJoin`, which keeps its own once-per-region set.
     /**
      * Feeds locally-captured actions to this node's render overlay (L-16). Resolved per call, so a
      * client validation lane that starts after this runtime does is still picked up.
