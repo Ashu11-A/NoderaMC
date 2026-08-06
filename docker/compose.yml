@@ -68,7 +68,25 @@ services:
   # the top of this file. It is here so the project's own host can run the site out of the same
   # compose project it already runs, and so `docker compose pull web` is the whole update path.
   web:
-    image: ghcr.io/ashu11-a/noderamc:web-${NODERA_IMAGE_TAG:-latest}
+    # Its OWN tag variable, and the only service here that defaults to `canary`.
+    #
+    # `NODERA_IMAGE_TAG` is a project-wide pin — noderamc.org's own host holds it at a commit sha,
+    # which is right for a tracker and a relay: those carry peer state and reservation identity, and
+    # an operator wants to choose when they move. The site carries no state and is meant to follow
+    # main within minutes of a merge; that is the whole purpose of the update timer next door in
+    # deploy/vps/. One variable cannot express both policies.
+    #
+    # It could not, and the failure was total rather than partial: the host pinned
+    # `NODERA_IMAGE_TAG=sha-e772f07`, so compose asked for `web-sha-e772f07` — a tag from before the
+    # web service existed — and `docker compose pull web` answered `manifest unknown`. The old
+    # default was no better on a fresh host: `web-latest` is published only from a `v*` git tag, and
+    # this repository has never had one, so the documented bootstrap could never have worked.
+    #
+    # `canary` is what `.github/workflows/containers.yml` publishes on every push to main, and what
+    # `scripts/bootstrap-site-host.sh` says in its own header the steady state pulls. Anyone who
+    # wants the site pinned too sets `NODERA_WEB_IMAGE_TAG` to a `sha-…` and the timer stops moving
+    # it, which is the same escape hatch by a name that does not also move the tracker.
+    image: ghcr.io/ashu11-a/noderamc:web-${NODERA_WEB_IMAGE_TAG:-canary}
     restart: unless-stopped
     # Behind a profile, so a plain `docker compose up -d` still brings up a tracker and a relay and
     # nothing else. Somebody self-hosting a tracker has no reason to also run noderamc.org's

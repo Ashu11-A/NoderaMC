@@ -39,6 +39,13 @@ manifest lists covering `linux/amd64` and `linux/arm64`; Docker picks the right 
 also tagged with its commit (`tracker-sha-<short>`), which is what you pin when you need a deployment
 that does not move under you.
 
+Which tag `compose.yml` asks for is **two** variables, not one, because the site and the services are
+held to different policies. `NODERA_IMAGE_TAG` (default `latest`) covers the tracker, the relay and
+telemetry: those carry peer state and reservation identity, so an operator chooses when they move —
+noderamc.org's own host pins them to a `sha-…`. `NODERA_WEB_IMAGE_TAG` (default `canary`) covers the
+website alone, which carries no state and is meant to follow `main` within minutes of a merge. Pin
+the site too by setting it to a `sha-…`, and the update timer stops moving it.
+
 Built by [`.github/workflows/containers.yml`](../.github/workflows/containers.yml).
 
 ## Getting one running
