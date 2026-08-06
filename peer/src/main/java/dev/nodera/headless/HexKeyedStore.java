@@ -87,7 +87,7 @@ final class HexKeyedStore {
      *
      * @param worldIdHex the world, in any case and with any surrounding space.
      * @param suffix     the subclass's file extension.
-     * @return the resolved path, guaranteed to be inside {@link #directory()}.
+     * @return the resolved path, guaranteed to be inside the store's directory.
      * @throws IllegalArgumentException if the id is not hex, or — belt and braces after the hex
      *                                  check has already made it impossible — if the resolved path
      *                                  would escape the directory.
@@ -97,11 +97,10 @@ final class HexKeyedStore {
         if (name == null) {
             throw new IllegalArgumentException("worldId must be hex: " + worldIdHex);
         }
-        Path resolved = directory.resolve(name + suffix).normalize();
-        if (!resolved.startsWith(directory)) {
-            throw new IllegalArgumentException("path escapes " + directory);
-        }
-        return resolved;
+        // The containment half is ContainedPath's, shared with ManifestIndexStore and the world
+        // archive: three copies of this check disagreed, and the weakest of them was the one
+        // reading names off the network.
+        return dev.nodera.distribution.ContainedPath.inside(directory, name + suffix);
     }
 
     /** @return every id this store holds a {@code suffix} file for. */

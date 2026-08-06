@@ -44,9 +44,15 @@ import java.util.function.Predicate;
  *
  * <h2>Safety</h2>
  *
- * <p>{@link #unpackInto} refuses absolute paths and any {@code ..} traversal segment — an archive
- * fetched from an untrusted swarm must never write outside its destination root. (Piece hashes
- * make corruption detectable; this guard makes a <i>maliciously crafted</i> archive inert.)
+ * <p>Entry names are attacker-chosen: an archive fetched from an untrusted swarm decides what the
+ * files inside it are called. Both {@link #pack} and {@link #unpack} refuse a name that is empty,
+ * absolute on <i>any</i> platform, contains a backslash, or holds a {@code ..} segment; {@link
+ * #unpackInto} additionally proves, per entry, that the resolved target is still inside the
+ * destination root — after making that root absolute, and following symbolic links, because a
+ * lexical check cannot see that a directory is a link to somewhere else. The guard is
+ * {@link ContainedPath}, shared with the headless stores so a fourth copy cannot drift from it.
+ * (Piece hashes make corruption detectable; this guard makes a <i>maliciously crafted</i> archive
+ * inert.)
  *
  * <p>Thread-context: stateless static helpers; safe for any thread.
  */
@@ -175,11 +181,10 @@ public final class WorldArchive {
         try {
             Files.createDirectories(root);
             for (Map.Entry<String, byte[]> e : files.entrySet()) {
-                Path target = root.resolve(e.getKey()).normalize();
-                if (!target.startsWith(root.normalize())) {
-                    throw new IllegalArgumentException(
-                            "archive entry escapes destination: " + e.getKey());
-                }
+                // One guard, shared with the two headless stores (ContainedPath): this call site is
+                // the only one of the three whose names are attacker-chosen, and it used to be the
+                // weakest of the three.
+                Path target = ContainedPath.inside(root, e.getKey());
                 Files.createDirectories(target.getParent());
                 Files.write(target, e.getValue());
             }
@@ -399,13 +404,7 @@ public final class WorldArchive {
 
     /** Reject null/empty/absolute/traversing entry paths (see class Javadoc, "Safety"). */
     private static String checkedPath(String path) {
-        if (path == null || path.isEmpty()) {
-            throw new IllegalArgumentException("archive entry path must not be empty");
-        }
-        if (path.startsWith("/") || path.contains("\\") || path.matches(".*(^|/)\\.\\.(/|$).*")) {
-            throw new IllegalArgumentException("unsafe archive entry path: " + path);
-        }
-        return path;
+        return ContainedPath.checkedName(path);
     }
 
     /** All-files variant of {@link #packDirectory(Path, Predicate)} using the default filter. */
