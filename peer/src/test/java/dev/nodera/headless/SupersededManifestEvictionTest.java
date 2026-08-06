@@ -1,18 +1,13 @@
 package dev.nodera.headless;
 
 import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.CanonicalWriter;
-import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.distribution.PieceManifest;
-import dev.nodera.protocol.content.WorldManifestAnswer;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.testkit.LoopbackTransport;
+import dev.nodera.distribution.WorldArchive;
+import dev.nodera.storage.ContentStore;
 import dev.nodera.transport.PeerAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,46 +26,23 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class SupersededManifestEvictionTest {
 
-    private final HashService hashes = new HashService();
-    private WorldArchiveService service;
-    private LoopbackTransport transport;
-    private InMemoryContentStore store;
+    private final ArchiveMesh mesh = ArchiveMesh.loopback(1);
+    private final WorldArchiveService replica = mesh.node(0).service();
+    private final ContentStore store = mesh.node(0).store();
 
     @AfterEach
     void tearDown() {
-        if (service != null) {
-            service.close();
-        }
-        if (transport != null) {
-            transport.stop();
-        }
+        mesh.close();
     }
 
-    private WorldArchiveService replica() {
-        NodeIdentity identity = NodeIdentity.generate();
-        transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
-        transport.start();
-        store = new InMemoryContentStore(hashes);
-        service = new WorldArchiveService(identity, transport, store, List.of());
-        return service;
-    }
-
-    private static byte[] blob(long seed, int size) {
-        byte[] raw = new byte[size];
-        new java.util.Random(seed).nextBytes(raw);
-        return raw;
-    }
-
-    private static WorldManifestAnswer answerCarrying(Bytes worldId, PieceManifest manifest) {
-        CanonicalWriter w = new CanonicalWriter();
-        manifest.encode(w);
-        return new WorldManifestAnswer(worldId, List.of(w.toBytes()));
+    /** Somebody else's node, as the sender of an inbound manifest answer. */
+    private static PeerAddress anotherPeer() {
+        return PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback");
     }
 
     @Test
     void learningANewerVersionEvictsTheOneThisSeederWasStillServing() {
-        WorldArchiveService replica = replica();
-        Bytes worldId = hashes.sha256("l55-world".getBytes());
+        Bytes worldId = mesh.worldId("l55-world");
         String worldIdHex = worldId.toHex();
 
         // This peer replicated the world before the author rotated its password. ENCRYPTED, because
@@ -78,8 +50,8 @@ final class SupersededManifestEvictionTest {
         // opens. The fixture used a plaintext archive, which has no password to revoke — so the test
         // was asserting the rule against content the rule does not protect, and that mismatch is why
         // eviction had been applied to plaintext worlds too, destroying the only copies a swarm had.
-        PieceManifest old = replica.seedEncryptedArchive(worldIdHex, blob(1L, 80_000),
-                "old-password".toCharArray());
+        PieceManifest old = replica.seedEncryptedArchive(worldIdHex,
+                ArchiveMesh.blob(1L, 80_000), "old-password".toCharArray());
         assertThat(replica.heldVersions(worldIdHex)).hasSize(1);
         assertThat(store.has(old.blob())).isTrue();
         assertThat(replica.holdingsFor(worldIdHex)).hasSize(1);
@@ -87,10 +59,8 @@ final class SupersededManifestEvictionTest {
         // The author re-keys; the newer manifest reaches this peer through the ordinary manifest
         // exchange. Note it holds no piece of v2 — it only learned that v2 exists, and that alone
         // is what makes v1 superseded.
-        PieceManifest rotated = dev.nodera.distribution.WorldArchive.manifestFor(2L, blob(2L, 80_000));
-        // (only the version number matters here — the peer learns v2 exists, holding none of it)
-        replica.onMessage(PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback"),
-                answerCarrying(worldId, rotated));
+        PieceManifest rotated = WorldArchive.manifestFor(2L, ArchiveMesh.blob(2L, 80_000));
+        replica.onMessage(anotherPeer(), ArchiveMesh.answerCarrying(worldId, rotated));
 
         assertThat(replica.heldVersions(worldIdHex))
                 .as("only the newest known version is maintained")
@@ -108,14 +78,12 @@ final class SupersededManifestEvictionTest {
 
     @Test
     void learningTheVersionItAlreadyHoldsChangesNothing() {
-        WorldArchiveService replica = replica();
-        Bytes worldId = hashes.sha256("l55-world-2".getBytes());
+        Bytes worldId = mesh.worldId("l55-world-2");
         String worldIdHex = worldId.toHex();
 
-        PieceManifest held = replica.seedEncryptedArchive(worldIdHex, blob(3L, 40_000),
-                "pw".toCharArray());
-        replica.onMessage(PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback"),
-                answerCarrying(worldId, held));
+        PieceManifest held = replica.seedEncryptedArchive(worldIdHex,
+                ArchiveMesh.blob(3L, 40_000), "pw".toCharArray());
+        replica.onMessage(anotherPeer(), ArchiveMesh.answerCarrying(worldId, held));
 
         assertThat(replica.heldVersions(worldIdHex)).hasSize(1);
         assertThat(store.has(held.blob())).isTrue();
@@ -126,19 +94,18 @@ final class SupersededManifestEvictionTest {
     void anOlderVersionArrivingLateNeverEvictsTheNewerOne() {
         // Answers are unordered on the wire: a slow seeder may deliver v1 after v2 is known. That
         // must not superseded-evict the newest, and must not resurrect v1 either.
-        WorldArchiveService replica = replica();
-        Bytes worldId = hashes.sha256("l55-world-3".getBytes());
+        Bytes worldId = mesh.worldId("l55-world-3");
         String worldIdHex = worldId.toHex();
 
-        replica.seedEncryptedArchive(worldIdHex, blob(9L, 10_000), "pw".toCharArray());  // v1…
-        PieceManifest current =
-                replica.seedEncryptedArchive(worldIdHex, blob(4L, 50_000), "pw".toCharArray()); // v2
+        replica.seedEncryptedArchive(worldIdHex,
+                ArchiveMesh.blob(9L, 10_000), "pw".toCharArray());                          // v1…
+        PieceManifest current = replica.seedEncryptedArchive(worldIdHex,
+                ArchiveMesh.blob(4L, 50_000), "pw".toCharArray());                          // v2
         replica.supersedeOlderVersions(worldIdHex);                           // v1 evicted
         assertThat(replica.heldVersions(worldIdHex)).hasSize(1);
 
-        PieceManifest stale = dev.nodera.distribution.WorldArchive.manifestFor(1L, blob(5L, 10_000));
-        replica.onMessage(PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback"),
-                answerCarrying(worldId, stale));
+        PieceManifest stale = WorldArchive.manifestFor(1L, ArchiveMesh.blob(5L, 10_000));
+        replica.onMessage(anotherPeer(), ArchiveMesh.answerCarrying(worldId, stale));
 
         assertThat(replica.newestManifest(worldIdHex).orElseThrow().manifestRoot())
                 .isEqualTo(current.manifestRoot());

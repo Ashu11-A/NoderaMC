@@ -1,17 +1,12 @@
 package dev.nodera.headless;
 
-import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.testkit.LoopbackTransport;
-import dev.nodera.transport.PeerAddress;
+import dev.nodera.protocol.content.WorldManifestQuery;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,79 +27,32 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 final class ArchiveFetchThroughputTest {
 
-    private final HashService hashes = new HashService();
-    private WorldArchiveService seederService;
-    private WorldArchiveService joinerService;
-    private LoopbackTransport seederTransport;
-    private LoopbackTransport joinerTransport;
+    private final ArchiveMesh mesh = ArchiveMesh.loopback(2);
+    private final WorldArchiveService seeder = mesh.node(0).service();
+    private final WorldArchiveService joiner = mesh.node(1).service();
 
     @AfterEach
     void tearDown() {
-        if (seederService != null) {
-            seederService.close();
-        }
-        if (joinerService != null) {
-            joinerService.close();
-        }
-        if (seederTransport != null) {
-            seederTransport.stop();
-        }
-        if (joinerTransport != null) {
-            joinerTransport.stop();
-        }
-    }
-
-    private static void bridge(LoopbackTransport transport, WorldArchiveService service) {
-        transport.setHandler(new dev.nodera.transport.MessageHandler() {
-            @Override
-            public void onMessage(PeerAddress from, byte[] frame) {
-                try {
-                    service.onMessage(from,
-                            dev.nodera.protocol.wire.WireCodec.decode(frame));
-                } catch (RuntimeException ignored) {
-                    // Frames this lane does not own are the mux's business, not the test's.
-                }
-            }
-
-            @Override
-            public void onPeerDown(PeerAddress peer) {
-            }
-        });
+        mesh.close();
     }
 
     @Test
     void aFetchWithNobodyToAskFailsImmediatelyAndSaysSo() {
-        NodeIdentity seeder = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
-        LoopbackTransport.LoopbackNetwork network = LoopbackTransport.LoopbackNetwork.newNetwork();
-        seederTransport = network.register(seeder.nodeId());
-        joinerTransport = network.register(joiner.nodeId());
-        seederTransport.start();
-        joinerTransport.start();
-        seederService = new WorldArchiveService(seeder, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
-
-        byte[] archive = new byte[256 * 1024];
-        new java.util.Random(3L).nextBytes(archive);
-        Bytes worldId = hashes.sha256("unreachable-world".getBytes());
+        byte[] archive = ArchiveMesh.blob(3L, 256 * 1024);
+        Bytes worldId = mesh.worldId("unreachable-world");
         String worldIdHex = worldId.toHex();
-        seederService.seedArchive(worldIdHex, archive);
+        seeder.seedArchive(worldIdHex, archive);
         // The manifest is known, so the fetch gets past manifest resolution — but the route is not,
         // so there is no holder to ask.
-        joinerService.onMessage(PeerAddress.of(seeder.nodeId(), "loopback"),
-                new dev.nodera.protocol.content.WorldManifestQuery(worldId));
-        joinerService.onMessage(PeerAddress.of(seeder.nodeId(), "loopback"),
-                manifestAnswer(worldId, seederService.newestManifest(worldIdHex).orElseThrow()));
+        joiner.onMessage(mesh.node(0).address(), new WorldManifestQuery(worldId));
+        joiner.onMessage(mesh.node(0).address(), ArchiveMesh.answerCarrying(worldId,
+                seeder.newestManifest(worldIdHex).orElseThrow()));
 
         long start = System.nanoTime();
         // A seeder with no route: known to exist, impossible to ask. Either stage may catch it —
         // manifest resolution asks the same routing question the holder selection does — and both
         // now say which, rather than reporting a piece-count timeout for a routing problem.
-        assertThatThrownBy(() -> joinerService.fetchArchiveFrom(worldIdHex,
+        assertThatThrownBy(() -> joiner.fetchArchiveFrom(worldIdHex,
                 Set.of(NodeIdentity.generate().nodeId()), Duration.ofSeconds(120)))
                 .hasMessageMatching("(?s).*(no reachable seeder|no routable seeder).*");
         Duration took = Duration.ofNanos(System.nanoTime() - start);
@@ -114,47 +62,19 @@ final class ArchiveFetchThroughputTest {
         assertThat(took).isLessThan(Duration.ofSeconds(10));
     }
 
-    private static dev.nodera.protocol.content.WorldManifestAnswer manifestAnswer(
-            Bytes worldId, dev.nodera.distribution.PieceManifest manifest) {
-        dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
-        manifest.encode(w);
-        return new dev.nodera.protocol.content.WorldManifestAnswer(worldId, List.of(w.toBytes()));
-    }
-
     @Test
     void anOrdinaryWorldArchiveTransfersWellInsideTheFetchBudget() {
-        NodeIdentity seeder = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
-        LoopbackTransport.LoopbackNetwork network = LoopbackTransport.LoopbackNetwork.newNetwork();
-        seederTransport = network.register(seeder.nodeId());
-        joinerTransport = network.register(joiner.nodeId());
-        seederTransport.start();
-        joinerTransport.start();
-
-        seederService = new WorldArchiveService(seeder, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-
         // The size the live run was carrying: 18 MB is an unremarkable early world.
-        byte[] archive = new byte[18 * 1024 * 1024];
-        new java.util.Random(7L).nextBytes(archive);
-        Bytes worldId = hashes.sha256("throughput-world".getBytes());
+        byte[] archive = ArchiveMesh.blob(7L, 18 * 1024 * 1024);
+        Bytes worldId = mesh.worldId("throughput-world");
         String worldIdHex = worldId.toHex();
-        seederService.seedArchive(worldIdHex, archive);
-
-        // Stand in for the peer runtime's message mux, which is what feeds `onMessage` in
-        // production. Without it the seeder never sees the manifest query and the fetch simply
-        // times out — measuring nothing.
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
+        seeder.seedArchive(worldIdHex, archive);
 
         // Teach the joiner the seeder's route the way the live path does — an inbound message.
-        joinerService.onMessage(PeerAddress.of(seeder.nodeId(), "loopback"),
-                new dev.nodera.protocol.content.WorldManifestQuery(worldId));
+        joiner.onMessage(mesh.node(0).address(), new WorldManifestQuery(worldId));
 
         long start = System.nanoTime();
-        byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex, Set.of(seeder.nodeId()),
+        byte[] fetched = joiner.fetchArchiveFrom(worldIdHex, Set.of(mesh.node(0).nodeId()),
                 Duration.ofSeconds(120));
         Duration took = Duration.ofNanos(System.nanoTime() - start);
 

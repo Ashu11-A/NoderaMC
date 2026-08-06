@@ -1,16 +1,14 @@
 package dev.nodera.headless;
 
-import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.distribution.PieceManifest;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.testkit.LoopbackTransport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,15 +33,15 @@ class ArchiveFetchResumesFromDiskTest {
     private static final String WORLD =
             "bfcaaad26cb5bf2d5b5f1cf7a2384cf74edcddb9f84bb9c08ee2846590f69a0f";
 
-    private static WorldArchiveService service(InMemoryContentStore store) {
-        NodeIdentity identity = NodeIdentity.generate();
-        LoopbackTransport transport = LoopbackTransport.LoopbackNetwork.newNetwork()
-                .register(identity.nodeId());
-        transport.start();
-        return new WorldArchiveService(identity, transport, store,
-                List.<dev.nodera.peer.discovery.TrackerClient.Endpoint>of());
+    private final ArchiveMesh mesh = ArchiveMesh.loopback(1);
+    private final WorldArchiveService archive = mesh.node(0).service();
+
+    @AfterEach
+    void tearDown() {
+        mesh.close();
     }
 
+    /** A world whose bytes are a fixed ramp, so equality assertions mean something. */
     private static byte[] world(int kilobytes) {
         byte[] blob = new byte[kilobytes * 1024];
         for (int i = 0; i < blob.length; i++) {
@@ -54,62 +52,51 @@ class ArchiveFetchResumesFromDiskTest {
 
     @Test
     @DisplayName("a world this node already holds in full is served from here, not re-fetched")
-    void aCompleteLocalCopyIsNotRefetched() throws Exception {
-        InMemoryContentStore store = new InMemoryContentStore(new HashService());
-        try (WorldArchiveService archive = service(store)) {
-            byte[] blob = world(256);
-            PieceManifest seeded = archive.seedArchive(WORLD, blob);
-            assertThat(seeded.pieceCount()).isPositive();
+    void aCompleteLocalCopyIsNotRefetched() {
+        byte[] blob = world(256);
+        PieceManifest seeded = archive.seedArchive(WORLD, blob);
+        assertThat(seeded.pieceCount()).isPositive();
 
-            // No seeders, no tracker, no network at all: if this returns the world, it came from
-            // the pieces already here.
-            byte[] fetched = archive.fetchArchiveFrom(WORLD, java.util.Set.of(),
-                    Duration.ofSeconds(5));
+        // No seeders, no tracker, no network at all: if this returns the world, it came from
+        // the pieces already here.
+        byte[] fetched = archive.fetchArchiveFrom(WORLD, Set.of(), Duration.ofSeconds(5));
 
-            assertThat(fetched).isEqualTo(blob);
-        }
+        assertThat(fetched).isEqualTo(blob);
     }
 
     @Test
     @DisplayName("restoreLocal is reachable from the fetch path at all")
-    void theResumeHookHasAProductionCaller() throws Exception {
+    void theResumeHookHasAProductionCaller() {
         // The point of this one is coverage of the wiring rather than of a behaviour: the method
         // existed and was called by nothing, which is the shape this repository keeps producing.
         // A fetch over a store holding the content must not go to the network for it.
-        InMemoryContentStore store = new InMemoryContentStore(new HashService());
-        try (WorldArchiveService archive = service(store)) {
-            byte[] blob = world(64);
-            archive.seedArchive(WORLD, blob);
+        byte[] blob = world(64);
+        archive.seedArchive(WORLD, blob);
 
-            long startedAt = System.nanoTime();
-            byte[] fetched = archive.fetchArchiveFrom(WORLD, java.util.Set.of(),
-                    Duration.ofSeconds(30));
-            Duration took = Duration.ofNanos(System.nanoTime() - startedAt);
+        long startedAt = System.nanoTime();
+        byte[] fetched = archive.fetchArchiveFrom(WORLD, Set.of(), Duration.ofSeconds(30));
+        Duration took = Duration.ofNanos(System.nanoTime() - startedAt);
 
-            assertThat(fetched).isEqualTo(blob);
-            assertThat(took)
-                    .as("content already held must not be waited for")
-                    .isLessThan(Duration.ofSeconds(5));
-        }
+        assertThat(fetched).isEqualTo(blob);
+        assertThat(took)
+                .as("content already held must not be waited for")
+                .isLessThan(Duration.ofSeconds(5));
     }
 
     @Test
     @DisplayName("progress is reported for a caller that asks for it")
-    void aFetchReportsHowFarItHasGot() throws Exception {
-        InMemoryContentStore store = new InMemoryContentStore(new HashService());
-        try (WorldArchiveService archive = service(store)) {
-            byte[] blob = world(128);
-            archive.seedArchive(WORLD, blob);
-            java.util.List<String> seen = new java.util.ArrayList<>();
+    void aFetchReportsHowFarItHasGot() {
+        byte[] blob = world(128);
+        archive.seedArchive(WORLD, blob);
+        List<String> seen = new ArrayList<>();
 
-            byte[] fetched = archive.fetchArchive(WORLD, Duration.ofSeconds(5),
-                    (verified, total) -> seen.add(verified + "/" + total));
+        byte[] fetched = archive.fetchArchive(WORLD, Duration.ofSeconds(5),
+                (verified, total) -> seen.add(verified + "/" + total));
 
-            // A complete local copy answers without a download, so the interesting assertion is
-            // that the callback is wired and never throws — the reporting itself is covered where
-            // a real transfer happens, in the control-lane test.
-            assertThat(fetched).isEqualTo(blob);
-            assertThat(seen).allSatisfy(line -> assertThat(line).contains("/"));
-        }
+        // A complete local copy answers without a download, so the interesting assertion is
+        // that the callback is wired and never throws — the reporting itself is covered where
+        // a real transfer happens, in the control-lane test.
+        assertThat(fetched).isEqualTo(blob);
+        assertThat(seen).allSatisfy(line -> assertThat(line).contains("/"));
     }
 }

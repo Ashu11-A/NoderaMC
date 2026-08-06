@@ -1,21 +1,15 @@
 package dev.nodera.headless;
 
-import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.transport.MessageHandler;
-import dev.nodera.transport.PeerAddress;
-import dev.nodera.transport.socket.SocketPeerTransport;
+import dev.nodera.core.identity.NodeId;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * A peer holding a world has to keep holding <em>that world</em>, not the version of it that
@@ -34,80 +28,30 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class PeerCatchesUpWithTheHostTest {
 
-    private final HashService hashes = new HashService();
-    private WorldArchiveService hostService;
-    private WorldArchiveService peerService;
-    private SocketPeerTransport hostTransport;
-    private SocketPeerTransport peerTransport;
+    private final ArchiveMesh mesh = ArchiveMesh.sockets(2);
+    private final ArchiveMesh.Node host = mesh.node(0);
+    private final WorldArchiveService hostService = host.service();
+    private final WorldArchiveService peerService = mesh.node(1).service();
+    private final Set<NodeId> hostIds = Set.of(host.nodeId());
+
+    PeerCatchesUpWithTheHostTest() {
+        // The peer knows how to dial the host — what `resolveSeeders` leaves behind after a tracker
+        // lookup that reported a routable peer.
+        mesh.route(1, 0);
+    }
 
     @AfterEach
     void tearDown() {
-        if (hostService != null) {
-            hostService.close();
-        }
-        if (peerService != null) {
-            peerService.close();
-        }
-        if (hostTransport != null) {
-            hostTransport.stop();
-        }
-        if (peerTransport != null) {
-            peerTransport.stop();
-        }
+        mesh.close();
     }
-
-    private static void bridge(SocketPeerTransport transport, WorldArchiveService service) {
-        transport.setHandler(new MessageHandler() {
-            @Override
-            public void onMessage(PeerAddress from, byte[] frame) {
-                try {
-                    service.onMessage(from, dev.nodera.protocol.wire.WireCodec.decode(frame));
-                } catch (RuntimeException ignored) {
-                    // Not this lane's frame; the real mux fans out the same way.
-                }
-            }
-
-            @Override
-            public void onPeerDown(PeerAddress peer) {
-            }
-        });
-    }
-
-    /** A world of {@code size} bytes, deterministic per seed so equality assertions mean something. */
-    private static byte[] world(long seed, int size) {
-        byte[] raw = new byte[size];
-        new java.util.Random(seed).nextBytes(raw);
-        return raw;
-    }
-
-    private Bytes startTwoNodes(String worldName) {
-        NodeIdentity host = NodeIdentity.generate();
-        NodeIdentity peer = NodeIdentity.generate();
-        hostTransport = new SocketPeerTransport(host, "127.0.0.1", 0, "127.0.0.1");
-        peerTransport = new SocketPeerTransport(peer, "127.0.0.1", 0, "127.0.0.1");
-        hostService = new WorldArchiveService(host, hostTransport,
-                new InMemoryContentStore(hashes), List.of());
-        peerService = new WorldArchiveService(peer, peerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(hostTransport, hostService);
-        bridge(peerTransport, peerService);
-        hostTransport.start();
-        peerTransport.start();
-        hostIds = Set.of(host.nodeId());
-        peerService.learnRoute(host.nodeId(), hostTransport.listenRoute());
-        return hashes.sha256(worldName.getBytes());
-    }
-
-    private Set<dev.nodera.core.identity.NodeId> hostIds;
 
     @Test
     @DisplayName("a peer that completed an old version follows the world forward")
     void thePeerFollowsTheWorldForward() {
-        Bytes worldId = startTwoNodes("catch-up-world");
-        String worldIdHex = worldId.toHex();
+        String worldIdHex = mesh.worldId("catch-up-world").toHex();
 
         // The world as it was when the peer joined: small, and fully fetched.
-        byte[] early = world(1L, 512 * 1024);
+        byte[] early = ArchiveMesh.blob(1L, 512 * 1024);
         hostService.seedArchive(worldIdHex, early);
         assertThat(peerService.fetchArchiveFrom(worldIdHex, hostIds, Duration.ofSeconds(30)))
                 .isEqualTo(early);
@@ -118,7 +62,7 @@ final class PeerCatchesUpWithTheHostTest {
         // one is the world as it actually exists now.
         byte[] current = null;
         for (int i = 0; i < 4; i++) {
-            current = world(10L + i, (i + 2) * 512 * 1024);
+            current = ArchiveMesh.blob(10L + i, (i + 2) * 512 * 1024);
             hostService.seedArchive(worldIdHex, current);
         }
 
@@ -156,15 +100,13 @@ final class PeerCatchesUpWithTheHostTest {
     @Test
     @DisplayName("a swarm that holds nothing says so, instead of parking the fetch")
     void anEmptyAnswerEndsTheWaitInsteadOfTimingOut() {
-        Bytes worldId = startTwoNodes("nobody-holds-this-world");
-        String worldIdHex = worldId.toHex();
+        String worldIdHex = mesh.worldId("nobody-holds-this-world").toHex();
         // The host knows the world exists — it is in its registry and announced — and has not
         // archived a byte of it yet. That is every peer's state before the first save is streamed.
 
         long start = System.nanoTime();
-        org.assertj.core.api.Assertions
-                .assertThatThrownBy(() -> peerService.fetchArchiveFrom(worldIdHex, hostIds,
-                        Duration.ofMinutes(5)))
+        assertThatThrownBy(() -> peerService.fetchArchiveFrom(worldIdHex, hostIds,
+                Duration.ofMinutes(5)))
                 .hasMessageContaining("hold no version of it");
         Duration took = Duration.ofNanos(System.nanoTime() - start);
 
@@ -176,10 +118,9 @@ final class PeerCatchesUpWithTheHostTest {
     @Test
     @DisplayName("a peer already on the newest version downloads nothing")
     void anUpToDatePeerDoesNoWork() {
-        Bytes worldId = startTwoNodes("already-current-world");
-        String worldIdHex = worldId.toHex();
+        String worldIdHex = mesh.worldId("already-current-world").toHex();
 
-        byte[] archive = world(2L, 512 * 1024);
+        byte[] archive = ArchiveMesh.blob(2L, 512 * 1024);
         hostService.seedArchive(worldIdHex, archive);
         peerService.fetchArchiveFrom(worldIdHex, hostIds, Duration.ofSeconds(30));
 
@@ -191,10 +132,9 @@ final class PeerCatchesUpWithTheHostTest {
     @Test
     @DisplayName("a newer version nobody can serve never costs the peer the copy it has")
     void theHeldCopySurvivesAnUnreachableNewerVersion() {
-        Bytes worldId = startTwoNodes("unreachable-newer-world");
-        String worldIdHex = worldId.toHex();
+        String worldIdHex = mesh.worldId("unreachable-newer-world").toHex();
 
-        byte[] archive = world(3L, 512 * 1024);
+        byte[] archive = ArchiveMesh.blob(3L, 512 * 1024);
         hostService.seedArchive(worldIdHex, archive);
         assertThat(peerService.fetchArchiveFrom(worldIdHex, hostIds, Duration.ofSeconds(30)))
                 .isEqualTo(archive);
@@ -202,10 +142,7 @@ final class PeerCatchesUpWithTheHostTest {
         // The host archives once more and closes its game: every peer hears of the version, nobody
         // holds it. This is the ordinary end of every session, and the reason the probe's answer is
         // "keep what you have" rather than "chase what you heard about".
-        hostTransport.stop();
-        hostService.close();
-        hostService = null;
-        hostTransport = null;
+        host.close();
 
         assertThat(peerService.refreshArchiveFrom(worldIdHex, hostIds, Duration.ofSeconds(2)))
                 .as("nobody answered, so the peer stays where it is")

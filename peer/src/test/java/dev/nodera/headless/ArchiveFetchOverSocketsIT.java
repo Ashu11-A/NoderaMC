@@ -1,19 +1,15 @@
 package dev.nodera.headless;
 
-import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeIdentity;
+import dev.nodera.distribution.Piece;
+import dev.nodera.distribution.PieceManifest;
+import dev.nodera.distribution.WorldArchive;
 import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.transport.MessageHandler;
-import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.socket.SocketPeerTransport;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,123 +25,53 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class ArchiveFetchOverSocketsIT {
 
-    private final HashService hashes = new HashService();
-    private WorldArchiveService seederService;
-    private WorldArchiveService joinerService;
-    private SocketPeerTransport seederTransport;
-    private SocketPeerTransport joinerTransport;
-
-    @AfterEach
-    void tearDown() {
-        if (seederService != null) {
-            seederService.close();
-        }
-        if (joinerService != null) {
-            joinerService.close();
-        }
-        if (seederTransport != null) {
-            seederTransport.stop();
-        }
-        if (joinerTransport != null) {
-            joinerTransport.stop();
-        }
-    }
-
-    private static void bridge(SocketPeerTransport transport, WorldArchiveService service) {
-        transport.setHandler(new MessageHandler() {
-            @Override
-            public void onMessage(PeerAddress from, byte[] frame) {
-                try {
-                    service.onMessage(from, dev.nodera.protocol.wire.WireCodec.decode(frame));
-                } catch (RuntimeException ignored) {
-                    // Not this lane's frame; the real mux fans out the same way.
-                }
-            }
-
-            @Override
-            public void onPeerDown(PeerAddress peer) {
-            }
-        });
-    }
-
     @Test
     @DisplayName("a joiner pulls a whole world archive from a seeder over TCP")
     void theArchiveMoves() {
-        NodeIdentity seeder = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
+        try (ArchiveMesh mesh = ArchiveMesh.sockets(2)) {
+            mesh.route(1, 0);
 
-        seederTransport = new SocketPeerTransport(seeder, "127.0.0.1", 0, "127.0.0.1");
-        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
+            byte[] archive = ArchiveMesh.blob(11L, 4 * 1024 * 1024);
+            String worldIdHex = mesh.worldId("socket-world").toHex();
+            mesh.node(0).service().seedArchive(worldIdHex, archive);
 
-        seederService = new WorldArchiveService(seeder, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
-        seederTransport.start();
-        joinerTransport.start();
+            long start = System.nanoTime();
+            byte[] fetched = mesh.node(1).service().fetchArchiveFrom(worldIdHex,
+                    Set.of(mesh.node(0).nodeId()), Duration.ofSeconds(60));
+            Duration took = Duration.ofNanos(System.nanoTime() - start);
 
-        byte[] archive = new byte[4 * 1024 * 1024];
-        new java.util.Random(11L).nextBytes(archive);
-        Bytes worldId = hashes.sha256("socket-world".getBytes());
-        String worldIdHex = worldId.toHex();
-        seederService.seedArchive(worldIdHex, archive);
-
-        // The joiner knows how to dial the seeder — the state `resolveSeeders` leaves behind after a
-        // tracker lookup that reports a routable peer.
-        joinerService.learnRoute(seeder.nodeId(), seederTransport.listenRoute());
-
-        long start = System.nanoTime();
-        byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex, Set.of(seeder.nodeId()),
-                Duration.ofSeconds(60));
-        Duration took = Duration.ofNanos(System.nanoTime() - start);
-
-        assertThat(fetched).isEqualTo(archive);
-        System.out.println("socket archive fetch: " + archive.length + " bytes in "
-                + took.toMillis() + " ms");
+            assertThat(fetched).isEqualTo(archive);
+            System.out.println("socket archive fetch: " + archive.length + " bytes in "
+                    + took.toMillis() + " ms");
+        }
     }
 
     @Test
     @DisplayName("a peer never offers a version it holds nothing of")
     void onlyHeldVersionsAreOffered() {
-        NodeIdentity seeder = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
+        try (ArchiveMesh mesh = ArchiveMesh.sockets(2)) {
+            mesh.route(1, 0);
 
-        seederTransport = new SocketPeerTransport(seeder, "127.0.0.1", 0, "127.0.0.1");
-        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
-        seederService = new WorldArchiveService(seeder, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
-        seederTransport.start();
-        joinerTransport.start();
+            byte[] v1 = ArchiveMesh.blob(21L, 512 * 1024);
+            Bytes worldId = mesh.worldId("stale-head-world");
+            String worldIdHex = worldId.toHex();
+            mesh.node(0).service().seedArchive(worldIdHex, v1);
 
-        byte[] v1 = new byte[512 * 1024];
-        new java.util.Random(21L).nextBytes(v1);
-        Bytes worldId = hashes.sha256("stale-head-world".getBytes());
-        String worldIdHex = worldId.toHex();
-        seederService.seedArchive(worldIdHex, v1);
+            // The host archived once more and closed its game. The seeder LEARNS v2 exists — it
+            // holds not one byte of it. This is the state every peer ends up in, and the state in
+            // which they all used to offer each other v2 and then answer its piece requests with
+            // silence.
+            PieceManifest v2 = WorldArchive.manifestFor(99L, new byte[512 * 1024]);
+            mesh.node(0).service().onMessage(mesh.node(1).address(),
+                    ArchiveMesh.answerCarrying(worldId, v2));
 
-        // The host archived once more and closed its game. The seeder LEARNS v2 exists — it holds
-        // not one byte of it. This is the state every peer ends up in, and the state in which they
-        // all used to offer each other v2 and then answer its piece requests with silence.
-        dev.nodera.distribution.PieceManifest v2 = dev.nodera.distribution.WorldArchive
-                .manifestFor(99L, new byte[512 * 1024]);
-        dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
-        v2.encode(w);
-        seederService.onMessage(PeerAddress.of(joiner.nodeId(), "127.0.0.1:1"),
-                new dev.nodera.protocol.content.WorldManifestAnswer(worldId, List.of(w.toBytes())));
+            byte[] fetched = mesh.node(1).service().fetchArchiveFrom(worldIdHex,
+                    Set.of(mesh.node(0).nodeId()), Duration.ofSeconds(60));
 
-        joinerService.learnRoute(seeder.nodeId(), seederTransport.listenRoute());
-        byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex, Set.of(seeder.nodeId()),
-                Duration.ofSeconds(60));
-
-        // The joiner gets the version the seeder can actually serve, rather than stalling on the
-        // one it merely knows about.
-        assertThat(fetched).isEqualTo(v1);
+            // The joiner gets the version the seeder can actually serve, rather than stalling on
+            // the one it merely knows about.
+            assertThat(fetched).isEqualTo(v1);
+        }
     }
 
     /**
@@ -161,43 +87,19 @@ final class ArchiveFetchOverSocketsIT {
     @Test
     @DisplayName("a bystander peer holding nothing cannot stall a fetch that a real seeder can serve")
     void aSilentBystanderDoesNotStallTheFetch() {
-        NodeIdentity seeder = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
-        NodeIdentity bystander = NodeIdentity.generate();
+        // node 0 seeder, node 1 joiner, node 2 bystander.
+        try (ArchiveMesh mesh = ArchiveMesh.sockets(3)) {
+            mesh.route(1, 0);
+            mesh.route(1, 2);
 
-        seederTransport = new SocketPeerTransport(seeder, "127.0.0.1", 0, "127.0.0.1");
-        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
-        SocketPeerTransport bystanderTransport =
-                new SocketPeerTransport(bystander, "127.0.0.1", 0, "127.0.0.1");
-        WorldArchiveService bystanderService = new WorldArchiveService(bystander, bystanderTransport,
-                new InMemoryContentStore(hashes), List.of());
-        seederService = new WorldArchiveService(seeder, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
-        bridge(bystanderTransport, bystanderService);
-        seederTransport.start();
-        joinerTransport.start();
-        bystanderTransport.start();
-        try {
-            byte[] archive = new byte[3 * 1024 * 1024];
-            new java.util.Random(31L).nextBytes(archive);
-            Bytes worldId = hashes.sha256("bystander-world".getBytes());
-            String worldIdHex = worldId.toHex();
-            seederService.seedArchive(worldIdHex, archive);
+            byte[] archive = ArchiveMesh.blob(31L, 3 * 1024 * 1024);
+            String worldIdHex = mesh.worldId("bystander-world").toHex();
+            mesh.node(0).service().seedArchive(worldIdHex, archive);
 
-            joinerService.learnRoute(seeder.nodeId(), seederTransport.listenRoute());
-            joinerService.learnRoute(bystander.nodeId(), bystanderTransport.listenRoute());
-
-            byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex,
-                    Set.of(seeder.nodeId(), bystander.nodeId()), Duration.ofSeconds(30));
+            byte[] fetched = mesh.node(1).service().fetchArchiveFrom(worldIdHex,
+                    Set.of(mesh.node(0).nodeId(), mesh.node(2).nodeId()), Duration.ofSeconds(30));
 
             assertThat(fetched).isEqualTo(archive);
-        } finally {
-            bystanderService.close();
-            bystanderTransport.stop();
         }
     }
 
@@ -209,40 +111,20 @@ final class ArchiveFetchOverSocketsIT {
         // case observed live is the opposite: a peer that answers correctly for a long time and
         // then stops — a fetch reported 212 of 283 pieces and never moved again. By then the
         // selector has every reason to believe that peer is the right one to ask.
-        NodeIdentity leaving = NodeIdentity.generate();
-        NodeIdentity staying = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
+        //
+        // node 0 the seeder that stays, node 1 the joiner, node 2 the one that leaves.
+        try (ArchiveMesh mesh = ArchiveMesh.sockets(3)) {
+            mesh.route(1, 0);
+            mesh.route(1, 2);
 
-        SocketPeerTransport leavingTransport =
-                new SocketPeerTransport(leaving, "127.0.0.1", 0, "127.0.0.1");
-        seederTransport = new SocketPeerTransport(staying, "127.0.0.1", 0, "127.0.0.1");
-        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
-        WorldArchiveService leavingService = new WorldArchiveService(leaving, leavingTransport,
-                new InMemoryContentStore(hashes), List.of());
-        seederService = new WorldArchiveService(staying, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(leavingTransport, leavingService);
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
-        leavingTransport.start();
-        seederTransport.start();
-        joinerTransport.start();
-        try {
-            byte[] archive = new byte[3 * 1024 * 1024];
-            new java.util.Random(97L).nextBytes(archive);
-            Bytes worldId = hashes.sha256("half-served-world".getBytes());
-            String worldIdHex = worldId.toHex();
+            byte[] archive = ArchiveMesh.blob(97L, 3 * 1024 * 1024);
+            String worldIdHex = mesh.worldId("half-served-world").toHex();
             // BOTH hold the whole world, so the fetch can legitimately complete from either.
-            leavingService.seedArchive(worldIdHex, archive);
-            seederService.seedArchive(worldIdHex, archive);
+            mesh.node(0).service().seedArchive(worldIdHex, archive);
+            mesh.node(2).service().seedArchive(worldIdHex, archive);
 
-            joinerService.learnRoute(leaving.nodeId(), leavingTransport.listenRoute());
-            joinerService.learnRoute(staying.nodeId(), seederTransport.listenRoute());
-
-            // Pull the first seeder out from under the transfer once it is under way. Whatever it
-            // had already served must count, and what it had not must come from the other peer.
+            // Pull one seeder out from under the transfer once it is under way. Whatever it had
+            // already served must count, and what it had not must come from the other peer.
             Thread saboteur = new Thread(() -> {
                 try {
                     Thread.sleep(150);
@@ -250,20 +132,17 @@ final class ArchiveFetchOverSocketsIT {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                leavingTransport.stop();
+                mesh.node(2).stopTransport();
             }, "seeder-departure");
             saboteur.setDaemon(true);
             saboteur.start();
 
-            byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex,
-                    Set.of(leaving.nodeId(), staying.nodeId()), Duration.ofSeconds(60));
+            byte[] fetched = mesh.node(1).service().fetchArchiveFrom(worldIdHex,
+                    Set.of(mesh.node(0).nodeId(), mesh.node(2).nodeId()), Duration.ofSeconds(60));
 
             assertThat(fetched)
                     .as("a peer leaving mid-transfer costs the pieces it still owed, not the world")
                     .isEqualTo(archive);
-        } finally {
-            leavingService.close();
-            leavingTransport.stop();
         }
     }
 
@@ -276,57 +155,34 @@ final class ArchiveFetchOverSocketsIT {
         // A peer without the piece then answered with silence, which is indistinguishable from a
         // dropped datagram, so the selector kept re-picking it. Measured live: 223 of 286 pieces,
         // on both fetching peers at once, no error on any side.
-        NodeIdentity partial = NodeIdentity.generate();
-        NodeIdentity full = NodeIdentity.generate();
-        NodeIdentity joiner = NodeIdentity.generate();
+        //
+        // node 0 the full seeder, node 1 the joiner, node 2 the partial holder.
+        try (ArchiveMesh mesh = ArchiveMesh.sockets(3)) {
+            mesh.route(1, 0);
+            mesh.route(1, 2);
 
-        SocketPeerTransport partialTransport =
-                new SocketPeerTransport(partial, "127.0.0.1", 0, "127.0.0.1");
-        seederTransport = new SocketPeerTransport(full, "127.0.0.1", 0, "127.0.0.1");
-        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
-        WorldArchiveService partialService = new WorldArchiveService(partial, partialTransport,
-                new InMemoryContentStore(hashes), List.of());
-        seederService = new WorldArchiveService(full, seederTransport,
-                new InMemoryContentStore(hashes), List.of());
-        joinerService = new WorldArchiveService(joiner, joinerTransport,
-                new InMemoryContentStore(hashes), List.of());
-        bridge(partialTransport, partialService);
-        bridge(seederTransport, seederService);
-        bridge(joinerTransport, joinerService);
-        partialTransport.start();
-        seederTransport.start();
-        joinerTransport.start();
-        try {
-            byte[] archive = new byte[3 * 1024 * 1024];
-            new java.util.Random(53L).nextBytes(archive);
-            Bytes worldId = hashes.sha256("partly-held-world".getBytes());
-            String worldIdHex = worldId.toHex();
-            dev.nodera.distribution.PieceManifest manifest =
-                    seederService.seedArchive(worldIdHex, archive);
+            byte[] archive = ArchiveMesh.blob(53L, 3 * 1024 * 1024);
+            String worldIdHex = mesh.worldId("partly-held-world").toHex();
+            PieceManifest manifest = mesh.node(0).service().seedArchive(worldIdHex, archive);
             assertThat(manifest.pieceCount()).isGreaterThan(4);
 
             // The partial peer holds the first piece of that exact root and nothing else — the
             // state a peer is in for the whole of its own replication, which is when a rehost is
             // most likely to pick it.
-            dev.nodera.distribution.Piece first = manifest.piece(0);
-            partialService.content().seedPiece(manifest, 0,
+            Piece first = manifest.piece(0);
+            WorldArchiveService partial = mesh.node(2).service();
+            partial.content().seedPiece(manifest, 0,
                     new Bytes(archive, (int) first.offset(), (int) first.length()));
 
-            joinerService.learnRoute(partial.nodeId(), partialTransport.listenRoute());
-            joinerService.learnRoute(full.nodeId(), seederTransport.listenRoute());
-
-            byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex,
-                    Set.of(partial.nodeId(), full.nodeId()), Duration.ofSeconds(60));
+            byte[] fetched = mesh.node(1).service().fetchArchiveFrom(worldIdHex,
+                    Set.of(mesh.node(2).nodeId(), mesh.node(0).nodeId()), Duration.ofSeconds(60));
 
             assertThat(fetched)
                     .as("a partial holder in the set costs nothing when it can say what it has")
                     .isEqualTo(archive);
-            assertThat(partialService.content().availabilityRepliesSent())
+            assertThat(partial.content().availabilityRepliesSent())
                     .as("the 'I do not have that' has to actually cross the wire and decode")
                     .isPositive();
-        } finally {
-            partialService.close();
-            partialTransport.stop();
         }
     }
 }

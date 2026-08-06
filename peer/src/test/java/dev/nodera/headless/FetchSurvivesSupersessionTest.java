@@ -1,20 +1,16 @@
 package dev.nodera.headless;
 
 import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.CanonicalWriter;
-import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.distribution.PieceManifest;
 import dev.nodera.distribution.WorldArchive;
-import dev.nodera.protocol.content.WorldManifestAnswer;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.testkit.LoopbackTransport;
+import dev.nodera.storage.ContentStore;
 import dev.nodera.transport.PeerAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,67 +37,37 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class FetchSurvivesSupersessionTest {
 
-    private final HashService hashes = new HashService();
-    private WorldArchiveService service;
-    private LoopbackTransport transport;
-    private LoopbackTransport seederTransport;
-    private InMemoryContentStore store;
+    /** Both on one network: the manifest query has to reach a registered endpoint, or the fetch
+     * gives up with "no routable seeder" before it ever starts a download. */
+    private final ArchiveMesh mesh = ArchiveMesh.loopback(2);
+    private final WorldArchiveService service = mesh.node(0).service();
+    private final ContentStore store = mesh.node(0).store();
 
     @AfterEach
     void tearDown() {
-        if (service != null) {
-            service.close();
-        }
-        if (transport != null) {
-            transport.stop();
-        }
-        if (seederTransport != null) {
-            seederTransport.stop();
-        }
-    }
-
-    private static byte[] blob(long seed, int size) {
-        byte[] raw = new byte[size];
-        new java.util.Random(seed).nextBytes(raw);
-        return raw;
-    }
-
-    private static WorldManifestAnswer answerCarrying(Bytes worldId, PieceManifest manifest) {
-        CanonicalWriter w = new CanonicalWriter();
-        manifest.encode(w);
-        return new WorldManifestAnswer(worldId, List.of(w.toBytes()));
+        mesh.close();
     }
 
     @Test
     void aNewerVersionLearnedMidFetchDoesNotEvictTheOneBeingDownloaded() throws Exception {
-        NodeIdentity identity = NodeIdentity.generate();
-        NodeIdentity seeder = NodeIdentity.generate();
-        // Both on one network: the manifest query has to actually reach a registered endpoint, or
-        // the fetch gives up with "no routable seeder" before it ever starts a download.
-        LoopbackTransport.LoopbackNetwork network = LoopbackTransport.LoopbackNetwork.newNetwork();
-        transport = network.register(identity.nodeId());
-        seederTransport = network.register(seeder.nodeId());
-        transport.start();
-        seederTransport.start();
-        store = new InMemoryContentStore(hashes);
-        service = new WorldArchiveService(identity, transport, store, List.of());
+        // The seeder answers the manifest query and then goes quiet — standing in for a peer whose
+        // pieces are still arriving. The test hands over the answers itself, so a real service
+        // answering would settle the very race this exists to hold open.
+        mesh.node(1).mute();
+        PeerAddress seederAddress = mesh.node(1).address();
 
-        Bytes worldId = hashes.sha256("mid-fetch-world".getBytes());
+        Bytes worldId = mesh.worldId("mid-fetch-world");
         String worldIdHex = worldId.toHex();
 
-        // The seeder answers the manifest query and then goes quiet — standing in for a peer whose
-        // pieces are still arriving.
-        PeerAddress seederAddress = PeerAddress.of(seeder.nodeId(), "loopback");
-
-        PieceManifest v1 = WorldArchive.manifestFor(1L, blob(11L, 300_000));
+        PieceManifest v1 = WorldArchive.manifestFor(1L, ArchiveMesh.blob(11L, 300_000));
         // An inbound message is how a route is learned; this also puts v1 in the manifest table.
-        service.onMessage(seederAddress, answerCarrying(worldId, v1));
+        service.onMessage(seederAddress, ArchiveMesh.answerCarrying(worldId, v1));
         assertThat(service.heldVersions(worldIdHex)).hasSize(1);
 
         AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread fetch = Thread.ofPlatform().daemon().name("test-fetch").start(() -> {
             try {
-                service.fetchArchiveFrom(worldIdHex, java.util.Set.of(seeder.nodeId()),
+                service.fetchArchiveFrom(worldIdHex, Set.of(mesh.node(1).nodeId()),
                         Duration.ofSeconds(30));
             } catch (Throwable t) {
                 failure.set(t);
@@ -117,7 +83,7 @@ final class FetchSurvivesSupersessionTest {
             if (failure.get() != null) {
                 throw new AssertionError("the fetch failed before it started", failure.get());
             }
-            service.onMessage(seederAddress, answerCarrying(worldId, v1));
+            service.onMessage(seederAddress, ArchiveMesh.answerCarrying(worldId, v1));
             Thread.sleep(5);
         }
         assertThat(service.isFetching(v1.manifestRoot()))
@@ -126,8 +92,8 @@ final class FetchSurvivesSupersessionTest {
 
         // The host's game is still open, so it archives again. This node learns of v2 and applies
         // "only the newest version is maintained" — the exact moment the bug destroyed the download.
-        PieceManifest v2 = WorldArchive.manifestFor(2L, blob(12L, 300_000));
-        service.onMessage(seederAddress, answerCarrying(worldId, v2));
+        PieceManifest v2 = WorldArchive.manifestFor(2L, ArchiveMesh.blob(12L, 300_000));
+        service.onMessage(seederAddress, ArchiveMesh.answerCarrying(worldId, v2));
 
         assertThat(service.heldVersions(worldIdHex))
                 .as("v1 must survive: it is being downloaded right now")
@@ -143,23 +109,17 @@ final class FetchSurvivesSupersessionTest {
 
     @Test
     void aVersionNobodyIsFetchingIsStillSuperseded() {
-        NodeIdentity identity = NodeIdentity.generate();
-        transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
-        transport.start();
-        store = new InMemoryContentStore(hashes);
-        service = new WorldArchiveService(identity, transport, store, List.of());
-
-        Bytes worldId = hashes.sha256("no-fetch-world".getBytes());
+        Bytes worldId = mesh.worldId("no-fetch-world");
         String worldIdHex = worldId.toHex();
 
         // Encrypted: supersede-eviction is scoped to ciphertext, because that is the only content
         // a password rotation can revoke. A plaintext copy is kept and bounded by the retention
         // window instead — destroying it revoked nothing and left swarms with no servable version.
-        PieceManifest old = service.seedEncryptedArchive(worldIdHex, blob(21L, 80_000),
-                "pw".toCharArray());
-        PieceManifest newer = WorldArchive.manifestFor(2L, blob(22L, 80_000));
+        PieceManifest old = service.seedEncryptedArchive(worldIdHex,
+                ArchiveMesh.blob(21L, 80_000), "pw".toCharArray());
+        PieceManifest newer = WorldArchive.manifestFor(2L, ArchiveMesh.blob(22L, 80_000));
         service.onMessage(PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback"),
-                answerCarrying(worldId, newer));
+                ArchiveMesh.answerCarrying(worldId, newer));
 
         // The guard is narrow on purpose: with no download in flight, L-55 still applies in full and
         // the superseded ciphertext still stops being served here.
