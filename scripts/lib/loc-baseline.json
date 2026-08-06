@@ -1,18 +1,18 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 on the full tree at the Plan 11 integration merge. THIRD correction to what the buckets mean, all three the same bug: (1) .mjs/.js were counted as nothing at all -- 45 files, 7,468 lines, including both frontend test suites and the site's whole generator chain -- so moving TypeScript into a .mjs file read as pure reduction; (2) Rust keeps unit tests inside the file they test, and 11,432 of 32,347 Rust code lines (35.3%) sat in #[cfg(test)] blocks counted as production, which is why tracker/src/service.rs read as a 1,228-line monolith when 811 of those lines are its tests; (3) ts now splits main from test the way java and rust already did. The tree did not change. rust.main 31,448 -> 19,997 and ts 11,405 -> 12,720 main + 3,217 test are re-measurements, not movement.",
+  "measured": "2026-08-06 on the MERGED round-2 tree. Total code 167,711 -> 158,310 (-9,401, -5.61%). rust.test +172 and ts.test +16 are the round's new regression tests -- seven Rust defect fixes, the frame-size bound asserted for all three services, the UDP amplification cap, and the wire-mutation corpus assertions -- stamped up deliberately because a size gate that charges for a regression test is pointed at the wrong thing. Re-measured on the merge commit, not merged from any branch: five branches each describe a tree that stops existing at the merge, and taking any one branch's stamp silently loosens or tightens the gate.",
   "limits": {
-    "java.main.code": 60260,
-    "java.main.comment": 35646,
-    "java.test.code": 59672,
-    "java.test.comment": 11457,
-    "rust.main.code": 19997,
-    "rust.main.comment": 7476,
-    "rust.test.code": 11845,
-    "rust.test.comment": 993,
-    "ts.main.code": 12720,
-    "ts.main.comment": 4172,
-    "ts.test.code": 3217,
-    "ts.test.comment": 1347
+    "java.main.code": 56385,
+    "java.main.comment": 33287,
+    "java.test.code": 54516,
+    "java.test.comment": 11558,
+    "rust.main.code": 19571,
+    "rust.main.comment": 7706,
+    "rust.test.code": 12017,
+    "rust.test.comment": 1063,
+    "ts.main.code": 12588,
+    "ts.main.comment": 4260,
+    "ts.test.code": 3233,
+    "ts.test.comment": 1369
   }
 }
