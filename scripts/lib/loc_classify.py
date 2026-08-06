@@ -160,8 +160,23 @@ def classify_partitioned(text: str, lang: str) -> tuple[Counts, Counts]:
     in ``scripts/loc-metrics.py``, which is the correct split for languages that keep tests in
     separate files.
     """
+    main_text, test_text = split_test_blocks(text, lang)
+    return classify_text(main_text, lang), classify_text(test_text, lang)
+
+
+def split_test_blocks(text: str, lang: str) -> tuple[str, str]:
+    """Split one source string into (production text, test text).
+
+    The same rule `classify_partitioned` counts with, exposed as text so a second reader can ask a
+    different question of the same split — `scripts/reference-check.py` needs to know whether a
+    symbol's only caller is the file's own `#[cfg(test)] mod tests`, which is a reference and is not
+    a production one.
+
+    Only Rust splits; for every other language the whole string is production, because their tests
+    live in separate files and are identified by path.
+    """
     if lang != "rust":
-        return classify_text(text, lang), Counts()
+        return text, ""
 
     lines = text.splitlines()
     test_lines: list[str] = []
@@ -175,10 +190,7 @@ def classify_partitioned(text: str, lang: str) -> tuple[Counts, Counts]:
         else:
             main_lines.append(lines[index])
             index += 1
-    return (
-        classify_text("\n".join(main_lines), lang),
-        classify_text("\n".join(test_lines), lang),
-    )
+    return "\n".join(main_lines), "\n".join(test_lines)
 
 
 def _block_end(lines: list[str], start: int) -> int:
