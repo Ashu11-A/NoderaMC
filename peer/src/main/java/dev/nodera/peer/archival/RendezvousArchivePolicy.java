@@ -96,11 +96,6 @@ public final class RendezvousArchivePolicy implements ArchivePlacementPolicy {
         return List.copyOf(result);
     }
 
-    /** @return the per-class replication factors in use. */
-    public ReplicationFactors factors() {
-        return factors;
-    }
-
     private static long score(long rootScore, NodeId peer) {
         return StableHash.of(rootScore, StableHash.of(peer.value()));
     }

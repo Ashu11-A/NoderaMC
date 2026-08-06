@@ -76,15 +76,6 @@ public final class PieceMapFeed {
         NoderaMultiplayerScreen.setPieceMapSource(byName());
     }
 
-    /** Stop polling (client shutdown). Idempotent. */
-    public static synchronized void stop() {
-        if (scheduler != null) {
-            scheduler.shutdownNow();
-            scheduler = null;
-        }
-        CACHE.clear();
-    }
-
     /**
      * Point the feed at a world, so the next refresh fetches it and the screen stops showing the
      * previous selection's grid. Triggers one immediate refresh.

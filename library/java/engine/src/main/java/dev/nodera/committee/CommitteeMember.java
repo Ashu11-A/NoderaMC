@@ -85,14 +85,6 @@ public final class CommitteeMember {
         persistence.commit(certificate);
     }
 
-    /**
-     * Cast an explicit decision (e.g. a REJECT) on a given root — used when a member disagrees with
-     * a proposal rather than proposing its own.
-     */
-    public SignedVote sign(StateRoot root, VoteDecision decision) {
-        return sign(root, root, decision);
-    }
-
     /** Sign both post-state truth and the complete transition, including one-way effects. */
     public SignedVote sign(StateRoot root, StateRoot transitionRoot, VoteDecision decision) {
         SignedVote unsigned = new SignedVote(

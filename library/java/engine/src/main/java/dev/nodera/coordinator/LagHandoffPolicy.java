@@ -115,11 +115,6 @@ public final class LagHandoffPolicy {
         return Optional.of(new Decision(current.region(), current.epoch(), current.primary()));
     }
 
-    /** Alias for {@link #observe(RegionLease, long, long)} for policy-style callers. */
-    public Optional<Decision> evaluate(RegionLease current, long skewTickBps, long nowTick) {
-        return observe(current, skewTickBps, nowTick);
-    }
-
     private long cooldownDeadline(long nowTick) {
         if (cooldownTicks > Long.MAX_VALUE - nowTick) {
             return Long.MAX_VALUE;

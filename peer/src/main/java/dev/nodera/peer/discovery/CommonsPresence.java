@@ -125,20 +125,6 @@ public final class CommonsPresence {
         }
     }
 
-    /** Say goodbye, so this node stops being offered to others the moment it stops. */
-    public void leave(String selfRoute, long nowEpochMillis) {
-        if (selfRoute == null || selfRoute.isBlank()) {
-            return;
-        }
-        try {
-            trackers.announce(trackers.buildAnnounce(
-                    WORLD_ID, AnnounceEvent.STOPPED, List.of(selfRoute), capabilities,
-                    List.of(), WORLD_NAME, 0L, 0, nowEpochMillis));
-        } catch (RuntimeException e) {
-            LOG.debug("Nodera commons: leave failed ({})", e.toString());
-        }
-    }
-
     private List<PeerEntry> withoutSelf(List<PeerEntry> peers) {
         List<PeerEntry> others = new ArrayList<>(peers.size());
         for (PeerEntry peer : peers) {

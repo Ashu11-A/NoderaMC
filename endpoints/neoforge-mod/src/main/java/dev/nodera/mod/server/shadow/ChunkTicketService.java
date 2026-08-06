@@ -70,11 +70,6 @@ public final class ChunkTicketService {
         apply(level, holds.hold(region), simulate);
     }
 
-    /** As {@link #hold(ServerLevel, RegionId, boolean)}, simulating — the primary's hold. */
-    public void hold(ServerLevel level, RegionId region) {
-        hold(level, region, true);
-    }
-
     /** Drop this region's hold; a chunk another region still holds stays loaded. */
     public void release(ServerLevel level, RegionId region) {
         apply(level, holds.release(region), true);

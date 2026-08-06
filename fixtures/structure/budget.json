@@ -1,12 +1,12 @@
 {
-  "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
-  "measured": "2026-08-05 on the full tree. Tightened by the region-hashing pass (Plan 10): the speculative diagnostic accessors that pass added were deleted rather than budgeted for, and the sweep took nine more with them \u2014 ChunkStamp#differsFrom, ChunkStampBook#clear/clock, HybridClock#node, Hlc#of, MutationGuard#mode, EncryptedRegion#piece, PieceDownloader#completion, ContentTransferService#manifestOf \u2014 plus ProposalManager's three and ReliabilityScorer's two, all of which section 2.3 reported as referenced by nothing at all, tests included. severe_cost_findings returns to 4 because WorldArchiveService#withLateArrivals no longer scans its holder list inside its own loop: the membership test now uses a set, which matters precisely when a fetch is struggling and the holder set is growing.",
+  "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
+  "measured": "2026-08-05, Plan 11 phase 1 (issue #210), on the full tree. 45 methods section 2.3 reported as referenced by nothing at all — tests included — were deleted from :engine (20), :peer (16), :storage (6) and :neoforge-mod (3), taking one nested record (`SoakMetrics.Snapshot`) with them once its only producer was gone. never_referenced_methods 136 -> 93, unreachable_methods 267 -> 264. test_only_methods stays at 415 on purpose: seven deletions would have PROMOTED a method into that set by removing its last production caller (HeartbeatMonitor's no-arg constructor, ContraptionMigrator.Groups', PeerRuntime's two TickSync delegates, CommitteeMember#sign, and two ChunkTicketService accessors), so those seven were kept — a ratchet you tighten in one column by loosening another has not measured anything. Section 2.5 could not be cut at all from this territory: every method in it is referenced by production code, and each cluster terminates in a record's canonical constructor, an @Override whose declaration lives in a frozen module, or a method a test calls — none of which this phase is allowed to touch.",
   "limits": {
     "dead_classes": 0,
     "test_only_classes": 29,
-    "never_referenced_methods": 136,
+    "never_referenced_methods": 93,
     "test_only_methods": 415,
-    "unreachable_methods": 267,
+    "unreachable_methods": 264,
     "huge_methods": 0,
     "severe_cost_findings": 4
   }

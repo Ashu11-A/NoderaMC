@@ -49,29 +49,6 @@ public final class NodeRegistry {
         }
     }
 
-    /** Record a heartbeat at {@code tick} (also marks the node connected). */
-    public void heartbeat(NodeId id, long tick) {
-        RegisteredNode n = nodes.get(id);
-        if (n != null) {
-            nodes.put(id, n.withHeartbeat(tick).withConnected(true));
-        }
-    }
-
-    /** @return the record for {@code id}, or {@code null} if unregistered. */
-    public RegisteredNode get(NodeId id) {
-        return nodes.get(id);
-    }
-
-    /** @return {@code true} if {@code id} is registered. */
-    public boolean contains(NodeId id) {
-        return nodes.containsKey(id);
-    }
-
-    /** @return all registered nodes, in canonical {@link NodeId} order. */
-    public List<RegisteredNode> all() {
-        return new ArrayList<>(nodes.values());
-    }
-
     /** @return the currently-connected nodes, in canonical {@link NodeId} order. */
     public List<RegisteredNode> connected() {
         List<RegisteredNode> out = new ArrayList<>();
@@ -81,10 +58,5 @@ public final class NodeRegistry {
             }
         }
         return out;
-    }
-
-    /** @return the number of registered nodes. */
-    public int size() {
-        return nodes.size();
     }
 }

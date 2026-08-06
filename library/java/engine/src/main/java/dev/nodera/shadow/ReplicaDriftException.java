@@ -28,19 +28,4 @@ public final class ReplicaDriftException extends RuntimeException {
         this.expected = expected;
         this.actual = actual;
     }
-
-    /** @return the position whose section failed the CAS. */
-    public NBlockPos pos() {
-        return pos;
-    }
-
-    /** @return the {@code expectedPreviousStateId} the delta carried. */
-    public int expected() {
-        return expected;
-    }
-
-    /** @return the state id actually present in the local replica. */
-    public int actual() {
-        return actual;
-    }
 }

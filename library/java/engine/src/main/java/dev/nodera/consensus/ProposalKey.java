@@ -34,16 +34,4 @@ public record ProposalKey(RegionId region, RegionEpoch epoch, SnapshotVersion ve
             throw new IllegalArgumentException("version must not be null");
         }
     }
-
-    /**
-     * Convenience factory accepting a raw {@code long} version.
-     *
-     * @param region  the region the proposal commits into; not null.
-     * @param epoch   the region epoch the proposal targets; not null.
-     * @param version the base snapshot version; non-negative.
-     * @return a new {@link ProposalKey}.
-     */
-    public static ProposalKey of(RegionId region, RegionEpoch epoch, long version) {
-        return new ProposalKey(region, epoch, new SnapshotVersion(version));
-    }
 }

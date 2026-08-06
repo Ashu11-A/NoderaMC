@@ -34,6 +34,30 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Methods nothing in the tree names are gone from `:engine` and `:storage` (Plan 11 phase 1)
+
+Twenty-six methods that `:peer:structureReport` §2.3 reported as referenced by nothing at all —
+tests included — were deleted: from `:engine`, `NodeRegistry`'s five unread accessors,
+`RegisteredNode#withHeartbeat`, `CommitteeMember#sign(StateRoot, VoteDecision)`,
+`ProposalKey#of`, `LagHandoffPolicy#evaluate(RegionLease, long, long)`, `SoakMetrics#snapshot`,
+`MutableRegionState#containers`, `BlockMutationBuffer#isEmpty`, `EntityStore#baseView` and the
+seven accessors on the three drift/nondeterminism exceptions; from `:storage`,
+`WorldPermissions#author`/`#authorPublicKey`, `WorldRegistry#find` and
+`BoundedClientWorldStore#budgetBytes`/`#quota`/`#touch`. Deleting `SoakMetrics#snapshot` left its
+nested `Snapshot` record with no reference anywhere, so the record went with it — the report listed
+it as a dead class the moment its producer was gone, and a dead class is not something to budget for.
+
+No canonical form, tag, version, field order or rules version changed; no `Encodable` lost an
+`encode` or a `decode`. Section 2.5 (methods no entry point can reach) could not be cut here at all:
+every one of them IS referenced by production code, and each cluster terminates in a record's
+canonical constructor, an `@Override` declared in a frozen module, or a method a test calls — so
+removing one would have broken a test or a contract this phase may not touch. `docs/engine/
+LIMITATIONS.md` L-92 (`GenesisRecertification`, `GenesisApprovalFlow`) and L-16 (`LocalReplicaView`)
+are staged on exactly that kind of unwired machinery, and were left alone deliberately.
+
+Evidence: `./gradlew :engine:test` and `:storage:test` green, `:peer:structureReport` green against
+the tightened `fixtures/structure/budget.json` (never-referenced 136 → 93, unreachable 267 → 264).
+
 ### 2026-07-28 — Deterministic helper duplication removed (L-52)
 
 L-52 is RETIRED. Core now owns the three operations that engine packages had copied:

@@ -52,19 +52,6 @@ public record WorldRegistry(List<Entry> entries) implements Encodable {
         return new WorldRegistry(List.of());
     }
 
-    /**
-     * @param worldIdHex the world.
-     * @return that world's row, if this registry has one.
-     */
-    public Optional<Entry> find(String worldIdHex) {
-        for (Entry entry : entries) {
-            if (entry.worldIdHex().equalsIgnoreCase(worldIdHex)) {
-                return Optional.of(entry);
-            }
-        }
-        return Optional.empty();
-    }
-
     @Override
     public void encode(CanonicalWriter w) {
         w.writeU16(TypeTags.WORLD_REGISTRY).writeU16(ENCODING_VERSION);

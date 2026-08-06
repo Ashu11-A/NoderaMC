@@ -143,11 +143,6 @@ public final class LanWatcher implements AutoCloseable {
         LOG.info("Watching {}:{} for worlds opened to LAN", LanBeacon.GROUP, LanBeacon.PORT);
     }
 
-    /** @return the LAN worlds currently being announced on this machine's network. */
-    public List<LanBeacon> openWorlds() {
-        return open.values().stream().map(Seen::beacon).toList();
-    }
-
     private void receiveLoop() {
         byte[] buffer = new byte[512];
         while (running.get()) {

@@ -82,13 +82,4 @@ public final class CompanionLink {
     public static CompanionInfo info() {
         return info;
     }
-
-    /** Clear the link (e.g. worker lost). */
-    public static void clear() {
-        client = null;
-        info = null;
-        for (Listener listener : LISTENERS) {
-            listener.linkChanged(null, null);
-        }
-    }
 }
