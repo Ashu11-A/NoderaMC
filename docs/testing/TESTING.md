@@ -5,7 +5,7 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-08-05 · **39 unit tests · 0 failing** (module `testing`,
+**Category:** testing · **Last run:** 2026-08-06 · **39 unit tests · 0 failing** (module `testing`,
 from the per-module JUnit XML) — the live scenarios themselves run in the `e2e-live` workflow
 nightly, and `scripts/nodera-test.sh list` is the smoke test that all twenty resolve.
 
@@ -68,6 +68,8 @@ reported as production growth and turned the gate red for doing exactly what its
 | Type | What it is |
 |---|---|
 | `PeerTestHarness` | one `LoopbackNetwork` plus the teardown of everything built on it; `close()` unwinds in reverse creation order |
+| `SpawnedService` | one Rust service binary on an ephemeral port: locate, write a TOML, start, read the bound address off its own ready line, drain, stop. Existed four times before it existed once |
+| `EngineFixtures` | the batch/context/execute preamble, `blockAt`, and the uniform-world builders. `executeTicks` was an eight-line body in eighteen files |
 | `ValidationNode` | a committee member: identity, transport, optional `PeerRuntime`, `WorkerValidationService` over the real engine, certificate store |
 | `WorkerNode` | an always-on worker behind a real `ControlServer`, spoken to through `dev.nodera.testkit.harness.ControlClient` — the product's own client, so no assertion can pass on a state the product cannot read |
 | `MeshNode<S>` | a peer carrying one wire-speaking service, with the mutable membership list that service relays to |
@@ -142,6 +144,23 @@ right.
   produces is built by the runner instead of being waited for. The three server-category shell
   suites used to skip on every machine including CI because nothing built the jar they looked for;
   a skip that is structural rather than circumstantial is a suite that never runs.
+
+  The twelve JUnit skips are the same failure in the unit gate: every one is "a cargo binary or the
+  peer distribution was not built", and the `java` job that runs `./gradlew check` is not the job
+  that builds them. `dev.nodera.testkit.harness.SpawnedService` is the Java half of the fix — it
+  locates the binary, and when `nodera.test.requireServiceBinaries` (or
+  `NODERA_REQUIRE_SERVICE_BINARIES`) is set it **throws instead of letting the caller assume**, so a
+  job that promises to build them cannot silently stop. **The workflow half is not wired yet.** For
+  the twelve to run, the `java` job needs, before `./gradlew check`:
+
+  ```yaml
+  - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
+  - run: ./gradlew :peer:installDist
+  - run: ./gradlew check build -Dnodera.test.requireServiceBinaries=true
+  ```
+
+  Until then the twelve skip exactly as before, and `2,423 passed · 12 skipped` overstates what CI
+  proves by twelve tests.
 - **Timeouts are written in plain seconds** and scaled once, centrally, by
   `NODERA_E2E_TIMEOUT_MULT`. CI runners are slower by a factor nobody can predict from the code, and
   scaling waits individually is how one stage ends up still timing out on the slow machine.
