@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import json
 import pathlib
 import subprocess
@@ -133,13 +134,34 @@ def _layout_keys() -> list[str]:
 
 
 def bucket_of(path: pathlib.Path, language: str) -> str:
-    """Which ratchet bucket a file belongs to."""
+    """Which ratchet bucket a file belongs to.
+
+    Source set decides it, with one exception that source set gets wrong: everything in the
+    `:testing` module is test code, including its `src/main`. That module is the shared test library
+    — `LoopbackTransport`, the wire-fixture IO, the live harness — and it is compiled into `main`
+    only because that is how one Gradle module exposes types to another module's tests. Bucketing it
+    by source set reports a test harness as production code, which is not a naming quibble: it made
+    a consolidation that removed 1,484 lines of duplicated test setup show up as +695 lines of
+    production growth, and the size gate went red for doing exactly what it was asked to do.
+    """
     if language == "ts":
         return "ts"
     parts = path.parts
     if language == "java":
+        if _in_testing_module(path):
+            return "java.test"
         return "java.test" if "test" in _source_set(parts) else "java.main"
     return "rust.test" if "tests" in parts else "rust.main"
+
+
+@functools.lru_cache(maxsize=1)
+def _testing_module() -> pathlib.Path:
+    """`:testing`'s directory, relative to the root, from the layout manifest."""
+    return layout.module("testing").relative_to(layout.root())
+
+
+def _in_testing_module(path: pathlib.Path) -> bool:
+    return _testing_module() in path.parents
 
 
 def _source_set(parts: tuple[str, ...]) -> str:

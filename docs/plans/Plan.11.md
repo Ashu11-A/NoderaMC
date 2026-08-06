@@ -46,12 +46,21 @@ gate against adding messages.
 
 | bucket | files | total | code | comment | blank | comment/code |
 |---|---|---|---|---|---|---|
-| `java.main` | 760 | 118,836 | 69,241 | 39,830 | 9,765 | 57.5% |
-| `java.test` | 464 | 67,832 | 52,014 | 6,864 | 8,954 | 13.2% |
+| `java.main` | 705 | 105,074 | 60,815 | 35,751 | 8,508 | 58.8% |
+| `java.test` | 519 | 81,594 | 60,440 | 10,943 | 10,211 | 18.1% |
 | `rust.main` | 111 | 43,208 | 31,448 | 8,348 | 3,412 | 26.5% |
 | `rust.test` | 3 | 570 | 444 | 91 | 35 | 20.5% |
 | `ts` | 82 | 15,656 | 11,405 | 3,239 | 1,012 | 28.4% |
 | **TOTAL** | **1,420** | **246,102** | **164,552** | **58,372** | **23,178** | **35.5%** |
+
+The first stamp of this table put `java.main` at 69,241 and `java.test` at 52,014, because it split
+Java by Gradle source set. That is wrong for exactly one module: everything in `:testing` is test
+code, including its `src/main`, which is compiled into `main` only because that is how one Gradle
+module exposes types to another module's tests. Bucketing it by source set reports a test harness as
+production code — and that is not a naming quibble. Phase 3 removed 1,484 lines of duplicated test
+setup and it showed up as **+695 lines of production growth**, turning the size gate red for doing
+precisely what it was asked to do. 8,426 code and 4,079 comment lines moved buckets. The tree did not
+change; the question it was being asked did.
 
 Generated and excluded from the ratchet: `library/rust/nodera-codec/src/kinds.rs`, 505 code lines.
 
