@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * The private keys of the worlds this peer created — one file per world, owner-readable only.
@@ -203,7 +204,4 @@ public final class WorldKeyStore {
         return trimmed.length() % 2 == 0 ? trimmed : null;
     }
 
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
-    }
 }

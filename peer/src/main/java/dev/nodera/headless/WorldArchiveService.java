@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * The worker's <b>world-archive lane</b> (the world-continuity increment): it seeds the canonical
@@ -2214,10 +2215,6 @@ public final class WorldArchiveService implements AutoCloseable {
         if (ownsTracker) {
             tracker.close();
         }
-    }
-
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
     }
 
     /** FsContentStore is thread-confined by contract; the piece plane calls from many threads. */

@@ -23,16 +23,16 @@ listed here on structural grounds (god class / long method).
 | `worker/.../headless/RekeyVerbIT.java` | 295 | 44.7 | `SeedRegionVerbIT` (38), `ConfigVerbIT` (31), `WorldContinuityIT` (22) | `ControlSocketHarness` |
 | `worker/.../headless/SupersededManifestEvictionTest.java` | 150 | 43.3 | `FetchSurvivesSupersessionTest` (33), `ArchiveRetentionWindowTest` (32) | Same `ArchiveFixture` |
 | `worker/.../headless/OwnershipGossipIT.java` | 260 | 41.5 | `GrantGossipIT` (62) | Extract a `LoopbackMeshHarness` (2–3 `PeerRuntime`s over `LoopbackTransport`, member supplier wiring) — `OwnershipGossipIT` and `GrantGossipIT` mirror each other almost line-for-line |
-| `worker/.../headless/WorldOwnershipService.java` | 214 | 41.1 | `WorldGrantGossipService` (40), `WorldDeletionService` (30) | Extract a `SignedGossipRelay` (members iteration, `transport.send`, exclude-self + exclude-source, log-and-continue on `TransportException`) — three services carry the same relay loop |
+| `worker/.../headless/WorldOwnershipService.java` | 214 | 41.1 | `WorldGrantGossipService` (40), `WorldDeletionService` (30) | **RETIRED** — `SignedGossipRelay` extracted; see §3 |
 | `worker/.../headless/GrantGossipIT.java` | 287 | 40.4 | `OwnershipGossipIT` (62) | Same `LoopbackMeshHarness` |
-| `worker/.../headless/WorldGrantGossipService.java` | 196 | 38.8 | `WorldOwnershipService` (40), `WorldDeletionService` (23) | Same `SignedGossipRelay` |
+| `worker/.../headless/WorldGrantGossipService.java` | 196 | 38.8 | `WorldOwnershipService` (40), `WorldDeletionService` (23) | **RETIRED** — `SignedGossipRelay` extracted; see §3 |
 | `worker/.../headless/ArchiveFetchThroughputTest.java` | 169 | 37.3 | `ArchiveFetchOverSocketsIT` (41) | Same `ArchiveFixture`; also share the `SocketPeerTransport` bridge lambda |
 | `worker/.../headless/ArchiveFetchOverSocketsIT.java` | 203 | 36.5 | `ArchiveFetchThroughputTest` (41) | Same `ArchiveFixture` + the socket `bridge(transport, service)` helper (currently duplicated) |
 | `worker/.../headless/CompanionCrashSurvivalIT.java` | 169 | 35.5 | `WorldContinuityIT` (20), `TelemetryVerbIT` (9) | Extract a `WorkerDaemonFixture` (launch the real worker distribution, SIGKILL a co-located stand-in game) — shared with `WorldContinuityIT` |
 | `worker/.../headless/WorldOwnershipVerbIT.java` | 234 | 28.2 | self (20), `ConfigVerbIT` (17), `SeedRegionVerbIT` (15) | `ControlSocketHarness`; the self-dup is the per-world JSON assert block |
 | `worker/.../headless/ConfigVerbIT.java` | 536 | 27.4 | `RekeyVerbIT` (31), `SeedRegionVerbIT` (22), `WorldOwnershipVerbIT` (17) | `ControlSocketHarness` — this is also the largest IT and the anchor for the harness extraction |
 | `worker/.../headless/WorldDeletionVerbIT.java` | 235 | 26.8 | `SeedRegionVerbIT` (25), `ConfigVerbIT` (18) | `ControlSocketHarness` |
-| `worker/.../headless/WorldDeletionService.java` | 325 | 25.2 | `WorldOwnershipService` (30), `WorldGrantGossipService` (23) | Same `SignedGossipRelay` |
+| `worker/.../headless/WorldDeletionService.java` | 325 | 25.2 | `WorldOwnershipService` (30), `WorldGrantGossipService` (23) | **RETIRED** — `SignedGossipRelay` extracted (both its relays, deletion and revival); see §3 |
 | `worker/.../headless/WorldRegistryStore.java` | 200 | 23.5 | `storage/.../WorldShareLink` (11), `peer/.../distribution/WorldArchive` (10), `peer/.../discovery/PersistentIdentityStore` (10) | The canonical encode/save + lower-case-key normalisation; consider a shared `CanonicalStore` helper across the three stores that use it |
 | `peer/.../peer/control/WorkerEvent.java` | 159 | 22.0 | `worker/.../headless/WorkerControlHandler` (23) | The hand-rolled JSON `escape(...)` is copied into `WorkerControlHandler`; extract one `JsonEscape` in the control package |
 | `worker/.../headless/WorldContinuityIT.java` | 392 | 19.1 | `RekeyVerbIT` (22), `CompanionCrashSurvivalIT` (20) | `ControlSocketHarness` + `WorkerDaemonFixture` |
@@ -45,7 +45,7 @@ listed here on structural grounds (god class / long method).
 | `worker/.../headless/WorldHostingService.java` | 1048 | 3.9 | self (22) | **Large file** carrying announce + rendezvous register + restore + ownership binding + the `HostedWorld` inner class. Extract `HostedWorld` to its own file and `RendezvousRegistrar` out of `registerRendezvous` |
 | `worker/.../headless/WorldArchiveService.java` | 1413 | 3.7 | `WorldOwnershipService` (12) | **Large file.** Two lanes (archive + region) + fetch + serve + retention. Split: `ArchiveSeedLane`, `RegionSeedLane`, `ArchiveFetchLane` over a shared `ContentTransferService`. Retention/supersede rules already isolated — they are the load-bearing part and should stay one place |
 | `worker/.../headless/WorkerControlHandler.java` | 1798 | 3.5 | self (26), `WorkerEvent` (23) | **God class.** 26 control verbs in one file. Split per lane (host/world-lifecycle, telemetry, config, lan/tunnel, deletion, directory/sharelink) into delegates behind `ControlHandler`, keeping `WorkerControlHandler` as the composition root. Highest absolute maintainability cost in the category despite the low dup % |
-| `worker/.../headless/WorldReplicationService.java` | 435 | — | — (not jscpd-flagged) | Not duplicated, but the largest unflagged production file here and a sibling of the gossip trio (it also iterates members and sends). When the `SignedGossipRelay` is extracted, audit this for the same shape |
+| `worker/.../headless/WorldReplicationService.java` | 435 | — | — (not jscpd-flagged) | **AUDITED 2026-08-05 against `SignedGossipRelay`: it does not carry the shape.** Its one peer loop walks the peers a *tracker* reported for a world and fetches from them; it never iterates session membership and never sends a frame, so there is nothing for the relay to serve. The remaining plan is size, not duplication |
 
 ## 2. Sequencing
 
@@ -63,10 +63,10 @@ The top-5 ordered so each makes the next cheaper:
    26 verbs move into lane delegates implementing `ControlHandler` defaults. Biggest readability win
    and de-risks every future verb addition. Land after the test harnesses (1–2) so the move is
    protected by the verb ITs already refactored to the harness.
-4. **Extract `SignedGossipRelay`** from `WorldOwnershipService` / `WorldGrantGossipService` /
-   `WorldDeletionService` (~150 shared lines across the three). The members-iterate + `send` +
-   exclude-self/source + log-and-continue loop is identical; one extraction serves all three and the
-   replication sweep (audit `WorldReplicationService` at the same time).
+4. **COMPLETED — extract `SignedGossipRelay`** from `WorldOwnershipService` /
+   `WorldGrantGossipService` / `WorldDeletionService`. Four relay loops became one. The
+   `WorldReplicationService` audit the item asked for is done and recorded on its row: it does not
+   carry the shape. See §3.
 5. **COMPLETED — promote owner-only writes to `storage.io.AtomicFileWriter`.** `LocalFiles` and
    `PersistentIdentityStore` now delegate to one implementation with fail-closed POSIX creation and
    failure cleanup. See §3.
@@ -76,3 +76,5 @@ The top-5 ordered so each makes the next cheaper:
 | Refactor | Evidence | Completed |
 |---|---|---|
 | Promote `LocalFiles`/`PersistentIdentityStore` atomic owner-only writes | `AtomicFileWriter.writeOwnerOnly`; `AtomicFileWriterTest` (4); both former copies are wrappers only | 2026-08-01 |
+| Extract `SignedGossipRelay` (§2 item 4) | `headless/SignedGossipRelay.java`; the four relay loops in `WorldOwnershipService`, `WorldGrantGossipService` and `WorldDeletionService` (deletion + revival) are each one `mesh.flood(frame, excluding, what)` call. `WorldReplicationService` audited and found not to carry the shape | 2026-08-05 |
+| Extract `WorldIds` (`key` + `shortId`) | `headless/WorldIds.java`; seven identical `shortId` copies and the `trim().toLowerCase(ROOT)` world-id normaliser now have one home. `WorldHostingService` keeps a one-line delegate because it also declares a `key(String, int)` overload, and a local overload hides a static import of the same name | 2026-08-05 |

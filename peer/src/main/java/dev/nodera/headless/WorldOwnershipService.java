@@ -12,14 +12,11 @@ import dev.nodera.protocol.membership.WorldOwnershipGossip;
 import dev.nodera.storage.WorldOwnership;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
-import dev.nodera.transport.TransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -59,9 +56,8 @@ public final class WorldOwnershipService {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
-    private final PeerTransport transport;
-    private final NodeId self;
-    private final Supplier<List<PeerEntry>> members;
+    /** The one flood loop this package shares; see {@link SignedGossipRelay}. */
+    private final SignedGossipRelay mesh;
 
     /** worldIdHex → the accepted ownership claim for that world. */
     private final Map<String, WorldOwnership> owners = new ConcurrentHashMap<>();
@@ -73,9 +69,7 @@ public final class WorldOwnershipService {
      */
     public WorldOwnershipService(NodeId self, PeerTransport transport,
                                  Supplier<List<PeerEntry>> members) {
-        this.self = Objects.requireNonNull(self, "self");
-        this.transport = Objects.requireNonNull(transport, "transport");
-        this.members = Objects.requireNonNull(members, "members");
+        this.mesh = new SignedGossipRelay(self, transport, members);
     }
 
     /**
@@ -84,7 +78,7 @@ public final class WorldOwnershipService {
      */
     public Optional<WorldOwnership> ownerOf(String worldIdHex) {
         return worldIdHex == null ? Optional.empty()
-                : Optional.ofNullable(owners.get(worldIdHex.trim().toLowerCase(Locale.ROOT)));
+                : Optional.ofNullable(owners.get(WorldIds.key(worldIdHex)));
     }
 
     /** @return how many worlds this node knows the administrator of. */
@@ -152,10 +146,11 @@ public final class WorldOwnershipService {
         if (claim == null || !claim.verify()) {
             return false;
         }
-        String key = claim.worldId().toHex().toLowerCase(Locale.ROOT);
+        String key = WorldIds.key(claim.worldId().toHex());
         WorldOwnership existing = owners.putIfAbsent(key, claim);
         if (existing == null) {
-            LOG.info("World {} is administered by {}", shortId(key), claim.ownerNodeId().value());
+            LOG.info("World {} is administered by {}", WorldIds.shortId(key),
+                    claim.ownerNodeId().value());
             return true;
         }
         if (!existing.ownerNodeId().equals(claim.ownerNodeId())
@@ -164,7 +159,7 @@ public final class WorldOwnershipService {
             // the author — or the author minted a second key, which is the same thing to everyone
             // else. Keeping the first is what stops the world changing hands by assertion.
             LOG.warn("Refusing a second ownership claim for world {} from {} — it is already "
-                            + "administered by {}", shortId(key), claim.ownerNodeId().value(),
+                            + "administered by {}", WorldIds.shortId(key), claim.ownerNodeId().value(),
                     existing.ownerNodeId().value());
         }
         return false;
@@ -174,19 +169,7 @@ public final class WorldOwnershipService {
         CanonicalWriter w = new CanonicalWriter();
         claim.encode(w);
         byte[] frame = WireCodec.encode(new WorldOwnershipGossip(claim.worldId(), w.toBytes()));
-        for (PeerEntry member : members.get()) {
-            NodeId id = member.nodeId();
-            if (id.equals(self) || id.equals(excluding)) {
-                continue;
-            }
-            try {
-                transport.send(PeerAddress.of(id, member.route()), frame);
-            } catch (TransportException unreachable) {
-                // One unreachable peer must not stop the claim reaching the others; it learns the
-                // owner from any peer that has it the next time it is reachable.
-                LOG.debug("ownership relay to {} failed: {}", id.value(), unreachable.getMessage());
-            }
-        }
+        mesh.flood(frame, excluding, "ownership");
     }
 
     /** Re-publish every claim this node holds — used when the session membership changes. */
@@ -196,9 +179,6 @@ public final class WorldOwnershipService {
         }
     }
 
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
-    }
 
     /** @param bytes canonical claim bytes. @return the claim, or empty when it does not decode. */
     static Optional<WorldOwnership> decodeQuietly(Bytes bytes) {
