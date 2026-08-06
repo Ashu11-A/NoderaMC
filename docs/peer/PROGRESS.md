@@ -28,6 +28,21 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Four primitives, and the security guard that existed in two versions
+
+Plan 11 phase 4 (issue #213) against `REFACTORING.md` §1. `SignedGossipRelay` replaces the four
+copies of the mesh flood in `WorldOwnershipService`, `WorldGrantGossipService` and
+`WorldDeletionService`; `WorldIds` replaces seven copies of `shortId` and the world-id normaliser;
+`Json` replaces ten hand-concatenated control replies and the twice-written world row, taking two of
+the category's three JSON escapes with it. The one that matters most is `HexKeyedStore`: a world id
+becomes a path component, so the hex-only check IS the path-traversal guard, and it had been written
+twice — `WorldKeyStore` with an even-length check and a resolved-path containment re-check,
+`WorldTombstoneStore` with neither. The tombstone store now has both.
+
+`WorldReplicationService` was audited against the relay as the register asked and does not carry the
+shape; its row now says so rather than leaving the question open. Evidence: `./gradlew :peer:test`
+green with no test file changed, and `scripts/loc-metrics.py --diff`.
+
 ### 2026-08-03 — Replicated worlds reach the companion before their download completes
 
 `NODERA-STATE` built `connected_worlds` only from the local hosting registry. An Android worker
