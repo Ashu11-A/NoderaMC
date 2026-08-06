@@ -28,6 +28,17 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Control protocol spec moved out of the comment block and into a reference doc
+
+`ControlProtocol.java` carried the wire grammar, reply shapes and design rationale for all 30 verbs
+as Javadoc — 449 comment lines above 46 code lines, the headline example
+[`docs/plans/Plan.11.md`](../plans/Plan.11.md) phase 2 names. That prose is now
+[`REFERENCE.md`](REFERENCE.md): one section per verb, nothing dropped. The Java file keeps every
+constant's short wire-form line, the invariant `NO_VALUE` explains (the "Teste 1" → "0" rename bug),
+and a one-line pointer per multi-paragraph entry naming the doc section that holds the rest — 270
+comment lines remain, code line count unchanged (46). No behaviour changed; `:peer:compileJava`
+verified green.
+
 ### 2026-08-03 — Replicated worlds reach the companion before their download completes
 
 `NODERA-STATE` built `connected_worlds` only from the local hosting registry. An Android worker
