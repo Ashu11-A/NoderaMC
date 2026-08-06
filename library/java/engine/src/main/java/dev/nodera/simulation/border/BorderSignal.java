@@ -8,9 +8,12 @@ import java.util.Comparator;
  * A redstone-lane effect that targeted a block OUTSIDE the region's owned bounds (Task 13
  * border/). The engine never mutates halo state — any signal, scheduled effect, or piston
  * motion that would cross the border is collected as a {@code BorderSignal} instead, and the
- * contraption-migration lane (ContraptionMigrator, Task 13 spec) decides what happens next:
- * demote the group to vanilla ({@code CONTRAPTION_CROSSES_VANILLA}) or migrate the whole
- * contraption group to a single primary.
+ * owner of the neighbouring region applies it as an ordinary halo hand-off. The Task 13 spec also
+ * describes a contraption-migration lane above this — flood-fill the group of regions connected by
+ * pending signals, then demote it to vanilla or move it under one primary — and its decision core
+ * was written, tested, and never reached from a shipping entry point (the {@code GroupMigration}
+ * wire message has no sender either). It was deleted on 2026-08-06 (Plan 11 round 2, issue #210);
+ * the tag stays frozen in {@code WireRegistry} for whoever builds the lane.
  *
  * <p>Border signals are a deterministic consequence of the batch inputs — every replica
  * collects the identical list in the identical canonical order — but they carry no consensus
