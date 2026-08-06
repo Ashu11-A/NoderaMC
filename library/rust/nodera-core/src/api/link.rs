@@ -61,7 +61,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// the dashboard would keep claiming "live" over numbers nobody is still sending.
 const SILENCE_TIMEOUT: Duration = Duration::from_secs(25);
 
-/// Backoff bounds for re-establishing the link.
+/// Backoff bounds for re-establishing the link. A reconnect is cheap, so it retries quickly.
 const MIN_BACKOFF: Duration = Duration::from_millis(500);
 const MAX_BACKOFF: Duration = Duration::from_secs(10);
 
@@ -154,7 +154,7 @@ pub async fn pump(
     sink: Arc<dyn Sink>,
     on_reconnect: Arc<tokio::sync::Notify>,
 ) {
-    let mut backoff = MIN_BACKOFF;
+    let mut backoff = crate::backoff::Backoff::new(MIN_BACKOFF, MAX_BACKOFF);
     // Said once, at info: which endpoint this link is for. On a phone the worker and the app are
     // the same process and there is no terminal to read, so "the app says offline" was previously
     // impossible to tell apart from "the app is not even trying".
@@ -166,20 +166,19 @@ pub async fn pump(
                 // stream, so upgrading the worker upgrades the link without restarting the app.
                 sink.publish(store.mark_offline(reason));
                 poll_until_gone(&control_addr, &store, &sink, &on_reconnect).await;
-                backoff = MIN_BACKOFF;
+                backoff.reset();
             }
             Outcome::Ended(reason) => {
                 log::info!("link: stream ended: {reason}");
                 sink.publish(store.mark_offline(reason));
-                backoff = MIN_BACKOFF;
+                backoff.reset();
             }
             Outcome::Unreachable(reason) => {
                 log::warn!("link: {control_addr} unreachable: {reason}");
                 sink.publish(store.mark_offline(reason));
-                backoff = (backoff * 2).min(MAX_BACKOFF);
             }
         }
-        tokio::time::sleep(backoff).await;
+        backoff.wait().await;
         sink.publish(store.mark_reconnecting("re-establishing the link to the worker"));
     }
 }
@@ -584,12 +583,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn backoff_is_bounded_so_a_missing_worker_is_retried_forever_but_cheaply() {
-        let mut backoff = MIN_BACKOFF;
+    /// This link's own bounds are the ones a missing worker is retried at; that the doubling stops
+    /// at all is `crate::backoff`'s property and is asserted there.
+    #[tokio::test(start_paused = true)]
+    async fn backoff_is_bounded_so_a_missing_worker_is_retried_forever_but_cheaply() {
+        let mut backoff = crate::backoff::Backoff::new(MIN_BACKOFF, MAX_BACKOFF);
         for _ in 0..20 {
-            backoff = (backoff * 2).min(MAX_BACKOFF);
+            backoff.wait().await;
         }
-        assert_eq!(backoff, MAX_BACKOFF);
+        assert_eq!(backoff.current(), MAX_BACKOFF);
     }
 }

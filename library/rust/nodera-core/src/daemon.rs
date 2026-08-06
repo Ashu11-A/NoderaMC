@@ -515,8 +515,8 @@ pub async fn supervise(
             return;
         }
     };
-    let mut backoff = Duration::from_secs(1);
-    let max_backoff = Duration::from_secs(30);
+    // Slower than the link's, on purpose: a reconnect costs a socket and a respawn costs a JVM.
+    let mut backoff = crate::backoff::Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
 
     loop {
         let env = worker_env(&settings.snapshot());
@@ -528,11 +528,11 @@ pub async fn supervise(
             .spawn();
         match spawn {
             Ok(mut child) => {
-                backoff = Duration::from_secs(1); // healthy start resets backoff
-                                                  // What this child holds, so a later settings edit
-                                                  // can be compared against it rather than guessed
-                                                  // at. Recorded here — beside the one spawn — so
-                                                  // there is no second place to keep in step.
+                backoff.reset(); // healthy start resets backoff
+                                 // What this child holds, so a later settings edit
+                                 // can be compared against it rather than guessed
+                                 // at. Recorded here — beside the one spawn — so
+                                 // there is no second place to keep in step.
                 launched.record(&env);
                 // Stream the worker's output into the dashboard's log ring.
                 if let Some(out) = child.stdout.take() {
@@ -562,7 +562,7 @@ pub async fn supervise(
                         // A requested restart is not a crash, so it must not inherit crash backoff:
                         // a user who just pressed Restart should not wait 30 seconds because the
                         // worker happened to be flapping beforehand.
-                        backoff = RESTART_SETTLE;
+                        backoff.restart_at(RESTART_SETTLE);
                         logs.push(
                             "nodera-app: restarting the peer worker to apply new settings"
                                 .to_owned(),
@@ -583,8 +583,7 @@ pub async fn supervise(
         // The link reports its own state, but it can take a moment to notice; saying it here means
         // the screen reflects a worker we KNOW is gone the instant we stop it.
         store.mark_offline("the peer worker is not running");
-        tokio::time::sleep(backoff).await;
-        backoff = (backoff * 2).min(max_backoff);
+        backoff.wait().await;
     }
 }
 
