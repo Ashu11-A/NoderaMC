@@ -44,7 +44,13 @@ final class SessionKeepAliveCodecTest {
                     + "0001000100000000000000000000000000000004"
                     + "0000000000000005";
 
-    /** Retired in 0.2.0 (#214): kind 23 crosses NDR2 as a TLV body, so nothing emits v1 any more. */
+    /**
+     * Version 1 is gone as of 0.2.0 (issue #214). It ended after the sequence number and carried no
+     * per-region progress; nothing has emitted it since the {@code NDR2} flag day, and on this wire
+     * a keep-alive travels as an infrastructure TLV body rather than through this codec at all. A
+     * v1 frame is now refused at the version, before a byte of body is read — the same treatment
+     * every other retired spelling gets, rather than being silently reinterpreted.
+     */
     @Test
     void refusesTheRetiredV1FrameRatherThanReadingItAsEmptyProgress() {
         byte[] retired = Bytes.fromHex(RETIRED_V1_HEX).toArray();

@@ -37,11 +37,17 @@ import java.util.List;
  * {@code SignedVote}, {@code ActionBatch}) are written via their own {@code encode} so their bytes
  * are identical on the wire and in any signed portion.
  *
- * <p><b>Tag assignment is permanent.</b> <b>Never renumber or reuse an existing tag.</b> A new
- * message appends a row to {@link WireRegistry}, a codec row to {@link CodecRegistry}, and a tag
- * constant here, in numeric order; {@code MessageCodecTypeTagTest} asserts the snapshot exactly as
- * core's {@code TypeTags} is asserted in Task 2. The tag table itself is not repeated here, because
- * a second copy of it is a second thing to keep true.
+ * <p><b>Tag assignment is permanent.</b> The constants below are a frozen wire contract:
+ * assigning a tag is permanent; <b>never renumber or reuse an existing tag</b>. New message
+ * types append a row to {@link WireRegistry}, a codec row to {@link CodecRegistry}, and a tag
+ * constant here, in numeric order. The registry snapshot is asserted by
+ * {@code MessageCodecTypeTagTest} exactly as core's {@code TypeTags} is asserted in Task 2.
+ *
+ * <h2>Type-tag table</h2>
+ *
+ * <p>The names and numbers are {@link WireRegistry}'s, which is the one place a kind is declared;
+ * the constants below are how Java code says a number without spelling it. The table is not
+ * repeated here, because a second copy of it is a second thing to keep true.
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
  * allocates its own {@link CanonicalWriter} / {@link CanonicalReader}.

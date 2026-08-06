@@ -36,6 +36,26 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Retiring v1 orphaned a constructor, and the structural ratchet caught it
+
+`SessionKeepAlive(NodeId, long)` — the two-argument form, documented as the "legacy convenience
+constructor" — had exactly one production caller: the v1 decode arm, which built its result there.
+Retiring v1 removed that caller and the constructor fell to test-only, taking
+`fixtures/structure/budget.json`'s `test_only_methods` from 415 to 416. The budget only ratchets
+down, so the build was correctly red.
+
+It is not leftover, though, and deleting it would have been the wrong reading. "A keep-alive with no
+regional view" is a live production concept: it is what `PeerSession.shapeForEmit` emits for a peer
+that did not negotiate `KEEP_ALIVE_REGION_PROGRESS`. That method was open-coding
+`new SessionKeepAlive(from, seq, List.of())` three lines under a comment saying "identity and
+sequence only" — a second spelling of a constructor that already names the shape. It now calls the
+constructor, and the constructor's Javadoc no longer calls itself legacy: the shape outlived the
+body version that introduced it. `test_only_methods` is back to 415 with `unreachable_methods`,
+`never_referenced_methods` and every other counter unmoved. The budget was not raised.
+
+Evidence: `./gradlew :peer:structureReport` — `test_only_methods = 415`, and the diff of
+`structure.json` against the red run is exactly one method gone and none added.
+
 ### 2026-08-05 — One codec dispatch, one keep-alive version, and the 0.2.0 bump
 
 `MessageCodec` dispatched twice: a chain of 76 `instanceof` arms for encoding and a 76-case

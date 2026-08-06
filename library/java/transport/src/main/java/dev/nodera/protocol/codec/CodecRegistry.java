@@ -135,20 +135,32 @@ import static dev.nodera.protocol.codec.MessageCodec.SESSION_KEEP_ALIVE_ENCODING
  * language said so. Here the pair is one registration, exactly as
  * {@code InfrastructureCodec}'s {@code shape(...)} rows already do for the TLV plane.
  *
- * <p><b>Not one byte changed.</b> A registry is a way of finding a codec, not a way of spelling a
- * message. Every row writes the same header and the same fields in the same order as the arm it
- * replaced, and {@code fixtures/wire/*.bin} is the proof. <b>Tags are append-only and are never
- * renumbered</b> — a renumbering is a network split, not a refactor. {@link WireRegistry} remains
- * the one place a kind is declared, and the static initialiser below fails at class load if a
- * declared kind has no row here, so a message cannot reach the network with no codec.
+ * <h2>What this does not change</h2>
  *
- * <p>A writer is one fluent chain in field order; a decoder is one constructor call whose arguments
- * are the reads, in that same order — Java evaluates arguments strictly left to right
- * (JLS 15.12.4.2). Where a field is conditional on the body version, the row uses a block instead.
- * Most tags are on the global {@link MessageCodec#ENCODING_VERSION}; four carry a per-message body
- * version because a field was appended after they shipped, and tag 23 accepts <em>only</em> version
- * 2 (see {@link SessionKeepAlive}). Each row states the closed range it accepts, which is why
- * {@link MessageCodec#decode} no longer needs a hand-written chain of per-tag version checks.
+ * <p><b>Not one byte.</b> A registry is a way of finding a codec, not a way of spelling a message.
+ * Every row writes the same header and the same fields in the same order as the arm it replaced,
+ * and {@code fixtures/wire/*.bin} is the proof: the golden corpus is unchanged by this refactor.
+ *
+ * <p><b>Tags are append-only and are never renumbered.</b> Assigning a tag is permanent; a
+ * renumbering is a network split, not a refactor. {@link WireRegistry} remains the one place a kind
+ * is declared, and the static initialiser below fails the build if a declared kind has no row here —
+ * so a message cannot reach the network with no codec.
+ *
+ * <h2>Reading a row</h2>
+ *
+ * <p>A writer is one fluent chain in field order. A decoder is one constructor call whose arguments
+ * are the reads, in the same field order — Java evaluates argument expressions strictly left to
+ * right (JLS 15.12.4.2), which is what makes that legal, and it is the form this codec already used
+ * for its shorter messages. Where a field is conditional on the body version, the row uses a block
+ * and names the intermediate values.
+ *
+ * <h2>Body versions</h2>
+ *
+ * <p>Most tags are on the global {@link MessageCodec#ENCODING_VERSION}. Four carry a per-message
+ * body version because a field was appended to them after they shipped, and one — tag 23 — now
+ * accepts <em>only</em> version 2 (see {@link SessionKeepAlive}). Each row states the closed range
+ * it accepts, which is why {@link MessageCodec#decode} no longer needs a hand-written chain of
+ * per-tag version checks.
  *
  * <p>Thread-context: immutable static state, built once at class initialisation; any thread.
  */
@@ -347,11 +359,13 @@ final class CodecRegistry {
      * {@link MembershipUpdate}, which is a Java-to-Java message the Rust services never parse — so
      * it is free to carry both.
      *
-     * <p>That key is what lets a session member be given a committee seat, and membership gossip is
-     * the only place both sides already meet; the client agent rides alongside it for the same
-     * reason. Unlike {@code PeerJoin}'s trailing field, both are written unconditionally: entries
-     * are length-free elements of a list, so a reader cannot use "bytes remain" to decide whether a
-     * field is present.
+     * <p>That key is what lets a session member be given a committee seat: a headless peer must be
+     * able to verify the primary's proposals and the hosting world must be able to verify that
+     * peer's votes, and membership gossip is the only place both sides already meet. The client
+     * agent rides alongside it for the same reason — membership is the one place the whole mesh
+     * meets, so it is where "what software is that peer running" belongs. Unlike {@code PeerJoin}'s
+     * trailing field, both are written unconditionally: entries are length-free elements of a list,
+     * so a reader cannot use "bytes remain" to decide whether a field is present.
      */
     private static final BiConsumer<CanonicalWriter, PeerEntry> MEMBER = (w, e) -> {
         PEER.accept(w, e);
@@ -383,8 +397,9 @@ final class CodecRegistry {
 
     /**
      * A {@link SignedRecord}: the canonical {@link SignedPeerRecord} (its own frame) followed by the
-     * signature over exactly those bytes — so the identical signature validates on the relay
-     * ({@link RendezvousRegister}) and on every discovering peer ({@link RendezvousPeers}).
+     * signature over exactly those bytes. Used inside a {@link RendezvousRegister} and in each
+     * element of a {@link RendezvousPeers} page, so the identical signature validates on both the
+     * relay and every discovering peer.
      */
     private static final BiConsumer<CanonicalWriter, SignedRecord> RECORD =
             (w, s) -> w.writeEncodable(s.record()).writeBytes(s.signature());
@@ -393,8 +408,10 @@ final class CodecRegistry {
     private static final Function<CanonicalReader, SignedRecord> RECORD_R =
             r -> new SignedRecord(SignedPeerRecord.decode(r), r.readBytesValue());
 
-    /** A piece index. The record constructors already sorted and de-duplicated, so this is
-     * canonical without sorting again here. */
+    /**
+     * A piece index. The record constructors already de-duplicated and sorted, so the encoded order
+     * is canonical without sorting again here.
+     */
     private static final BiConsumer<CanonicalWriter, Integer> INDEX =
             (w, i) -> w.writeU32(u32(i));
 
