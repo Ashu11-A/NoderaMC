@@ -128,19 +128,17 @@ final class ManifestIndexStore {
      * path still inside the directory it was supposed to be inside? That holds whatever the input
      * was, whoever adds a component later, and however clever the traversal is.
      *
+     * <p>The check itself now lives in {@link dev.nodera.distribution.ContainedPath}, because this
+     * tree had three copies of it and they disagreed: this one made the root absolute first and the
+     * world archive's did not, which is exactly the difference that matters for a relative root.
+     *
      * @param root the directory the file must live in.
      * @param name the file name.
      * @return the resolved path.
      * @throws IllegalArgumentException if resolving {@code name} escapes {@code root}.
      */
     private static Path inside(Path root, String name) {
-        Path base = root.toAbsolutePath().normalize();
-        Path resolved = base.resolve(name).normalize();
-        if (!resolved.startsWith(base)) {
-            throw new IllegalArgumentException(
-                    "a manifest file name resolved outside the manifest store");
-        }
-        return resolved;
+        return dev.nodera.distribution.ContainedPath.inside(root, name);
     }
 
     /** Which map a manifest belongs in: the archive lane files under a synthetic region. */
