@@ -45,7 +45,7 @@ Counts by file (grep `#\[test\]`/`#\[tokio::test\]`):
 | `wire.rs` | 7 | TCP + UDP over real sockets, amplification cap, silent drop |
 | `health.rs` | 6 | health + countdown transitions |
 | `deletion.rs` | 5 | verified-deletion cache, persistence, restart, edited-file rejection |
-| `limits.rs` | 5 | per-IP quota windows |
+| ~~`limits.rs`~~ | ~~5~~ | **Moved 2026-08-06** (`2f79850`, issue #213) — per-IP quota windows are `nodera_service::limits::Quota`, shared with rendezvous and telemetry, and tested once in that crate rather than three times. Count not re-measured here; run `cargo test -p nodera-service` |
 | `main.rs` | 4 | arg parsing (`--healthcheck`/`--version`/`--config`/`--bind`) |
 | `telemetry.rs` | 2 | off-without-endpoint; platform-label enums |
 

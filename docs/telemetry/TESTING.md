@@ -69,7 +69,7 @@ Counts grep-verified 2026-07-28 (`#[test]` + `#[tokio::test]` per file). The cra
 | `event.rs` | 14 | Envelope, consent, per-event and per-attribute validation, agent sanitisation |
 | `subject.rs` | 11 | Rotation, namespacing, forward secrecy across rotation+restart, key-source seam |
 | `geo.rs` | 7 | Longest prefix, IPv4-mapped IPv6, unknown answers unknown, `/0` without overflow |
-| `limits.rs` | 8 | Batch/event budgets, window reset, independence, saturation |
+| ~~`limits.rs`~~ | ~~8~~ | **Moved 2026-08-06** (`2f79850`, issue #213) — batch/event budgets are `nodera_service::limits::{PairQuota, Verdict}`, shared with the tracker and rendezvous. Count not re-measured here; run `cargo test -p nodera-service` |
 | `sink.rs` | 7 | Rotation triggers, ordering, directory creation |
 | `service.rs` | 11 | The ingest decision, typed attribute split, honest replies, counters, restart pseudonymisation |
 | `wire.rs` | 4 | Framing bounds, clean EOF, **end-to-end over TCP** |

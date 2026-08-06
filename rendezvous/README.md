@@ -35,9 +35,11 @@ rust/nodera-rendezvous/src/
 ├── circuit.rs      connect → incoming → accept → bridged copy loops, with per-direction
 │                   byte/duration/idle metering and teardown reason codes
 ├── punch.rs        observed addresses + a coordinated go-signal
-├── limits.rs       per-identity registrations, per-IP quotas, record-size caps
 └── service.rs      the tokio server
 ```
+
+There is no `limits.rs` here any more: per-identity registrations, per-IP quotas and record-size
+caps became `nodera_service::limits` on 2026-08-06, shared with the tracker and telemetry.
 
 The namespace is `(networkId, genesisHash)`. The tracker answers *which worlds exist and who seeds
 them*; this service answers *how do I reach peer X right now*. They are independent — a deployment may
