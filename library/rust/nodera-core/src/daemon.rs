@@ -536,22 +536,10 @@ pub async fn supervise(
                 launched.record(&env);
                 // Stream the worker's output into the dashboard's log ring.
                 if let Some(out) = child.stdout.take() {
-                    let sink = Arc::clone(&logs);
-                    tokio::spawn(async move {
-                        let mut lines = BufReader::new(out).lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            sink.push(line);
-                        }
-                    });
+                    tokio::spawn(pump_lines(out, Arc::clone(&logs)));
                 }
                 if let Some(err) = child.stderr.take() {
-                    let sink = Arc::clone(&logs);
-                    tokio::spawn(async move {
-                        let mut lines = BufReader::new(err).lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            sink.push(line);
-                        }
-                    });
+                    tokio::spawn(pump_lines(err, Arc::clone(&logs)));
                 }
                 // Whichever happens first wins. The `child.wait()` borrow ends with the select, so
                 // the kill below is free to take its own mutable borrow.
@@ -597,6 +585,37 @@ pub async fn supervise(
         store.mark_offline("the peer worker is not running");
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(max_backoff);
+    }
+}
+
+/// Stream one of the worker's output pipes into the dashboard's log ring until the pipe closes.
+///
+/// The read error is handled rather than treated as end of stream. `while let Ok(Some(line))` reads
+/// an `Err` — which is what a single non-UTF-8 byte in the worker's output produces — the same way
+/// it reads a clean EOF, so one such line used to kill the pump permanently: the log panel went
+/// empty and stayed empty for the life of the app, with the worker still running and still talking.
+/// A malformed line is skipped, and only a closed pipe ends the loop.
+async fn pump_lines<R>(pipe: R, sink: Arc<LogBuffer>)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut lines = BufReader::new(pipe).lines();
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => sink.push(line),
+            Ok(None) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                // Not fatal, and not silent: a worker printing a stack trace with a stray byte in
+                // it must not cost the user every line after it.
+                sink.push(format!(
+                    "nodera-app: skipped an unreadable worker log line: {e}"
+                ));
+            }
+            Err(e) => {
+                sink.push(format!("nodera-app: worker log stream ended: {e}"));
+                return;
+            }
+        }
     }
 }
 

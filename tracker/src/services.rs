@@ -91,6 +91,22 @@ pub enum ServiceOutcome {
     NotPresent,
 }
 
+impl ServiceOutcome {
+    /// How the ack should describe this outcome: `(accepted, stable code)`.
+    ///
+    /// Three of the four are an admission and say nothing more. `NotPresent` is the one the
+    /// announcer cannot work out for itself — it asked this tracker to drop a listing that was
+    /// never here, which means either it has been announcing somewhere else or its records have
+    /// been expiring between announces. Answering "accepted" to that hid a discovery outage behind
+    /// a successful-looking round trip.
+    pub fn ack(self) -> (bool, &'static str) {
+        match self {
+            Self::Registered | Self::Refreshed | Self::Removed => (true, ""),
+            Self::NotPresent => (false, "not-listed"),
+        }
+    }
+}
+
 /// One service as the tracker holds it.
 #[derive(Debug, Clone)]
 struct StoredService {

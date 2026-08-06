@@ -252,7 +252,11 @@ async fn run_reserved(
     let key = (namespace.clone(), peer);
     insert_channel(&channels, key.clone(), tx);
 
-    let max_frame_bytes = { rendezvous.lock().await.config().max_frame_bytes };
+    let (max_frame_bytes, idle_timeout_millis) = {
+        let config = rendezvous.lock().await;
+        let config = config.config();
+        (config.max_frame_bytes, config.circuit_idle_timeout_millis())
+    };
 
     loop {
         tokio::select! {
@@ -294,7 +298,13 @@ async fn run_reserved(
                             service.note_circuit();
                             service.drain().enter()
                         };
-                        bridge(stream, source_stream, limits_of(&reservation), remote).await;
+                        bridge(
+                            stream,
+                            source_stream,
+                            limits_of(&reservation, idle_timeout_millis),
+                            remote,
+                        )
+                        .await;
                         drop(guard);
                         // The circuit is gone; drop any punch coordination it accrued.
                         rendezvous
@@ -357,13 +367,21 @@ async fn run_reserved(
     }
 }
 
-fn limits_of(reservation: &RelayReservation) -> CircuitLimits {
+/// The limits one circuit is metered against.
+///
+/// `idle_timeout_millis` is the operator's `circuit_idle_timeout_seconds`. It used to be a constant
+/// clamp here while the configuration key was loaded, env-overridable and validated as
+/// must-be-positive — so an operator could set it, see it accepted, and change nothing at all.
+fn limits_of(reservation: &RelayReservation, idle_timeout_millis: u64) -> CircuitLimits {
     CircuitLimits {
         max_bytes: reservation.max_bytes,
         max_duration_millis: reservation.max_duration_millis,
-        // The reservation does not carry the idle timeout on the wire; the relay applies its own,
-        // never longer than the circuit's own lifetime.
-        idle_timeout_millis: reservation.max_duration_millis.clamp(1_000, 60_000),
+        // The reservation does not carry the idle timeout on the wire, so the relay applies its
+        // own — never longer than the circuit's own lifetime, and never zero, which would tear a
+        // circuit down on the tick it opened.
+        idle_timeout_millis: idle_timeout_millis
+            .min(reservation.max_duration_millis)
+            .max(1),
     }
 }
 
@@ -507,6 +525,41 @@ mod tests {
     use nodera_codec::types::{NetworkId, RegistrationEvent};
 
     const NET: NetworkId = NetworkId { msb: 1, lsb: 2 };
+
+    /// The configured idle timeout reaches the meter.
+    ///
+    /// It did not: the key was loaded, env-overridable and validated, and the bridge applied a
+    /// constant. An operator raising it for a slow transfer saw the setting accepted and the
+    /// circuit torn down at the old timeout anyway.
+    #[test]
+    fn the_configured_idle_timeout_is_what_a_circuit_is_metered_against() {
+        let reservation = RelayReservation {
+            accepted: true,
+            relay_route: String::new(),
+            expires_at_epoch_millis: 0,
+            max_bytes: 1 << 20,
+            max_duration_millis: 600_000,
+            proof: Vec::new(),
+            reason: String::new(),
+        };
+        let config = Config {
+            circuit_idle_timeout_seconds: 300,
+            ..Config::default()
+        };
+        assert_eq!(
+            limits_of(&reservation, config.circuit_idle_timeout_millis()).idle_timeout_millis,
+            300_000
+        );
+        // Never longer than the circuit itself, and never zero.
+        let brief = RelayReservation {
+            max_duration_millis: 5_000,
+            ..reservation
+        };
+        assert_eq!(
+            limits_of(&brief, config.circuit_idle_timeout_millis()).idle_timeout_millis,
+            5_000
+        );
+    }
 
     async fn spawn_service() -> (SocketAddr, Arc<Mutex<Rendezvous>>) {
         let (addr, service, _channels) = spawn_service_with_channels().await;

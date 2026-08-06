@@ -187,18 +187,50 @@ impl DeletedWorlds {
         }
     }
 
+    /// Write the tombstone to disk, saying so when it cannot be written.
+    ///
+    /// Every failure here is loud, and that is the whole point of the function. The tombstone is
+    /// the only durable record that an owner deleted their world: if it stays in memory, the next
+    /// restart **lists the deleted world again**, and the operator's only clue used to be that it
+    /// came back. A full disk, a read-only mount, and a cross-device `rename` (`EXDEV`, which
+    /// happens when the persist directory is a bind mount and the temp file lands beside it) all
+    /// produced exactly that silence.
     fn persist(&self, world_id_hex: &str, notice: &[u8]) {
         let Some(path) = self.file_for(world_id_hex) else {
+            eprintln!(
+                "nodera-tracker: deletion for {world_id_hex} not persisted: the world id is not \
+                 hex, so it has no file name — it will be forgotten at restart"
+            );
             return;
         };
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!(
+                    "nodera-tracker: cannot create {} for the deletion of {world_id_hex}: {e} — \
+                     the deletion will be forgotten at restart and the world listed again",
+                    parent.display()
+                );
+                return;
+            }
         }
         // Temp-then-rename: a half-written notice would be dropped at restart, silently un-deleting
         // a world.
         let temp = path.with_extension("tombstone.tmp");
-        if std::fs::write(&temp, notice).is_ok() {
-            let _ = std::fs::rename(&temp, &path);
+        if let Err(e) = std::fs::write(&temp, notice) {
+            eprintln!(
+                "nodera-tracker: cannot write {} for the deletion of {world_id_hex}: {e} — the \
+                 deletion will be forgotten at restart and the world listed again",
+                temp.display()
+            );
+            return;
+        }
+        if let Err(e) = std::fs::rename(&temp, &path) {
+            eprintln!(
+                "nodera-tracker: cannot move {} into place for the deletion of {world_id_hex}: \
+                 {e} — the deletion will be forgotten at restart and the world listed again",
+                temp.display()
+            );
+            let _ = std::fs::remove_file(&temp);
         }
     }
 

@@ -558,7 +558,7 @@ impl NoderaCore {
                     }
                 }
                 let refreshed_stores = document.network.tracker_stores;
-                if let Ok(updated) = self.settings.update(move |current| {
+                let persisted = self.settings.update(move |current| {
                     // A user may add, remove, or manually refresh a store while these network reads
                     // are in flight. Replace only entries still equal to this loop's original view.
                     for (original, replacement) in original_stores.into_iter().zip(refreshed_stores)
@@ -572,13 +572,23 @@ impl NoderaCore {
                             *store = replacement;
                         }
                     }
-                }) {
-                    settings::write_sync_file(&updated);
-                    if changed {
-                        // A store that gained a tracker should reach a running worker rather than
-                        // wait for a restart — `network.default_trackers` is a live key.
-                        self.request_config_push();
+                });
+                match persisted {
+                    Ok(updated) => {
+                        settings::write_sync_file(&updated);
+                        if changed {
+                            // A store that gained a tracker should reach a running worker rather
+                            // than wait for a restart — `network.default_trackers` is a live key.
+                            self.request_config_push();
+                        }
                     }
+                    // Silence here meant the sync file was never written and the worker never told,
+                    // on every pass, for the life of the app — a node quietly using yesterday's
+                    // tracker list while the store rows on screen said they were current.
+                    Err(e) => log::warn!(
+                        "stores: the refreshed tracker stores could not be saved ({e}); the worker \
+                         keeps the endpoints it already has and this is retried at the next sync"
+                    ),
                 }
             }
             tokio::time::sleep(STORE_SYNC_INTERVAL).await;

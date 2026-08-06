@@ -315,12 +315,17 @@ impl Tracker {
                             &announce.record.service,
                             now_millis,
                         );
-                        let _ = outcome;
+                        // What the directory actually did, rather than "accepted" for everything
+                        // that verified. The one that matters is `NotPresent`: a relay announcing
+                        // `Stopped` for an id this tracker never held used to be told "accepted",
+                        // so a service that believed it was listed here had no way to find out it
+                        // never was.
+                        let (accepted, reason) = outcome.ack();
                         Handled::Reply(
                             ServiceMessage::AnnounceAck(ServiceAnnounceAck {
-                                accepted: true,
+                                accepted,
                                 next_announce_after_seconds: self.config.announce_interval_seconds,
-                                reason: String::new(),
+                                reason: reason.to_owned(),
                                 directory,
                             })
                             .encode(),
@@ -1130,6 +1135,51 @@ mod tests {
             &listed[0].signature,
         )
         .unwrap();
+    }
+
+    /// A stop for a service this tracker never listed is not an admission.
+    ///
+    /// The relay's own log says "announced, accepted", so an `accepted: true` here made a service
+    /// that had never reached this tracker — or whose records were expiring between announces —
+    /// indistinguishable from one that was listed the whole time.
+    #[test]
+    fn a_stop_for_an_id_the_tracker_never_held_is_not_acked_as_accepted() {
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(7);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |r| {
+                r.lifecycle = nodera_codec::service::ServiceLifecycle::Stopped;
+                r.drain_deadline_epoch_millis = SERVICE_NOW + 30_000;
+            });
+        let ack = service_ack(tracker.handle_frame(
+            &announce_service_frame(&record, &signature),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert!(!ack.accepted);
+        assert_eq!(ack.reason, "not-listed");
+
+        // And the ordinary path still acks plainly: a stop for a service that *was* listed.
+        let (serving, serving_signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&serving, &serving_signature),
+                None,
+                None,
+                SERVICE_NOW,
+            ))
+            .accepted
+        );
+        let removed = service_ack(tracker.handle_frame(
+            &announce_service_frame(&record, &signature),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert!(removed.accepted, "reason: {}", removed.reason);
+        assert_eq!(removed.reason, "");
     }
 
     #[test]

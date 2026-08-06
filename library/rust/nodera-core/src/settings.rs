@@ -891,6 +891,26 @@ impl SettingsHandle {
         handle
     }
 
+    /// The in-memory document, taken whether or not a previous holder panicked.
+    ///
+    /// `lock().unwrap()` was the wrong reflex here and the failure it produces is total. [`update`]
+    /// runs a **caller-supplied** closure while holding this lock; one panic inside one of those
+    /// closures poisons the mutex, and from then on every `snapshot()` — which is on the path of
+    /// every screen in the app — panics too. Recovering the guard keeps the document that was there
+    /// before the panic, which is the last consistent one: the closure mutates a *clone* and only
+    /// the successful path writes it back.
+    ///
+    /// The file's own test helper has always done this (`unwrap_or_else(|e| e.into_inner())`); the
+    /// production handles had not.
+    fn held(&self) -> std::sync::MutexGuard<'_, Settings> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The damage note, taken whether or not a previous holder panicked. See [`Self::held`].
+    fn damage(&self) -> std::sync::MutexGuard<'_, Option<String>> {
+        self.damaged.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Apply a read result to this handle.
     fn absorb(&self, stored: Stored) {
         match stored {
@@ -909,21 +929,21 @@ impl SettingsHandle {
                         crate::stores::OFFICIAL_STORE_URL
                     );
                 }
-                *self.inner.lock().unwrap() = settings;
-                *self.damaged.lock().unwrap() = None;
+                *self.held() = settings;
+                *self.damage() = None;
                 self.loaded
                     .store(true, std::sync::atomic::Ordering::Release);
             }
             Stored::Absent => {
                 // A fresh install is fully loaded: there is nothing else to find, and saying
                 // otherwise would make every snapshot re-stat a file that is not there.
-                *self.damaged.lock().unwrap() = None;
+                *self.damage() = None;
                 self.loaded
                     .store(true, std::sync::atomic::Ordering::Release);
             }
             Stored::Damaged(reason) => {
                 log::error!("settings: {reason}");
-                *self.damaged.lock().unwrap() = Some(reason);
+                *self.damage() = Some(reason);
                 self.loaded
                     .store(false, std::sync::atomic::Ordering::Release);
             }
@@ -939,7 +959,7 @@ impl SettingsHandle {
         if !self.loaded.load(std::sync::atomic::Ordering::Acquire) {
             self.absorb(read_stored());
         }
-        self.inner.lock().unwrap().clone()
+        self.held().clone()
     }
 
     /// Why the stored settings could not be read, if they could not. Empty otherwise.
@@ -947,7 +967,7 @@ impl SettingsHandle {
     /// Surfaced to the UI rather than only logged: a user whose settings file was damaged is about
     /// to be shown default values, and saying nothing would let them conclude the app forgot.
     pub fn fault(&self) -> String {
-        self.damaged.lock().unwrap().clone().unwrap_or_default()
+        self.damage().clone().unwrap_or_default()
     }
 
     /// Re-read from disk, replacing what is in memory.
@@ -961,7 +981,7 @@ impl SettingsHandle {
 
     /// Validate, store, and persist. Returns the error message on a rejected document.
     pub fn save(&self, settings: Settings) -> Result<(), String> {
-        let mut held = self.inner.lock().unwrap();
+        let mut held = self.held();
         self.persist(&settings)?;
         *held = settings;
         self.loaded
@@ -974,7 +994,7 @@ impl SettingsHandle {
     pub fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
         // Complete Android's deferred load before taking the mutation lock.
         let _ = self.snapshot();
-        let mut held = self.inner.lock().unwrap();
+        let mut held = self.held();
         let mut next = held.clone();
         change(&mut next);
         self.persist(&next)?;
@@ -991,11 +1011,11 @@ impl SettingsHandle {
         // The guard is dropped before the branch runs. Reading it inside `if let` keeps the
         // temporary alive for the whole body, and the body locks the same mutex again — a deadlock
         // in a settings save, which is about the worst place to put one.
-        let damaged = self.damaged.lock().unwrap().clone();
+        let damaged = self.damage().clone();
         if let Some(reason) = damaged {
             let kept = settings_path().with_extension("json.bad");
             let _ = std::fs::rename(settings_path(), &kept);
-            *self.damaged.lock().unwrap() = None;
+            *self.damage() = None;
             self.loaded
                 .store(true, std::sync::atomic::Ordering::Release);
             return Err(format!(
@@ -1218,6 +1238,35 @@ mod tests {
             assert!(handle.fault().is_empty());
             handle.save(Settings::default()).unwrap();
             assert!(path.exists());
+        });
+    }
+
+    /// One panic in one command handler must not end the app's ability to read its own settings.
+    ///
+    /// [`SettingsHandle::update`] runs a caller-supplied closure while holding the document lock.
+    /// With `lock().unwrap()` a panic in any of those closures poisoned the mutex, and every later
+    /// `snapshot()` — which every screen calls — panicked forever after. The recovered guard keeps
+    /// the pre-panic document, because the closure mutates a clone and only success writes back.
+    #[test]
+    fn a_panic_inside_an_update_closure_does_not_poison_every_later_read() {
+        with_settings_file(None, |_| {
+            let handle = SettingsHandle::load();
+            handle
+                .update(|settings| settings.network.max_upload_bytes_per_sec = 4_096)
+                .unwrap();
+
+            let blew_up = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = handle.update(|_| panic!("a command handler blew up mid-edit"));
+            }));
+            assert!(blew_up.is_err(), "the panic must still reach the caller");
+
+            // Both of these used to panic instead of answering.
+            assert_eq!(handle.snapshot().network.max_upload_bytes_per_sec, 4_096);
+            assert!(handle.fault().is_empty());
+            handle
+                .update(|settings| settings.network.max_upload_bytes_per_sec = 8_192)
+                .unwrap();
+            assert_eq!(handle.snapshot().network.max_upload_bytes_per_sec, 8_192);
         });
     }
 

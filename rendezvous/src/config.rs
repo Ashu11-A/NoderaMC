@@ -380,6 +380,11 @@ impl Config {
         self.reservation_max_duration_seconds.saturating_mul(1_000)
     }
 
+    /// Circuit idle timeout in milliseconds — the unit [`crate::circuit::CircuitLimits`] works in.
+    pub fn circuit_idle_timeout_millis(&self) -> u64 {
+        self.circuit_idle_timeout_seconds.saturating_mul(1_000)
+    }
+
     /// The configured HMAC key bytes, or `None` when an ephemeral key should be minted.
     pub fn reservation_hmac_key(&self) -> Option<Vec<u8>> {
         if self.reservation_hmac_key_hex.is_empty() {
