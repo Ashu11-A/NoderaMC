@@ -9,7 +9,7 @@
 // Steady state is the `nodera://dashboard` event, which the backend emits **when a snapshot is
 // accepted**, not on a timer. An event therefore means "this just changed"; the absence of one
 // means the node is quiet, and `link.age_ms` is what tells the two apart.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "nodera-ui";
 import { listen, type UnlistenFn } from "nodera-ui";
 import type { Lan } from "./play";
@@ -251,13 +251,6 @@ export interface DiscoveryChange {
   endpoints: string[];
 }
 
-export const EMPTY_DISCOVERY: DiscoveryChange = {
-  connected: false,
-  reachable: 0,
-  total: 0,
-  endpoints: [],
-};
-
 /**
  * Subscribe to tracker-reachability **transitions**.
  *
@@ -281,24 +274,7 @@ export function onDiscovery(cb: (d: DiscoveryChange) => void): Promise<UnlistenF
  */
 export function useDiscovery(): DiscoveryChange | null {
   const [d, setD] = useState<DiscoveryChange | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    let unlisten: (() => void) | undefined;
-    onDiscovery((next) => {
-      if (alive) setD(next);
-    })
-      .then((un) => {
-        if (alive) unlisten = un;
-        else un();
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-      unlisten?.();
-    };
-  }, []);
-
+  useSubscribe(onDiscovery, setD);
   return d;
 }
 
@@ -354,18 +330,6 @@ export function formatRate(bytesPerSec: number): string {
   return `${(bytesPerSec / KI ** 2).toFixed(1)} MiB/s`;
 }
 
-export function formatUptime(seconds: number): string {
-  if (seconds <= 0) return UNKNOWN;
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
 export function shortId(id: string, head = 8, tail = 4): string {
   if (!id) return UNKNOWN;
   if (id.length <= head + tail + 1) return id;
@@ -398,10 +362,6 @@ export function worldRole(w: World): "playing" | "administered" | "hosting" | "s
 }
 
 /** Permille integers cross the wire so every surface renders the same number. */
-export function formatPermille(permille: number, digits = 2): string {
-  return (permille / 1000).toFixed(digits);
-}
-
 export function formatPercent(permille: number): string {
   return `${(permille / 10).toFixed(1)}%`;
 }
@@ -463,22 +423,35 @@ export function isStale(link: Link): boolean {
   return link.has_data && link.status !== "live" && link.status !== "polling";
 }
 
-/* ----------------------------------------------------------------------------------- the hook */
+/* ---------------------------------------------------------------------------------- the hooks */
 
-export function useDashboard(empty: Dashboard): Dashboard {
-  const [d, setD] = useState<Dashboard>(empty);
+/**
+ * Hold a host subscription for the life of a component.
+ *
+ * The awkward part is not the subscribing, it is the unsubscribing: `listen` returns a **promise**,
+ * so a component that unmounts before that promise settles has no handle to release and would leak
+ * a listener that outlives the screen. The epilogue below — drop it the moment it arrives, if the
+ * component is already gone — was written out three times, in this file twice and in `Lan.tsx`
+ * once, and a fourth screen that copied two of those three lines would have leaked in silence.
+ *
+ * `handler` is held in a ref rather than being a dependency: a new closure on every render is
+ * normal, and depending on it would tear the subscription down and set it up again several times a
+ * second. `subscribe` is a dependency because it is a module-level function in practice, and a
+ * caller who passes a fresh one every render should get told by a re-subscription rather than by a
+ * subscription that quietly points at the old event.
+ */
+export function useSubscribe<T>(
+  subscribe: (cb: (value: T) => void) => Promise<UnlistenFn>,
+  handler: (value: T) => void,
+): void {
+  const latest = useRef(handler);
+  latest.current = handler;
 
   useEffect(() => {
     let alive = true;
-    let unlisten: (() => void) | undefined;
-
-    fetchDashboard()
-      .then((first) => {
-        if (alive) setD(first);
-      })
-      .catch(() => {});
-    onDashboard((next) => {
-      if (alive) setD(next);
+    let unlisten: UnlistenFn | undefined;
+    subscribe((value) => {
+      if (alive) latest.current(value);
     })
       .then((un) => {
         // The subscription can resolve after unmount; drop it immediately if so.
@@ -486,12 +459,30 @@ export function useDashboard(empty: Dashboard): Dashboard {
         else un();
       })
       .catch(() => {});
-
     return () => {
       alive = false;
       unlisten?.();
     };
+  }, [subscribe]);
+}
+
+export function useDashboard(empty: Dashboard): Dashboard {
+  const [d, setD] = useState<Dashboard>(empty);
+
+  // Asked once, then announced. The first fetch is what fills a screen opened between two pushes;
+  // without it the window would show `empty` until the node's next accepted snapshot.
+  useEffect(() => {
+    let alive = true;
+    fetchDashboard()
+      .then((first) => {
+        if (alive) setD(first);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
+  useSubscribe(onDashboard, setD);
 
   return d;
 }

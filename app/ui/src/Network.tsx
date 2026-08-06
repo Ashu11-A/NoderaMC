@@ -22,7 +22,7 @@ import {
   parseShareLink,
   type DirectoryEntry,
 } from "./play";
-import { shortId } from "./api";
+import { shortId, useDiscovery } from "./api";
 
 /** A world this app has a local door open to, and where that door is. */
 interface Joined {
@@ -160,6 +160,19 @@ export function NetworkScreen(props: {
     const timer = window.setInterval(refresh, 15_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  // …and asked again the moment tracker reachability MOVES, which is the one thing a fifteen-second
+  // timer answers badly. The backend emits `nodera://discovery` on a transition only, so this fires
+  // when a tracker comes back or drops — never on the several-times-a-second snapshot stream — and
+  // the screen whose entire subject is "what other people are running" stops showing the last
+  // failed query for up to fifteen seconds after the network came back.
+  //
+  // `null` means nobody has said yet and is deliberately not a trigger: the first effect has already
+  // asked, and refreshing again on arrival would be a second query for no new information.
+  const discovery = useDiscovery();
+  useEffect(() => {
+    if (discovery) refresh();
+  }, [discovery]);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();

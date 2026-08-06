@@ -172,15 +172,6 @@ export function Figure(props: { caption: ReactNode; children: ReactNode }) {
   );
 }
 
-/** A directory listing, monospaced, for the handful of places the prose names real paths. */
-export function FileTree(props: { children: string }) {
-  return (
-    <pre className="my-6 w-full min-w-0 overflow-x-auto rounded-md border border-line-soft bg-surface px-5 py-4 font-mono text-sm text-dim">
-      {props.children}
-    </pre>
-  );
-}
-
 /**
  * A short inline code span. Written out so the prose never reaches for a colour of its own.
  *

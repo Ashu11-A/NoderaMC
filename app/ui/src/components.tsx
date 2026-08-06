@@ -132,11 +132,6 @@ export function Card(props: { title?: string; hint?: string; right?: ReactNode; 
   );
 }
 
-/** Semantic settings surface. Name prevents configuration screens becoming generic card soup. */
-export function SettingCard(props: { title: string; hint?: string; right?: ReactNode; children: ReactNode }) {
-  return <Card {...props} />;
-}
-
 /* ------------------------------------------------------------------------------------- controls */
 
 // One settings row: label + hint on the left, the control on the right. Below the narrow
@@ -342,45 +337,42 @@ export function Slider(props: {
 }
 
 /**
- * Marks a control the app stores but nothing yet applies.
+ * A small badge next to a control's label, saying what is actually happening to it.
  *
  * Worth the visual noise: a limit that looks active and is not is a worse lie than an obviously
  * pending one, because the user will size their bandwidth around it.
- */
-/**
- * A small badge next to a control's label, saying what is actually happening to it.
  *
  * `tone` matters more than it looks. "Saved but nothing reads it yet" and "this can never work"
  * are different promises to a user — the first implies *coming soon*, and rendering a permanent
  * structural limitation in the same amber as a pending one quietly tells people to keep waiting
  * for something that is not coming. The caller decides; this only paints.
  */
+// Named for what it paints rather than `TONE`: there is a second `TONE` in this file, forty-six
+// lines further down, holding a different set of keys for `Stat`. Two module-scoped tables cannot
+// both be `TONE`, so one of them was a `const` inside a component body shadowing the other — legal,
+// invisible in review, and exactly the reading a person does not do twice.
+const BADGE_TONE = {
+  warn: "border-warn/40 bg-warn/12 text-warn",
+  muted: "border-line bg-surface-2 text-faint",
+  info: "border-down/40 bg-down/12 text-down",
+} as const;
+
 export function StatusBadge(props: {
-  tone: "warn" | "muted" | "info";
+  tone: keyof typeof BADGE_TONE;
   label: string;
   title: string;
 }) {
-  const TONE = {
-    warn: "border-warn/40 bg-warn/12 text-warn",
-    muted: "border-line bg-surface-2 text-faint",
-    info: "border-down/40 bg-down/12 text-down",
-  } as const;
   return (
     <span
       className={cx(
         "inline-flex cursor-help items-center gap-1 rounded-full px-1.5 py-px text-[10px] tracking-[0.02em]",
-        TONE[props.tone],
+        BADGE_TONE[props.tone],
       )}
       title={props.title}
     >
       <FiInfo aria-hidden /> {props.label}
     </span>
   );
-}
-
-/** Back-compat shim: the plain "not enforced yet" badge, unchanged. */
-export function NotEnforced(props: { note: string }) {
-  return <StatusBadge tone="warn" label="not enforced yet" title={props.note} />;
 }
 
 /* ---------------------------------------------------------------------------------- disclosure */
@@ -406,7 +398,7 @@ export function Disclosure(props: { title: string; children: ReactNode }) {
 
 /* ------------------------------------------------------------------------------- data displays */
 
-const TONE = { up: "text-up", down: "text-down", warn: "text-warn" } as const;
+const STAT_TONE = { up: "text-up", down: "text-down", warn: "text-warn" } as const;
 
 export function Stat(props: {
   label: string;
@@ -427,7 +419,7 @@ export function Stat(props: {
         <div
           className={cx(
             "mt-1 text-[20px] font-medium tabular-nums",
-            props.tone && TONE[props.tone],
+            props.tone && STAT_TONE[props.tone],
           )}
         >
           {props.value}
@@ -483,9 +475,6 @@ export function Pill(props: { tone: "up" | "down" | "warn" | "muted"; children: 
     </span>
   );
 }
-
-/** Status name used by dense tables and configuration lists. */
-export const StatusChip = Pill;
 
 /* ------------------------------------------------------------------------------------- tables */
 
