@@ -44,7 +44,11 @@
 > a *production* call path, because "the seam exists" and "the guard runs" turned out to be different
 > claims. The full inventory of capabilities in this state — with a wire-or-delete verdict each, and
 > two more registers found leaning on one (L-30 cites `EventSyncOverTransportIT` over an
-> `EventSyncService` with no caller; [`Task.2.md`](Task.2.md) lists `CommitteeManager` under "Landed")
+> `EventSyncService` with no caller; [`Task.2.md`](Task.2.md) listed `CommitteeManager` under
+> "Landed" — that class was deleted on 2026-08-06, Plan 11 round 2, issue #210, as a superseded
+> design rather than a missing call site: committees are re-derived deterministically by
+> `EntityLaneBootstrap.plan` from inputs every member holds, so there is no rotation event for a
+> certificate to certify)
 > — is in [`REFACTORING.md`](REFACTORING.md) § Unwired capabilities.
 
 > **Second pass 2026-07-30 — two of the unwired rows were security properties, and both are now

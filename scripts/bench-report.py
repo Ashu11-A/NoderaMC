@@ -44,7 +44,12 @@ DEFAULT_BASELINE = ROOT / "fixtures/bench/baseline.json"
 # "discovery got slower" is a sentence somebody can act on and "DiscoveryBenchmark
 # .directoryOnline:1024 got slower" is a line item inside it.
 LANES = {
-    "DiscoveryBenchmark": ("peer discovery", "Finding peers: route parse, directory ingest, liveness, warm-start cache, election."),
+    # Four of this lane's six benchmarks (directoryIngest, directoryOnline, cacheSave, cacheLoad)
+    # were deleted on 2026-08-06 with `PeerDirectory` and `CachedPeerStore`, which had no production
+    # callers — see `peer/src/jmh/java/dev/nodera/bench/README.md` "Removed lanes". Keep this
+    # description in step with what the class actually measures; a lane blurb naming a benchmark
+    # that does not run makes the report describe a machine nobody has.
+    "DiscoveryBenchmark": ("peer discovery", "Finding peers: tracker route parse and gateway election."),
     "ChunkSyncBenchmark": ("chunk synchronisation", "Moving a region: snapshot to blob to pieces to selection to reassembly to root."),
     "WireBenchmark": ("wire codec", "Canonical encode/decode + hashing — multiplied by every other lane's message rate."),
     "RuntimeBenchmark": ("internal runtime latency", "What the always-on worker spends per second while nothing is wrong."),

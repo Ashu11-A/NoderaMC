@@ -205,8 +205,9 @@ of another module's.
 | `SchedulerDispatchTest` | Each `NoderaScheduler` method routes to the expected target; `BukkitScheduler` unreferenced | [1](Task.1.md) | ⬜ deferred |
 | `EndpointControlHandlerTest` | Every `ControlProtocol` v2 verb answers from live state; unknown verb → `NODERA-ERR unknown verb` | [2](Task.2.md) | ⬜ |
 | `ViewOwnershipPlannerTest` (extended) | A node with N views; min distance; two peers plan a 20-tenant endpoint identically; custody breaks ties **only** | [3](Task.3.md) | ✅ (L-63 retire) |
-| `CustodyAuditIT` | A lying `FULL` claim is caught by a spot-check and downgraded to `VIEW`, world still available | [3](Task.3.md) | ✅ (5, L-62 retire) |
-| `CustodyDigestTest` | Canonical `RegionOrder` leaves; equal state → equal root; one changed or missing head changes it; inclusion proofs verify at sizes 1…100 | [3](Task.3.md) | ✅ (8) |
+| `CustodyAuditIT` | *(deleted 2026-08-06 with `CustodyAudit` — the spot-check lane had no production entry point; see the note below)* | [3](Task.3.md) | ⬜ withdrawn |
+| `CustodyDigestTest` | *(deleted 2026-08-06 with `CustodyDigest` — same lane)* | [3](Task.3.md) | ⬜ withdrawn |
+| `EndpointConfigTest` (custody clauses) | The configured claim parses to `CustodyClass.FULL` and an omitted one defaults to `VIEW` — the only custody assertions left in the tree | [3](Task.3.md) | ✅ |
 | `BukkitWorldViewTest` | `MutableWorldView` conformance against the same contract `InMemoryWorldView` satisfies | [4](Task.4.md) | ⬜ |
 | `CrossFoliaRegionCommitIT` | A joint-transfer prepare/commit across two Folia region threads is atomic; a one-sided failure commits neither | [4](Task.4.md) | ⬜ |
 | `BukkitEntityAdaptersTest` | Bukkit and NeoForge adapters emit byte-identical `PersistedEntityState` — the anti-drift test | [5](Task.5.md) | ⬜ |
@@ -215,6 +216,24 @@ of another module's.
 | `TenantLimboTest` | No world interaction before release; a wrong password throttles then disconnects | [6](Task.6.md) | ⬜ |
 | `EndpointHandshakeTest` | The `nodera:v1` flow; replayed challenge refused; a refusal always names a reason | [7](Task.7.md) | ⬜ |
 | `ForeignWriteBridgeTest` | A foreign write is certified; a raced one is reverted **and** fires `NoderaRegionDeniedEvent` | [8](Task.8.md) | ⬜ |
+
+> **Why the two custody rows are marked withdrawn (2026-08-06, issue #210).** They carried a ✅ —
+> a claim of proof — against suites that no longer exist. `CustodyDigest` and `CustodyAudit` were
+> deleted in commit `0b02aa5` as part of the archival audit triangle: a closed loop with no
+> production entry point, so the spot-check they implemented never ran outside its own tests.
+>
+> **This is a genuine reduction in what is checked, and marking it is the point.** A node
+> advertising `custody: FULL` is no longer sampled and can no longer be downgraded to `VIEW`. What
+> remains is weaker but real, and it is what `CustodyClass`'s javadoc now says: every piece a node
+> serves is hash-verified by the receiver against the manifest, and since the "no negative on the
+> piece wire" fix a peer asked for pieces it does not hold answers with a `ContentAvailability`
+> stating what it actually has. So a node claiming `FULL` it cannot back fails to answer and is
+> passed over — discovered at fetch time, by the fetcher, rather than proactively by an auditor.
+> Nothing detects a silently-degraded replica *before* somebody needs it.
+>
+> The Merkle-digest design itself is not disproven; it was unreachable code. See L-62 in
+> [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) and the Task 3 status note in
+> [`Task.3.md`](Task.3.md).
 
 ## 2.3 Conventions
 

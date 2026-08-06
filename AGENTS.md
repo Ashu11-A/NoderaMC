@@ -101,18 +101,21 @@ same frozen wire contract, so a codec regression is a consensus regression.
     `DeterminismPropertyTest`. `shadow`'s `SnapshotDeltaApplier` measures timing OUTSIDE the
     hashed path (nanoTime around the engine, never inside it).
   - `coordinator`: the delegate→propose→verify→commit→reassign pipeline behind the
-    `MutableWorldView` seam (`CoordinatorIT`); ALL world writes go through `WorldMutationApplier`
+    `MutableWorldView` seam; ALL world writes go through `WorldMutationApplier`
     (two-pass compare-and-set, all-or-nothing). Durable state via `PersistedCoordinatorState`.
-    Task 22's multi-factor `ReliabilityScorer` is ADDITIVE — the Task-6 `ReliabilityLedger` EMA
-    stays the frozen correctness source. Task 25's `LagHandoffPolicy`: skew strictly above four
+    The Task-6 `ReliabilityLedger` EMA is the correctness source — Task 22's additive multi-factor
+    scorer was deleted on 2026-08-06 (round 2, #210) as unreachable, so there is one scorer, not
+    two. Task 25's `LagHandoffPolicy`: skew strictly above four
     ticks for consecutive windows, streak resets on assignment change, cooldown prevents
     flapping, only a guarded handoff applies the one-shot reliability penalty. Task 11's
     `interference` package is the single mutation-guard choke point.
   - `committee`: consensus primitives around real engine re-execution; Task 24 `VotePersistence`
     (durably prepare before signing, persist certificate before canonical apply); guarded lag
     handoff pins region/epoch/primary (stale decisions are no-ops); 2-of-3 quorum commits through
-    the coordinator applier. Proven by `CommitteeMvpIT`/`ByzantineWorkerTest`/`CrashRecoveryIT`/
-    `LagHandoffIT`.
+    the coordinator applier. **These are primitives only** — the engine-side session that drove
+    them was deleted on 2026-08-06 (round 2, #210). The batch loop that ships is
+    `dev.nodera.peer.validation.WorkerValidationService`; proven by `WorkerQuorumValidationIT`/
+    `ByzantineMeshIT`/`LiveLagHandoffIT` in `:peer`, over the real transport.
   - `fallback`: committee-lane vs server-lane router + `SoakMetrics` (Phase 4 exit: >90%
     committee-commit, `FallbackRoutingIT`). Wired live by Task 5's live lane.
 - `transport` (`dev.nodera.protocol` + `dev.nodera.transport{,.socket,.rendezvous}`):
@@ -149,8 +152,11 @@ same frozen wire contract, so a codec regression is a consensus regression.
     counts the departing peer. BouncyCastle (Argon2id) is this package's only external dep.
   - `peer` runtime: membership/heartbeat/gateway election over the transport SEAM (runs
     identically on `LoopbackTransport` and `SocketPeerTransport` — `SessionContinuityIT`);
-    `discovery` (TrackerClient/BootstrapClient/PeerDirectory/ArchiveInventory/CachedPeerStore/
-    PersistentIdentityStore), `archival` (placement/audit/repair, Tasks 21/22), deadline-bound
+    `discovery` (PeerDiscoveryService/TrackerClient/TrackerLookup/RendezvousDirectory/
+    ServiceScoreBoard/PersistentIdentityStore/CommonsPresence — the second resolver and its caches
+    were deleted 2026-08-06, #210), `archival` (**placement only**: `RendezvousArchivePolicy` +
+    `ReplicationTarget`/`RetentionPolicy`; the audit→repair triangle went with the same round, and
+    repair is now the placement sweep in `WorldReplicationService`), deadline-bound
     `PeerShutdownHook`, certified-reference `TickSync`, `control` — the loopback verb endpoint
     (`ControlProtocol` v2), the single source the mod's `CompanionProtocol` and the Tauri app's
     `control.rs` mirror.

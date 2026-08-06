@@ -24,10 +24,24 @@ import net.minecraft.world.entity.item.ItemEntity;
  * session holding nothing. This runtime holds no store, no journals and no replicas, so installing
  * and replacing it costs nothing.
  *
- * <p><b>It refuses; it never validates.</b> {@link #delegated} is always false, so nothing here can
- * become validated state, and every capture entry point is a deliberate no-op. The single thing it
- * does is announce that a region cannot be validated — which is all a node with no seat is entitled
- * to do, and exactly what the owners need to hear.
+ * <p><b>It validates nothing</b>, and as of 2026-08-06 <b>it no longer refuses anything either.</b>
+ * {@link #delegated} is always false, so nothing here can become validated state, and every capture
+ * entry point is a deliberate no-op. This class was written to do one further thing — announce that
+ * a region cannot be validated, which is all a node with no seat is entitled to do — and that is
+ * the part that is currently missing.
+ *
+ * <p>The method that did it, {@code revokeForEntity}, was deleted from
+ * {@link EntityCaptureBridge.Runtime} on 2026-08-06 (Plan 11 round 2, issue #210) as a method
+ * nothing referenced, which it was: it had no invoker even before the deletion, so no behaviour
+ * changed. But it was the sole caller of {@link ObserverRefusals#refuse} and the only producer of
+ * {@code RegionRefusal.Reason.NON_DELEGABLE_ENTITY}, so {@link #refusals} is now a field this class
+ * stores and never reads, and reason code 1 has no sender anywhere.
+ *
+ * <p><b>Do not resolve this by deleting the field.</b> Whether the refusal lane is being retired or
+ * is waiting for a caller is an open decision — the wire reason, the transport path, the dedupe and
+ * the delegability rule table all still exist and are all tested; only the call from the capture
+ * bridge is gone. See {@code docs/network/REFACTORING.md} under `RegionDelegabilityGate` and
+ * minecraft L-60, which was retired partly on the announcement this class no longer makes.
  *
  * @Thread-context server main thread, like every other bridge runtime.
  */
