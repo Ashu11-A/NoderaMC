@@ -1,5 +1,6 @@
 package dev.nodera.headless;
 
+import dev.nodera.testkit.harness.SpawnedService;
 import dev.nodera.testkit.harness.TestPaths;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.HashService;
@@ -19,7 +20,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -64,17 +64,6 @@ final class CompanionCrashSurvivalIT {
         }
     }
 
-    private static Path repoRoot() {
-        Path dir = Paths.get("").toAbsolutePath();
-        while (dir != null && !Files.exists(dir.resolve("settings.gradle.kts"))) {
-            dir = dir.getParent();
-        }
-        if (dir == null) {
-            throw new IllegalStateException("repo root not found");
-        }
-        return dir;
-    }
-
     private static int freePort() throws IOException {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
@@ -114,6 +103,9 @@ final class CompanionCrashSurvivalIT {
     @Test
     void daemonKeepsSeedingAfterTheGameProcessIsKilledDashNine() throws Exception {
         Path dist = TestPaths.discover().workerDist();
+        if (SpawnedService.binariesRequired()) {
+            assertThat(dist).as("this run promised ./gradlew :peer:installDist had run").isExecutable();
+        }
         assumeTrue(Files.isExecutable(dist),
                 "worker dist missing — run ./gradlew :peer:installDist");
 

@@ -30,4 +30,9 @@ dependencies {
     // Task-24 CrashRecoveryIT crosses the real piece/repair/event-replay seams headlessly.
     testImplementation(project(":peer"))
     testImplementation(project(":storage"))
+    // `dev.nodera.testkit.engine.EngineFixtures` — the batch/context/execute preamble that was
+    // copied into eighteen files here. TEST scope only, which is what keeps the main graph acyclic:
+    // `:testing` depends on this module's main configuration, this module's TESTS depend back on
+    // `:testing`, and `:storage`, `:transport`, `:endpoint` and `:peer` already do exactly that.
+    testImplementation(project(":testing"))
 }
