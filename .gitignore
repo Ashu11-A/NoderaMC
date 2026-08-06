@@ -131,3 +131,8 @@ __pycache__/
 *.keystore
 *.p12
 *.pfx
+
+# Blender's rolling backup of a saved .blend — it writes one on every save, next to the file it
+# backs up. `branding/logo.blend` IS committed; a second copy of it that changes on every render is
+# not, and at 2.8 MB it is bigger than the file it duplicates.
+*.blend1

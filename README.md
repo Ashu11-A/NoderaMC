@@ -180,11 +180,17 @@ it is Minecraft's own art rather than an impression of it. `branding/world.manif
 seed, the biome, the portal template, the exported bounds and the camera: enough to stand in that
 spot in-game and see the thing on the banner.
 
+`branding/logo.blend` is the scene that produced it: the exported geometry, the 33 block textures
+**packed into the file**, the four-part light rig, and the orthographic camera at 41.9° elevation /
+142.3° azimuth. It opens standalone — no path into anyone's `build/` — and rendering it as saved
+(Cycles, 2048², 512 samples, Standard view transform, transparent film) reproduces the mark. Blender
+writes a `.blend1` backup beside it on every save; that one is ignored.
+
 Everything downstream is cut from one 2048 px render, downscaled in linear light:
 
 | Where | Files |
 |---|---|
-| `branding/` | `logo-{16,32,48,64,128,256,512,1024}.png`, `banner.png`, `world.manifest` |
+| `branding/` | `logo-{16,32,48,64,128,256,512,1024}.png`, `banner.png`, `logo.blend`, `world.manifest` |
 | `app/icons/` | `32x32.png`, `128x128.png`, `icon.png` (window + tray), `icon.ico` (7 frames) |
 | `web/public/` | `favicon.png`, `apple-touch-icon.png` — copied to the site root by the Vite build |
 | Android | the five `mipmap-*` buckets under `app/gen/`, cut from `logo-512.png` by `scripts/android-apk.sh` — `gen/` is generated, so an APK built without that step ships Tauri's placeholder |
