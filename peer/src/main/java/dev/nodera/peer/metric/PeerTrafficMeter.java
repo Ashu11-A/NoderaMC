@@ -30,11 +30,19 @@ import java.util.function.LongSupplier;
  * The dashboard (2 s) and the mod (3 s) therefore both get honest numbers with no background
  * thread to own, start, or stop.
  *
- * <h2>Bounded</h2>
+ * <h2>Bounded by the writer, not by the reader</h2>
  *
- * <p>A peer that has been silent for {@link #IDLE_EVICT_NANOS} is dropped on the next snapshot, so
- * a long-lived node that has met thousands of peers does not accumulate them forever. Explicit
- * {@link #forget} on peer-down is the fast path; eviction is the backstop.
+ * <p>A peer that has been silent for {@link #IDLE_EVICT_NANOS} is dropped, so a long-lived node that
+ * has met thousands of peers does not accumulate them forever. Explicit {@link #forget} on peer-down
+ * is the fast path; the idle sweep is the backstop.
+ *
+ * <p>That sweep runs from {@link #recordTx}/{@link #recordRx}, on the same path that <em>creates</em>
+ * entries and at most once per {@link #SWEEP_INTERVAL_NANOS} — so the table cannot grow without the
+ * lid also being lifted. It used to run only from {@link #snapshot()}, which had no production caller
+ * at all (issue #218): the only eviction path in the class was reachable exclusively from a readout
+ * nobody read, so a worker running for weeks with no companion app attached accumulated one entry per
+ * peer it had ever exchanged a frame with, forever. A meter must not leak when nothing is looking at
+ * it.
  *
  * <p>Thread-context: safe from any thread. Recording is lock-free ({@link LongAdder} per
  * direction); {@link #snapshot()} mutates only the sampling window fields under the entry's own
@@ -48,10 +56,20 @@ public final class PeerTrafficMeter {
     /** A peer with no traffic for this long is dropped from the table. */
     public static final long IDLE_EVICT_NANOS = 10L * 60 * 1_000_000_000L;
 
+    /**
+     * Shortest interval between idle sweeps. A full scan per recorded frame would put an O(peers)
+     * walk on the hot send path; once a minute against a ten-minute retention keeps the table within
+     * one sweep of its bound while costing one comparison on all but a handful of calls.
+     */
+    public static final long SWEEP_INTERVAL_NANOS = 60L * 1_000_000_000L;
+
     /** Nanosecond clock; injectable so rate derivation is testable without sleeping. */
     private final LongSupplier clock;
 
     private final Map<String, PeerCounters> peers = new ConcurrentHashMap<>();
+
+    /** When the next idle sweep is due. Claimed by CAS so exactly one recorder runs each sweep. */
+    private final java.util.concurrent.atomic.AtomicLong nextSweepNanos;
 
     /** Production meter reading {@link System#nanoTime()}. */
     public PeerTrafficMeter() {
@@ -65,6 +83,10 @@ public final class PeerTrafficMeter {
      */
     public PeerTrafficMeter(LongSupplier clock) {
         this.clock = java.util.Objects.requireNonNull(clock, "clock");
+        // Seeded from the clock rather than from zero: `System.nanoTime()` has an arbitrary origin
+        // and is routinely negative, so a fixed seed would either sweep on every call or on none.
+        this.nextSweepNanos =
+                new java.util.concurrent.atomic.AtomicLong(clock.getAsLong() + SWEEP_INTERVAL_NANOS);
     }
 
     /**
@@ -94,9 +116,32 @@ public final class PeerTrafficMeter {
         if (key == null || byteCount <= 0) {
             return;
         }
+        long now = clock.getAsLong();
         PeerCounters counters = peers.computeIfAbsent(key,
-                k -> new PeerCounters(peer.nodeId(), nullToEmpty(peer.route()), clock.getAsLong()));
-        counters.observe(peer, direction, byteCount, clock.getAsLong());
+                k -> new PeerCounters(peer.nodeId(), nullToEmpty(peer.route()), now));
+        counters.observe(peer, direction, byteCount, now);
+        evictIdle(now);
+    }
+
+    /**
+     * Drop every peer silent for longer than {@link #IDLE_EVICT_NANOS}, at most once per
+     * {@link #SWEEP_INTERVAL_NANOS}.
+     *
+     * <p>The due time is claimed with a compare-and-set before the walk, so concurrent recorders
+     * cannot all sweep at once: the loser simply returns and the table is swept exactly once per
+     * interval however many threads are sending. Entries are removed by key and value, so a peer that
+     * spoke between the staleness test and the removal keeps its counters.
+     */
+    private void evictIdle(long now) {
+        long due = nextSweepNanos.get();
+        if (now - due < 0 || !nextSweepNanos.compareAndSet(due, now + SWEEP_INTERVAL_NANOS)) {
+            return;
+        }
+        for (Map.Entry<String, PeerCounters> entry : peers.entrySet()) {
+            if (now - entry.getValue().lastActivityNanos() > IDLE_EVICT_NANOS) {
+                peers.remove(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
     /**
@@ -115,8 +160,11 @@ public final class PeerTrafficMeter {
 
     /**
      * The live per-peer table, ordered by combined throughput (busiest first) so a UI can render
-     * the top rows without re-sorting. Re-derives rates where the sample window has elapsed and
-     * evicts peers idle beyond {@link #IDLE_EVICT_NANOS}.
+     * the top rows without re-sorting. Re-derives rates where the sample window has elapsed.
+     *
+     * <p>Rows staler than {@link #IDLE_EVICT_NANOS} are omitted. Reading no longer <i>performs</i>
+     * the eviction — {@link #recordTx}/{@link #recordRx} do that on their own cadence — because the
+     * table must be bounded whether or not anything ever calls this.
      *
      * @return one row per known peer.
      * @Thread-context any thread.
@@ -127,7 +175,6 @@ public final class PeerTrafficMeter {
         for (Map.Entry<String, PeerCounters> entry : peers.entrySet()) {
             PeerCounters counters = entry.getValue();
             if (now - counters.lastActivityNanos() > IDLE_EVICT_NANOS) {
-                peers.remove(entry.getKey(), counters);
                 continue;
             }
             out.add(counters.sample(entry.getKey(), now));
@@ -140,18 +187,24 @@ public final class PeerTrafficMeter {
     }
 
     /**
-     * One peer's row, or {@code null} when that peer has moved no bytes.
+     * The live table indexed by node id, for a caller that has a list of peers and wants each one's
+     * row. Peers known only by route are not in it — they have no id to look up by.
      *
-     * @param nodeId the peer.
+     * <p>One {@link #snapshot()} rather than a lookup per peer: sampling re-derives a rate from the
+     * time since that peer's <i>previous</i> sample, so two entry points into the sampling code meant
+     * a peer's window could be reset by whichever of them happened to run first.
+     *
+     * @return the rows that carry a node id, by that id.
      * @Thread-context any thread.
      */
-    public PeerTraffic forNode(NodeId nodeId) {
-        if (nodeId == null) {
-            return null;
+    public Map<NodeId, PeerTraffic> byNode() {
+        Map<NodeId, PeerTraffic> out = new java.util.LinkedHashMap<>();
+        for (PeerTraffic row : snapshot()) {
+            if (row.nodeId() != null) {
+                out.put(row.nodeId(), row);
+            }
         }
-        String key = nodeId.value().toString();
-        PeerCounters counters = peers.get(key);
-        return counters == null ? null : counters.sample(key, clock.getAsLong());
+        return out;
     }
 
     /**
