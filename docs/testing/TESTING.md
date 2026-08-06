@@ -43,11 +43,19 @@ scripts/loc-metrics.py --selftest              # 18 lexer fixtures — runs befo
 underneath it, and a regression that made the classifier read comments as code would otherwise
 present as a tree that shrank. The programme it serves is [`Plan.11.md`](../plans/Plan.11.md).
 
-⚠️ **The ratchet buckets by source set, not by purpose.** `library/java/testing/src/main` is test
-infrastructure and the classifier counts it under `java.main`, so extracting a shared fixture out of
-twenty-five tests reads as production growth (`java.main.code +695`) alongside the test shrink
-(`java.test.code −1484`) it paid for. That is not a wrong measurement — the lines exist and ship in
-the `nodera-test` distribution — but a reviewer comparing one bucket in isolation will misread it.
+`--check` gates the `*.code` limits only. Comment counts are measured, stamped and diffed — moving a
+specification out of a comment block is one of the programme's levers and has to be visible — but a
+rise in them prints a note and passes. The exclusion is not a softening: a gate that makes deleting
+documentation the cheapest way to go green is pointed at the wrong thing, and it demonstrably was.
+An agent extracting a collaborator from a god-class hit the comment bucket and trimmed comments to
+pay for the new file's header. That time the documentation had moved with the code and nothing was
+lost. The next time it would not have been.
+
+**`:testing` buckets as `java.test`, not `java.main`.** Everything in that module is test code; it
+compiles into `src/main` only because that is how one Gradle module exposes types to another
+module's tests. The classifier reads the exception from `layout.properties`, so relocating the
+module cannot silently un-fix it. Before that, extracting a shared fixture out of twenty-five tests
+reported as production growth and turned the gate red for doing exactly what its issue asked.
 
 ---
 

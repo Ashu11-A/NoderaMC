@@ -1,11 +1,11 @@
 {
-  "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate.",
-  "measured": "2026-08-05 at 9959df1 on the full tree, by `scripts/loc-metrics.py --baseline` \u2014 the opening measurement of the Plan 11 reduction programme. Nothing has been reduced yet; every later stamp in this file must be lower.",
+  "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
+  "measured": "2026-08-05 at 9959df1 on the full tree, by `scripts/loc-metrics.py --baseline`. Re-stamped after `:testing` was reclassified: that module is the shared test library and its `src/main` is test code, so 8,426 code and 4,079 comment lines moved from java.main to java.test. The tree did not change; the question it was being asked did.",
   "limits": {
-    "java.main.code": 69241,
-    "java.main.comment": 39830,
-    "java.test.code": 52014,
-    "java.test.comment": 6864,
+    "java.main.code": 60815,
+    "java.main.comment": 35751,
+    "java.test.code": 60440,
+    "java.test.comment": 10943,
     "rust.main.code": 31448,
     "rust.main.comment": 8348,
     "rust.test.code": 444,
