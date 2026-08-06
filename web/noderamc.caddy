@@ -19,7 +19,7 @@
 #
 # The site itself is no longer served from disk here. It is a container image published by CI
 # (ghcr.io/ashu11-a/noderamc:web-canary), started by docker/compose.yml in the `nodera` project, and
-# bound to 127.0.0.1:8080 — never to a public interface, so this block is the only route to it.
+# bound to 127.0.0.1:8099 — never to a public interface, so this block is the only route to it.
 
 noderamc.org, www.noderamc.org {
 	encode zstd gzip
@@ -37,7 +37,7 @@ noderamc.org, www.noderamc.org {
 	# README button keeps working even if the shell's JavaScript regresses, and the query string
 	# survives the rewrite untouched.
 	handle {
-		reverse_proxy 127.0.0.1:8080
+		reverse_proxy 127.0.0.1:8099
 	}
 
 	# The disk copy is a standby, not the primary. `handle_errors` fires when the proxy cannot reach

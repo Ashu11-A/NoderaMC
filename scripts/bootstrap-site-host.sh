@@ -112,6 +112,29 @@ trap '[[ -n "$CLEANUP_KEY" ]] && rm -f "$CLEANUP_KEY"' EXIT
 SSH_OPTS=(-i "$SSH_KEY" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 remote() { ssh "${SSH_OPTS[@]}" "$VPS_USER@$VPS_HOST" "$@"; }
 
+# --- the port, which is one decision written in two files ------------------------------------------
+#
+# compose.yml publishes the container on a loopback port and web/noderamc.caddy proxies to it. There
+# is no variable the two can share: the Caddy block is a static file installed on a host that has no
+# checkout, and the systemd timer runs `compose up` later with no environment of ours. So the number
+# is written twice, and the only defence against drift is to compare them before installing either.
+# A mismatch is silent and total — Caddy would answer 502 for the site while the container sat there
+# perfectly healthy, and the disk standby would hide it by serving yesterday's copy.
+#
+# Read here rather than in the preflight below because --status exits before that and still has to
+# know which port to ask about.
+COMPOSE_PORT="$(sed -n 's/.*"127\.0\.0\.1:\${NODERA_WEB_PORT:-\([0-9]\+\)}:8080\/tcp".*/\1/p' \
+	"$NODERA_ROOT/docker/compose.yml" | head -1)"
+CADDY_PORT="$(sed -n 's/.*reverse_proxy 127\.0\.0\.1:\([0-9]\+\).*/\1/p' \
+	"$NODERA_WEB_DIR/noderamc.caddy" | head -1)"
+[[ -n "$COMPOSE_PORT" && -n "$CADDY_PORT" ]] \
+	|| die "could not read the web port out of docker/compose.yml ($COMPOSE_PORT) and \
+web/noderamc.caddy ($CADDY_PORT) — one of them changed shape"
+[[ "$COMPOSE_PORT" == "$CADDY_PORT" ]] \
+	|| die "docker/compose.yml publishes the site on $COMPOSE_PORT and web/noderamc.caddy proxies to \
+$CADDY_PORT; they have to be the same port"
+WEB_PORT="$COMPOSE_PORT"
+
 # --- --status ------------------------------------------------------------------------------------
 
 if [[ $STATUS_ONLY -eq 1 ]]; then
@@ -125,7 +148,7 @@ if [[ $STATUS_ONLY -eq 1 ]]; then
 	say "caddy"
 	remote "systemctl is-active caddy; ls -l '$CADDY_FILE' 2>/dev/null || echo 'no site block installed'"
 	say "what the container answers on the host"
-	remote "curl -sS -o /dev/null -w 'http://127.0.0.1:8080/  %{http_code}\n' http://127.0.0.1:8080/ || true"
+	remote "curl -sS -o /dev/null -w 'http://127.0.0.1:$WEB_PORT/  %{http_code}\n' http://127.0.0.1:$WEB_PORT/ || true"
 	say "what the public answers"
 	curl -sS -o /dev/null -w '  https://noderamc.org/            %{http_code}\n' https://noderamc.org/ || true
 	curl -sS -o /dev/null -w '  https://noderamc.org/add-store   %{http_code}\n' \
@@ -169,6 +192,21 @@ remote "test -f '$REMOTE_DIR/.env'" \
 	|| die "$REMOTE_DIR/.env does not exist — run scripts/deploy-vps.sh first; compose.yml refuses \
 to start without the tracker and relay variables it holds, even for the web service"
 
+
+# And that the host will actually give it to us. Docker reports a taken port as a networking driver
+# failure that names an endpoint id and a subnet — true, and no help at all in working out what to
+# do. This host runs OTHER PEOPLE'S services: 8080 belongs to `wings`, the Pelican daemon supervising
+# a dozen game servers, which is exactly why the default is not 8080. Never free a port here; report
+# who has it and stop.
+HOLDER="$(remote "sudo ss -lptnH \"sport = :$WEB_PORT\" 2>/dev/null \
+	| grep -v 'nodera-web\|docker-proxy' | head -1" || true)"
+if [[ -n "$HOLDER" ]]; then
+	die "port $WEB_PORT is already taken on that host by something that is not ours:
+    $HOLDER
+  Nothing has been changed. Pick a free port and set it in BOTH docker/compose.yml and
+  web/noderamc.caddy, or stop whatever that is if it really is yours."
+fi
+
 STAGE="/tmp/nodera-bootstrap.$$"
 remote "mkdir -p '$STAGE'"
 
@@ -197,14 +235,14 @@ remote "set -e
 
 say "waiting for the container to answer"
 for attempt in 1 2 3 4 5 6; do
-	if remote "curl -fsS -o /dev/null http://127.0.0.1:8080/" 2>/dev/null; then
+	if remote "curl -fsS -o /dev/null http://127.0.0.1:$WEB_PORT/" 2>/dev/null; then
 		break
 	fi
-	[[ "$attempt" == 6 ]] && die "the container is up but does not answer on 127.0.0.1:8080 — see \
+	[[ "$attempt" == 6 ]] && die "the container is up but does not answer on 127.0.0.1:$WEB_PORT — see \
 'sudo docker compose --profile site logs web' on the host"
 	sleep 5
 done
-say "the container answers on 127.0.0.1:8080"
+say "the container answers on 127.0.0.1:$WEB_PORT"
 
 # --- the systemd units ------------------------------------------------------------------------------
 #

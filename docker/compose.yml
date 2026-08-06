@@ -101,7 +101,18 @@ services:
       # second, plaintext, unlogged way in to this one, reachable by IP and bypassing every header
       # in web/noderamc.caddy. Dropping the `127.0.0.1:` prefix also opens a port on a machine whose
       # firewall rules this repository does not manage.
-      - "127.0.0.1:${NODERA_WEB_PORT:-8080}:8080/tcp"
+      # 8099 on the host, not 8080. The container still listens on 8080 internally; only the host
+      # side moved. 8080 is the single most contended port on a machine that runs anything else —
+      # on noderamc.org's own host it belongs to `wings`, the Pelican daemon supervising a dozen
+      # other people's game servers, and the collision surfaced as a Docker networking error at
+      # `up`, not as anything naming a port:
+      #
+      #   failed to bind host port for 127.0.0.1:8080: address already in use
+      #
+      # A default that collides on the project's own deployment is the wrong default. This number
+      # and the `reverse_proxy` upstream in web/noderamc.caddy are one decision written twice;
+      # scripts/bootstrap-site-host.sh refuses to install if they disagree.
+      - "127.0.0.1:${NODERA_WEB_PORT:-8099}:8080/tcp"
     # No `stop_grace_period`: unlike the two services above there is no drain to protect. The
     # responses are static files and Docker's default 10 seconds is more than the in-flight ones
     # need.
