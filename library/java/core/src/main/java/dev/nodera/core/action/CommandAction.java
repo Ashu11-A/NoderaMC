@@ -87,7 +87,7 @@ public record CommandAction(Kind kind, NBlockPos from, NBlockPos to, int arg)
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.COMMAND_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.COMMAND_ACTION, ENCODING_VERSION);
         w.writeU16(kind.ordinal());
         from.encode(w);
         to.encode(w);
@@ -102,11 +102,7 @@ public record CommandAction(Kind kind, NBlockPos from, NBlockPos to, int arg)
      * @throws IllegalStateException if the next tag is not {@code COMMAND_ACTION}.
      */
     public static CommandAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.COMMAND_ACTION) {
-            throw new IllegalStateException("expected COMMAND_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.COMMAND_ACTION, "COMMAND_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

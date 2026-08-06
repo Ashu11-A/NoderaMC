@@ -34,7 +34,7 @@ public record NodeId(UUID value) implements Encodable {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.NODE_ID).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.NODE_ID, ENCODING_VERSION);
         // UUID = two u64 (most- then least-significant bits), big-endian.
         w.writeU64(value.getMostSignificantBits());
         w.writeU64(value.getLeastSignificantBits());
@@ -42,10 +42,7 @@ public record NodeId(UUID value) implements Encodable {
 
     /** Decode helper (inverse of {@link #encode}). */
     public static NodeId decode(dev.nodera.core.crypto.CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.NODE_ID) {
-            throw new IllegalStateException("expected NODE_ID tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.NODE_ID, "NODE_ID");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported NODE_ID encoding version " + version);

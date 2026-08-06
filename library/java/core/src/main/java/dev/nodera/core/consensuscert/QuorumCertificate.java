@@ -78,7 +78,7 @@ public record QuorumCertificate(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.QUORUM_CERTIFICATE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.QUORUM_CERTIFICATE, ENCODING_VERSION);
         region.encode(w);
         epoch.encode(w);
         version.encode(w);
@@ -94,11 +94,7 @@ public record QuorumCertificate(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static QuorumCertificate decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.QUORUM_CERTIFICATE) {
-            throw new IllegalStateException("expected QUORUM_CERTIFICATE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.QUORUM_CERTIFICATE, "QUORUM_CERTIFICATE", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);

@@ -30,7 +30,7 @@ public record PickupItemAction(NetworkEntityId entityId) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PICKUP_ITEM_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PICKUP_ITEM_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -45,11 +45,7 @@ public record PickupItemAction(NetworkEntityId entityId) implements GameAction {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static PickupItemAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PICKUP_ITEM_ACTION) {
-            throw new IllegalStateException("expected PICKUP_ITEM_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.PICKUP_ITEM_ACTION, "PICKUP_ITEM_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

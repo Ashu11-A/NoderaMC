@@ -50,7 +50,7 @@ public enum PeerRole implements Encodable {
      */
     @Override
     public void encode(CanonicalWriter writer) {
-        writer.writeU16(TypeTags.PEER_ROLE).writeU16(ENCODING_VERSION);
+        writer.writeFrame(TypeTags.PEER_ROLE, ENCODING_VERSION);
         writer.writeU8(ordinal());
     }
 
@@ -63,10 +63,7 @@ public enum PeerRole implements Encodable {
      * @Thread-context any thread; one reader per decode call (not thread-safe).
      */
     public static PeerRole decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PEER_ROLE) {
-            throw new IllegalStateException("expected PEER_ROLE tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.PEER_ROLE, "PEER_ROLE");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported PEER_ROLE encoding version " + version);

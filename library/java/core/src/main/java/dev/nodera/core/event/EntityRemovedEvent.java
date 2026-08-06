@@ -24,7 +24,7 @@ public record EntityRemovedEvent(NetworkEntityId entityId) implements RegionEven
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_REMOVED_EVENT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_REMOVED_EVENT, ENCODING_VERSION);
         entityId.encode(w);
     }
 

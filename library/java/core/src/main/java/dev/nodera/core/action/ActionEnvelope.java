@@ -66,7 +66,7 @@ public record ActionEnvelope(
     }
 
     private void writeSignedFields(CanonicalWriter w) {
-        w.writeU16(TypeTags.ACTION_ENVELOPE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ACTION_ENVELOPE, ENCODING_VERSION);
         actor.encode(w);
         w.writeU64(playerSeq);
         w.writeU64(serverSeq);
@@ -88,11 +88,7 @@ public record ActionEnvelope(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static ActionEnvelope decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ACTION_ENVELOPE) {
-            throw new IllegalStateException("expected ACTION_ENVELOPE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ACTION_ENVELOPE, "ACTION_ENVELOPE", ENCODING_VERSION);
         NodeId actor = NodeId.decode(r);
         long playerSeq = r.readU64();
         long serverSeq = r.readU64();

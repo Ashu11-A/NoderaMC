@@ -28,7 +28,7 @@ public enum VoteDecision implements Encodable {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.VOTE_DECISION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.VOTE_DECISION, ENCODING_VERSION);
         w.writeU8(ordinal());
     }
 
@@ -40,11 +40,7 @@ public enum VoteDecision implements Encodable {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static VoteDecision decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.VOTE_DECISION) {
-            throw new IllegalStateException("expected VOTE_DECISION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.VOTE_DECISION, "VOTE_DECISION", ENCODING_VERSION);
         int ord = r.readU8();
         VoteDecision[] values = values();
         if (ord < 0 || ord >= values.length) {

@@ -129,7 +129,7 @@ public record NodeCapabilities(
      */
     @Override
     public void encode(CanonicalWriter writer) {
-        writer.writeU16(TypeTags.NODE_CAPABILITIES).writeU16(ENCODING_VERSION);
+        writer.writeFrame(TypeTags.NODE_CAPABILITIES, ENCODING_VERSION);
         writer.writeU32(Integer.toUnsignedLong(logicalCores));
         writer.writeU64(memoryBytes);
         writer.writeU32(Integer.toUnsignedLong(latencyMs));
@@ -153,10 +153,7 @@ public record NodeCapabilities(
      * @Thread-context any thread; one reader per decode call (not thread-safe).
      */
     public static NodeCapabilities decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.NODE_CAPABILITIES) {
-            throw new IllegalStateException("expected NODE_CAPABILITIES tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.NODE_CAPABILITIES, "NODE_CAPABILITIES");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported NODE_CAPABILITIES encoding version " + version);

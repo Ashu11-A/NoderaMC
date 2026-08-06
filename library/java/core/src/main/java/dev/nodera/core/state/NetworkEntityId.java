@@ -45,7 +45,7 @@ public record NetworkEntityId(long value) implements Encodable, Comparable<Netwo
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.NETWORK_ENTITY_ID).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.NETWORK_ENTITY_ID, ENCODING_VERSION);
         w.writeU64(value);
     }
 
@@ -56,11 +56,7 @@ public record NetworkEntityId(long value) implements Encodable, Comparable<Netwo
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static NetworkEntityId decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.NETWORK_ENTITY_ID) {
-            throw new IllegalStateException("expected NETWORK_ENTITY_ID tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.NETWORK_ENTITY_ID, "NETWORK_ENTITY_ID", ENCODING_VERSION);
         return new NetworkEntityId(r.readU64());
     }
 

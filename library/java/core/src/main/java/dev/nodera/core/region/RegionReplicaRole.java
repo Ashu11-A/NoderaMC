@@ -35,7 +35,7 @@ public enum RegionReplicaRole implements Encodable {
      */
     @Override
     public void encode(CanonicalWriter writer) {
-        writer.writeU16(TypeTags.REGION_REPLICA_ROLE).writeU16(ENCODING_VERSION);
+        writer.writeFrame(TypeTags.REGION_REPLICA_ROLE, ENCODING_VERSION);
         writer.writeU8(ordinal());
     }
 
@@ -48,10 +48,7 @@ public enum RegionReplicaRole implements Encodable {
      * @Thread-context any thread; one reader per decode call (not thread-safe).
      */
     public static RegionReplicaRole decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_REPLICA_ROLE) {
-            throw new IllegalStateException("expected REGION_REPLICA_ROLE tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.REGION_REPLICA_ROLE, "REGION_REPLICA_ROLE");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_REPLICA_ROLE encoding version " + version);

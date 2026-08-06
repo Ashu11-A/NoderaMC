@@ -31,7 +31,7 @@ public record MovePlayerAction(FixedVec3 to) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.MOVE_PLAYER_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.MOVE_PLAYER_ACTION, ENCODING_VERSION);
         to.encode(w);
     }
 
@@ -42,11 +42,7 @@ public record MovePlayerAction(FixedVec3 to) implements GameAction {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static MovePlayerAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.MOVE_PLAYER_ACTION) {
-            throw new IllegalStateException("expected MOVE_PLAYER_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.MOVE_PLAYER_ACTION, "MOVE_PLAYER_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

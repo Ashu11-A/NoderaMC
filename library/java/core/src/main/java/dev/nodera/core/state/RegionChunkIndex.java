@@ -249,7 +249,7 @@ public record RegionChunkIndex(RegionId region, List<ChunkStamp> stamps, Bytes r
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.REGION_CHUNK_INDEX).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.REGION_CHUNK_INDEX, ENCODING_VERSION);
         region.encode(w);
         w.writeList(stamps, CanonicalWriter::writeEncodable);
         w.writeBytes(root);
@@ -264,11 +264,7 @@ public record RegionChunkIndex(RegionId region, List<ChunkStamp> stamps, Bytes r
      * @Thread-context any thread.
      */
     public static RegionChunkIndex decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_CHUNK_INDEX) {
-            throw new IllegalStateException("expected REGION_CHUNK_INDEX tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.REGION_CHUNK_INDEX, "REGION_CHUNK_INDEX", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         List<ChunkStamp> stamps = r.readList(ChunkStamp::decode);
         Bytes root = r.readBytesValue();

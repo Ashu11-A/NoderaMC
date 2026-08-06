@@ -127,7 +127,7 @@ public record PersistedNodeIdentity(NodeId nodeId, Bytes pkcs8Private, Bytes x50
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.NODE_IDENTITY_SECRET).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.NODE_IDENTITY_SECRET, ENCODING_VERSION);
         w.writeU64(nodeId.value().getMostSignificantBits());
         w.writeU64(nodeId.value().getLeastSignificantBits());
         w.writeBytes(pkcs8Private);
@@ -143,11 +143,7 @@ public record PersistedNodeIdentity(NodeId nodeId, Bytes pkcs8Private, Bytes x50
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static PersistedNodeIdentity decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.NODE_IDENTITY_SECRET) {
-            throw new IllegalStateException("expected NODE_IDENTITY_SECRET tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.NODE_IDENTITY_SECRET, "NODE_IDENTITY_SECRET", ENCODING_VERSION);
         long msb = r.readU64();
         long lsb = r.readU64();
         Bytes priv = r.readBytesValue();

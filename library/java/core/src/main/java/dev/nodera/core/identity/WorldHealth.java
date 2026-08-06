@@ -45,7 +45,7 @@ public enum WorldHealth implements Encodable {
      */
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_HEALTH).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_HEALTH, ENCODING_VERSION);
         w.writeU8(ordinal());
     }
 
@@ -58,11 +58,7 @@ public enum WorldHealth implements Encodable {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static WorldHealth decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_HEALTH) {
-            throw new IllegalStateException("expected WORLD_HEALTH tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_HEALTH, "WORLD_HEALTH", ENCODING_VERSION);
         int ord = r.readU8();
         WorldHealth[] values = values();
         if (ord < 0 || ord >= values.length) {

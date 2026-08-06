@@ -113,7 +113,7 @@ public record SignedVote(
     }
 
     private void writeSignedFields(CanonicalWriter w) {
-        w.writeU16(TypeTags.SIGNED_VOTE).writeU16(bodyVersion);
+        w.writeFrame(TypeTags.SIGNED_VOTE, bodyVersion);
         voter.encode(w);
         resultingRoot.encode(w);
         if (bodyVersion >= 2) {
@@ -141,10 +141,7 @@ public record SignedVote(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static SignedVote decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SIGNED_VOTE) {
-            throw new IllegalStateException("expected SIGNED_VOTE tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SIGNED_VOTE, "SIGNED_VOTE");
         int bodyVersion = r.readU16();
         if (bodyVersion < 1 || bodyVersion > VOTE_ENCODING_VERSION) {
             throw new IllegalStateException("unsupported SIGNED_VOTE encoding version " + bodyVersion);

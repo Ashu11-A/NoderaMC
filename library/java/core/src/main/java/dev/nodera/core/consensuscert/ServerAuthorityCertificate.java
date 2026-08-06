@@ -128,7 +128,7 @@ public record ServerAuthorityCertificate(
     }
 
     private void writeSignedFields(CanonicalWriter w) {
-        w.writeU16(TypeTags.SERVER_AUTH_CERT).writeU16(bodyVersion);
+        w.writeFrame(TypeTags.SERVER_AUTH_CERT, bodyVersion);
         region.encode(w);
         baseVersion.encode(w);
         resultingVersion.encode(w);
@@ -153,10 +153,7 @@ public record ServerAuthorityCertificate(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static ServerAuthorityCertificate decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SERVER_AUTH_CERT) {
-            throw new IllegalStateException("expected SERVER_AUTH_CERT tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SERVER_AUTH_CERT, "SERVER_AUTH_CERT");
         int bodyVersion = r.readU16();
         if (bodyVersion < 1 || bodyVersion > CERTIFICATE_ENCODING_VERSION) {
             throw new IllegalStateException(

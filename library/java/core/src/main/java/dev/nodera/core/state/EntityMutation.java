@@ -54,7 +54,7 @@ public record EntityMutation(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_MUTATION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_MUTATION, ENCODING_VERSION);
         id.encode(w);
         w.writeOptional(expectedPrevious);
         if (expectedPrevious != null) {
@@ -68,11 +68,7 @@ public record EntityMutation(
 
     /** Decode one full entity-mutation frame. */
     public static EntityMutation decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ENTITY_MUTATION) {
-            throw new IllegalStateException("expected ENTITY_MUTATION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ENTITY_MUTATION, "ENTITY_MUTATION", ENCODING_VERSION);
         NetworkEntityId id = NetworkEntityId.decode(r);
         PersistedEntityState expected = r.readOptional() ? PersistedEntityState.decode(r) : null;
         PersistedEntityState next = r.readOptional() ? PersistedEntityState.decode(r) : null;

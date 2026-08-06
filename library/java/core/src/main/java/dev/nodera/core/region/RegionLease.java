@@ -88,7 +88,7 @@ public record RegionLease(
      */
     @Override
     public void encode(CanonicalWriter writer) {
-        writer.writeU16(TypeTags.REGION_LEASE).writeU16(ENCODING_VERSION);
+        writer.writeFrame(TypeTags.REGION_LEASE, ENCODING_VERSION);
         writer.writeEncodable(region);
         writer.writeEncodable(epoch);
         writer.writeEncodable(primary);
@@ -108,10 +108,7 @@ public record RegionLease(
      * @Thread-context any thread; one reader per decode call (not thread-safe).
      */
     public static RegionLease decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_LEASE) {
-            throw new IllegalStateException("expected REGION_LEASE tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.REGION_LEASE, "REGION_LEASE");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_LEASE encoding version " + version);

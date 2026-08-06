@@ -30,7 +30,7 @@ public record InteractBlockAction(NBlockPos pos) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.INTERACT_BLOCK_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.INTERACT_BLOCK_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -45,11 +45,7 @@ public record InteractBlockAction(NBlockPos pos) implements GameAction {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static InteractBlockAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.INTERACT_BLOCK_ACTION) {
-            throw new IllegalStateException("expected INTERACT_BLOCK_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.INTERACT_BLOCK_ACTION, "INTERACT_BLOCK_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

@@ -145,7 +145,7 @@ public record RegionBounds(
      */
     @Override
     public void encode(CanonicalWriter writer) {
-        writer.writeU16(TypeTags.REGION_BOUNDS).writeU16(ENCODING_VERSION);
+        writer.writeFrame(TypeTags.REGION_BOUNDS, ENCODING_VERSION);
         writer.writeEncodable(region);
         writer.writeU32(Integer.toUnsignedLong(minChunkX));
         writer.writeU32(Integer.toUnsignedLong(maxChunkX));
@@ -166,10 +166,7 @@ public record RegionBounds(
      * @Thread-context any thread; one reader per decode call (not thread-safe).
      */
     public static RegionBounds decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_BOUNDS) {
-            throw new IllegalStateException("expected REGION_BOUNDS tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.REGION_BOUNDS, "REGION_BOUNDS");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_BOUNDS encoding version " + version);

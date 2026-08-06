@@ -31,18 +31,14 @@ public record NBlockPos(int x, int y, int z) implements Encodable, Comparable<NB
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.N_BLOCK_POS).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.N_BLOCK_POS, ENCODING_VERSION);
         w.writeU32(Integer.toUnsignedLong(x));
         w.writeU32(Integer.toUnsignedLong(y));
         w.writeU32(Integer.toUnsignedLong(z));
     }
 
     public static NBlockPos decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.N_BLOCK_POS) {
-            throw new IllegalStateException("expected N_BLOCK_POS tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.N_BLOCK_POS, "N_BLOCK_POS", ENCODING_VERSION);
         int x = (int) r.readU32();
         int y = (int) r.readU32();
         int z = (int) r.readU32();

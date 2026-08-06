@@ -40,7 +40,7 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PLACE_BLOCK_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PLACE_BLOCK_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -57,11 +57,7 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static PlaceBlockAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PLACE_BLOCK_ACTION) {
-            throw new IllegalStateException("expected PLACE_BLOCK_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.PLACE_BLOCK_ACTION, "PLACE_BLOCK_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

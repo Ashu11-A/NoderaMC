@@ -28,7 +28,7 @@ public record BreakBlockAction(NBlockPos pos) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.BREAK_BLOCK_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.BREAK_BLOCK_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -43,11 +43,7 @@ public record BreakBlockAction(NBlockPos pos) implements GameAction {
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static BreakBlockAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.BREAK_BLOCK_ACTION) {
-            throw new IllegalStateException("expected BREAK_BLOCK_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.BREAK_BLOCK_ACTION, "BREAK_BLOCK_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

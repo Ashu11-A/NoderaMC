@@ -81,7 +81,7 @@ public record HaloEndorsement(
     }
 
     private void writeSignedFields(CanonicalWriter w) {
-        w.writeU16(TypeTags.HALO_ENDORSEMENT).writeU16(HALO_ENDORSEMENT_VERSION);
+        w.writeFrame(TypeTags.HALO_ENDORSEMENT, HALO_ENDORSEMENT_VERSION);
         signer.encode(w);
         source.encode(w);
         epoch.encode(w);
@@ -104,11 +104,7 @@ public record HaloEndorsement(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static HaloEndorsement decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.HALO_ENDORSEMENT) {
-            throw new IllegalStateException("expected HALO_ENDORSEMENT tag, got " + tag);
-        }
-        r.readVersion(HALO_ENDORSEMENT_VERSION);
+        r.expectFrame(TypeTags.HALO_ENDORSEMENT, "HALO_ENDORSEMENT", HALO_ENDORSEMENT_VERSION);
         NodeId signer = NodeId.decode(r);
         RegionId source = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);

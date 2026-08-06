@@ -36,7 +36,7 @@ public record AttackEntityAction(NetworkEntityId target, FixedVec3 origin) imple
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ATTACK_ENTITY_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ATTACK_ENTITY_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -52,11 +52,7 @@ public record AttackEntityAction(NetworkEntityId target, FixedVec3 origin) imple
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static AttackEntityAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ATTACK_ENTITY_ACTION) {
-            throw new IllegalStateException("expected ATTACK_ENTITY_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ATTACK_ENTITY_ACTION, "ATTACK_ENTITY_ACTION", ENCODING_VERSION);
         return decodeBody(r);
     }
 

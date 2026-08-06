@@ -101,7 +101,7 @@ public record CommitteeChangeCertificate(
     }
 
     private void writeSignedFields(CanonicalWriter w) {
-        w.writeU16(TypeTags.COMMITTEE_CHANGE_CERT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.COMMITTEE_CHANGE_CERT, ENCODING_VERSION);
         region.encode(w);
         prevEpoch.encode(w);
         newEpoch.encode(w);
@@ -124,11 +124,7 @@ public record CommitteeChangeCertificate(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static CommitteeChangeCertificate decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.COMMITTEE_CHANGE_CERT) {
-            throw new IllegalStateException("expected COMMITTEE_CHANGE_CERT tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.COMMITTEE_CHANGE_CERT, "COMMITTEE_CHANGE_CERT", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch prevEpoch = RegionEpoch.decode(r);
         RegionEpoch newEpoch = RegionEpoch.decode(r);
