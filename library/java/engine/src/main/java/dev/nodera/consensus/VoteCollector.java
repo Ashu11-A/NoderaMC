@@ -11,8 +11,8 @@ import dev.nodera.core.state.StateRoot;
  *
  * <h2>De-duplication policy</h2>
  * <p>At most one vote per voter is retained: the <em>first</em> vote received from a voter wins.
- * A validator changing its vote is equivocation, which {@link EquivocationDetector} flags
- * separately; keeping the first vote is deterministic and preserves liveness (an already-counted
+ * A validator changing its vote is equivocation, which this collector does not adjudicate;
+ * keeping the first vote is deterministic and preserves liveness (an already-counted
  * ACCEPT is not silently withdrawn). {@code RESYNC_REQUIRED} and {@code REJECT_WRONG_EPOCH} votes
  * are stored and counted as rejections — they consume the voter's seat and lower the pool of
  * seats still available for ACCEPT (see {@link QuorumPolicyEvaluator#canEverCommit}).
@@ -72,7 +72,7 @@ public final class VoteCollector {
 
     /**
      * Record a vote. The first vote from a given voter wins; later votes from the same voter are
-     * dropped (use {@link EquivocationDetector} to catch conflicting double-votes). All vote
+     * dropped, so a conflicting double-vote is ignored rather than adjudicated here. All vote
      * decisions are accepted, including {@code RESYNC_REQUIRED} and {@code REJECT_WRONG_EPOCH},
      * which occupy the voter's seat as rejections.
      *

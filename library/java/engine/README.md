@@ -31,13 +31,13 @@ dev.nodera.simulation      THE region engine — the only re-executor
 ├── worldgen/              deterministic terrain from (seed, position), integer math only
 └── DeterministicRandom    L64X128MixRandom seeded from StableHash
 
-dev.nodera.consensus       QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
-dev.nodera.committee       CommitteeMember/Session, VotePersistence, SpotCheckAuditor, failover
-dev.nodera.coordinator     leases, epochs, allocation, RegionPipeline, ProposalManager,
-│                          ServerVerifier, WorldMutationApplier, reliability, lag handoff
+dev.nodera.consensus       QuorumPolicy, VoteCollector, Decision, QuorumPolicyEvaluator
+dev.nodera.committee       CommitteeMember, MemberBallot, VotePersistence, CommitteeFailover
+dev.nodera.coordinator     leases, epochs, RegionPipeline, WorldMutationApplier, reliability,
+│                          lag handoff, delegability
 │   ├── interference/      MutationGuard (the single write choke point), buffer, committer
 │   └── entity/            entity-aware coordination
-dev.nodera.shadow          WorkerRuntime, ReplicaStore, ShadowWorker/Coordinator, divergence
+dev.nodera.shadow          SnapshotDeltaApplier (replica CAS apply), InterferenceProbe
 dev.nodera.fallback        CrossRegionRouter, FallbackExecutor, SoakMetrics
 ```
 

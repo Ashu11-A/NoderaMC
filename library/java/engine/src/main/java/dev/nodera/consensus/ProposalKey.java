@@ -7,8 +7,7 @@ import dev.nodera.core.state.SnapshotVersion;
 /**
  * Identifier of one in-flight proposal (Task 7 consensus/). A {@code (region, epoch, version)}
  * triple names exactly the proposal that a {@link dev.nodera.core.consensuscert.QuorumCertificate}
- * commits, exactly the {@link VoteCollector} bound, and exactly the key under which the
- * {@link EquivocationDetector} remembers each voter's last claimed root.
+ * commits, and exactly the {@link VoteCollector} bound.
  *
  * <p>Value semantics: two {@code ProposalKey}s are equal iff their region, epoch and version are
  * equal. Used as a {@link java.util.Map} key and a Caffeine cache key, so it must be (and is)

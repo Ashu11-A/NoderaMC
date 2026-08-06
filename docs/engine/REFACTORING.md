@@ -29,7 +29,7 @@ excluded. Sorted by `% duplicated` descending; `—` marks a manual candidate js
 | `library/java/engine/src/test/.../entity/MobAiRulesTest.java` | 142 | 152.8 | BorderSignalTest, EntityLaneSoakIT, GravityFireRulesTest, MobCombatTest | Soak-test harness (the "spawn N ghosts, step T ticks, assert walkable + root-identical" block) — extract a `MobSoakHarness`. |
 | `library/java/core/.../identity/PeerRole.java` | 81 | 91.4 | NodeCapabilities, RegionReplicaRole, VoteDecision, WorldHealth | The `enum implements Encodable` `encode`/`decode` pair — one shared `EnumEncodable` helper covers all four enums. |
 | `library/java/core/.../identity/PersistedNodeIdentity.java` | 164 | 90.9 | ActionEnvelope, DimensionKey, EncryptedPiece, ManifestSeeders, PersistedWorldKey | Tag+version guard + UUID-pair + bytes-triple; the `Encodable` frame helper covers most. |
-| `library/java/engine/src/main/.../committee/CommitteeFailover.java` | 74 | 89.2 | LagHandoffPolicy, LeaseManager, NodeRegistry, ProposalManager, RegionAllocator | `Comparator.comparing(NodeId::value)` canonical-order literal and the `TreeMap`/`HashMap` field trio recur — a `CanonicalNodeIdOrder` constant (already inlined in 6 classes) removes it. |
+| `library/java/engine/src/main/.../committee/CommitteeFailover.java` | 74 | 89.2 | LagHandoffPolicy, LeaseManager | `Comparator.comparing(NodeId::value)` canonical-order literal and the `TreeMap`/`HashMap` field trio recur — a `CanonicalNodeIdOrder` constant removes it. Three of this row's five 2026-07-28 partners (`NodeRegistry`, `ProposalManager`, `RegionAllocator`) were deleted with the central-coordinator design on 2026-08-06, so the cluster is now two files, not five. |
 | `library/java/engine/src/test/.../coordinator/CoordFixtures.java` | 108 | 136.1 | CommFixtures, CommitteeCollapseIT, ContainerRulesTest, … | Share with `CommFixtures` (same consolidation). |
 | `library/java/core/.../action/ActionBatch.java` | 87 | 88.5 | ActionEnvelope, EntityTransferDescriptor, GenesisManifest, QuorumCertificate | `Encodable` frame helper. |
 | `library/java/core/.../action/BreakBlockAction.java` | 58 | 82.8 | AttackEntityAction, BlockChangedEvent, InteractBlockAction, PlaceBlockAction | Sealed-action codec consolidation. |
@@ -46,6 +46,21 @@ excluded. Sorted by `% duplicated` descending; `—` marks a manual candidate js
 | One-line Javadoc boilerplate riding the same `Encodable` types (Plan.11 phase 2 audit, 2026-08-05) | — | — | 65 files repeat `<p>Thread-context: immutable record, safe for any thread.`; 35 repeat `@Thread-context not thread-safe; one reader per decode call.`; 12 repeat `@throws IllegalArgumentException if any argument is null.`; 7 repeat `Full-frame decode (tag + version + body).` verbatim (`core/action/*`) | Not a missed duplication — jscpd's line-based clone detector already counts these lines as part of the `%` figures on the two rows above, since it does not strip comments. They are listed separately here because the fix is different: the `CanonicalFrame` helper (row above) collapses the *code*; the matching one-line Javadoc disappears with it as a side effect, not because a docs pass rewrote 65 files. No standalone action — do not "fix" this by editing comments file-by-file; it retires when the `Encodable` frame helper lands. |
 
 ## Resolved
+
+- **2026-08-06 — the retired central-coordinator design is gone** (Plan 11 round 2, issue #210).
+  30 production files across `coordinator/`, `committee/`, `consensus/` and `shadow/`, plus
+  `core/region/RegionPlacementPolicy`, had zero production callers: a transitive closure over
+  `java.main` from the real entry points (the two endpoint shells and `HeadlessPeerMain`) could not
+  reach any of them, and `:peer:structureReport`'s debugger-profiled worker run never loaded one.
+  Task 30 removed the dedicated server, so a region allocator, a proposal manager, a server-side
+  verifier, a heartbeat monitor over a node registry, the multi-factor reliability scorer, the
+  spot-check audit lane and the whole shadow-validation coordinator were compiled into every jar
+  and executed by nothing but their own tests. What survives is what production reaches:
+  `WorldMutationApplier`, `LeaseManager`, `ReliabilityLedger`, `LagHandoffPolicy`, the committee
+  primitives (`CommitteeMember`/`MemberBallot`/`VotePersistence`/`CommitteeFailover`), the quorum
+  policy, and `shadow/SnapshotDeltaApplier` + `InterferenceProbe`. 21 dedicated test files went with
+  them; no live class lost its only coverage (each has its own unit test, and the peer-side ITs
+  `ByzantineMeshIT`/`LiveLagHandoffIT`/`WorkerQuorumValidationIT` exercise the shipping batch loop).
 
 - **2026-07-28 — L-52:** `FixedPoint`, `PersistedEntityState.withMotion`/`withMotionAndAge`, and
   `ChunkKey` now own the deterministic helper implementations. `FixedPointTest`, `ChunkKeyTest`, and
