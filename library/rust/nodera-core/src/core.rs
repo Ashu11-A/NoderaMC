@@ -381,6 +381,64 @@ impl NoderaCore {
         ])
     }
 
+    /// Fetch and parse one store index, off the runtime thread.
+    ///
+    /// `ureq` is blocking, so the fetch belongs in `spawn_blocking` — and the two failures a caller
+    /// has to tell apart (the task died; the fetch or the parse failed) were flattened into a
+    /// `String` four separate times, each with its own wording.
+    async fn fetch_store_index(url: &str) -> Result<stores::ServiceIndex, String> {
+        let target = url.to_owned();
+        tokio::task::spawn_blocking(move || stores::fetch_index(&target))
+            .await
+            .map_err(|e| format!("the fetch task failed: {e}"))?
+            .and_then(|body| stores::parse_index(&body))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The store a fetch produced, or the one already held with the reason beside it.
+    ///
+    /// **Beside the services, never instead of them.** A store that fails to refresh keeps every
+    /// endpoint it last reported: dropping them would mean a web server having a bad minute costs
+    /// the user every tracker they had, which is the opposite of what a refresh is for.
+    fn refreshed_store(
+        previous: &stores::TrackerStore,
+        fetched: Result<stores::ServiceIndex, String>,
+    ) -> stores::TrackerStore {
+        match fetched {
+            Ok(index) => stores::store_from(&previous.url, index, now_millis(), previous.built_in),
+            Err(reason) => stores::TrackerStore {
+                last_error: reason,
+                ..previous.clone()
+            },
+        }
+    }
+
+    /// Replace the held copy of every store in `replacements`, by URL.
+    ///
+    /// One entry per URL is the invariant: two rows for one URL would double every endpoint that
+    /// store contributes.
+    fn store_replacing(
+        &self,
+        replacements: Vec<stores::TrackerStore>,
+        insert_missing: bool,
+    ) -> Result<crate::settings::Settings, String> {
+        self.update_settings(move |settings| {
+            for replacement in replacements {
+                match settings
+                    .network
+                    .tracker_stores
+                    .iter_mut()
+                    .find(|held| held.url == replacement.url)
+                {
+                    Some(held) => *held = replacement,
+                    // A store removed while a network read was in flight must not come back.
+                    None if insert_missing => settings.network.tracker_stores.push(replacement),
+                    None => {}
+                }
+            }
+        })
+    }
+
     /// Fetch and validate a store index **without** remembering it.
     ///
     /// This is what makes adding a store a decision rather than a leap. Nothing is persisted, so a
@@ -391,36 +449,19 @@ impl NoderaCore {
     pub async fn preview_tracker_store(&self, url: String) -> Result<stores::ServiceIndex, String> {
         let target = url.trim().to_owned();
         stores::check_url(&target).map_err(|e| e.to_string())?;
-        let body = tokio::task::spawn_blocking(move || stores::fetch_index(&target))
-            .await
-            .map_err(|e| format!("the fetch task failed: {e}"))?
-            .map_err(|e| e.to_string())?;
-        stores::parse_index(&body).map_err(|e| e.to_string())
+        Self::fetch_store_index(&target).await
     }
 
     /// Fetch a store index, validate it, and remember it. Called only after the user has confirmed.
     pub async fn add_tracker_store(&self, url: String) -> Result<stores::TrackerStore, String> {
         let target = url.trim().to_owned();
         stores::check_url(&target).map_err(|e| e.to_string())?;
-
-        let fetch_url = target.clone();
-        let body = tokio::task::spawn_blocking(move || stores::fetch_index(&fetch_url))
-            .await
-            .map_err(|e| format!("the fetch task failed: {e}"))?
-            .map_err(|e| e.to_string())?;
-        let index = stores::parse_index(&body).map_err(|e| e.to_string())?;
+        let index = Self::fetch_store_index(&target).await?;
         let store = stores::store_from(&target, index, now_millis(), false);
 
-        // One entry per URL. Re-adding a store is how a user refreshes one by hand, so it replaces
-        // rather than duplicating — two rows for one URL would double every endpoint it contributes.
-        let added = store.clone();
-        self.update_settings(move |settings| {
-            settings
-                .network
-                .tracker_stores
-                .retain(|held| held.url != added.url);
-            settings.network.tracker_stores.push(added);
-        })?;
+        // Re-adding a store is how a user refreshes one by hand, so it replaces rather than
+        // duplicating; adding a new one has to insert it.
+        self.store_replacing(vec![store.clone()], true)?;
         Ok(store)
     }
 
@@ -451,31 +492,10 @@ impl NoderaCore {
     pub async fn refresh_tracker_stores(&self) -> Result<Vec<stores::TrackerStore>, String> {
         let mut settings = self.settings.snapshot();
         for store in &mut settings.network.tracker_stores {
-            let url = store.url.clone();
-            let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&url))
-                .await
-                .map_err(|e| format!("the fetch task failed: {e}"))?;
-            match fetched.and_then(|body| stores::parse_index(&body)) {
-                Ok(index) => {
-                    let built_in = store.built_in;
-                    *store = stores::store_from(&store.url, index, now_millis(), built_in);
-                }
-                Err(e) => store.last_error = e.to_string(),
-            }
+            let fetched = Self::fetch_store_index(&store.url).await;
+            *store = Self::refreshed_store(store, fetched);
         }
-        let fetched = settings.network.tracker_stores;
-        let updated = self.update_settings(move |current| {
-            for replacement in fetched {
-                if let Some(store) = current
-                    .network
-                    .tracker_stores
-                    .iter_mut()
-                    .find(|held| held.url == replacement.url)
-                {
-                    *store = replacement;
-                }
-            }
-        })?;
+        let updated = self.store_replacing(settings.network.tracker_stores, false)?;
         Ok(updated.network.tracker_stores)
     }
 
@@ -486,10 +506,7 @@ impl NoderaCore {
     /// makes every other row's timestamp lie about when it was last confirmed.
     pub async fn refresh_tracker_store(&self, url: String) -> Result<stores::TrackerStore, String> {
         let target = url.trim().to_owned();
-        let fetch_url = target.clone();
-        let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&fetch_url))
-            .await
-            .map_err(|e| format!("the fetch task failed: {e}"))?;
+        let fetched = Self::fetch_store_index(&target).await;
 
         let settings = self.settings.snapshot();
         let store = settings
@@ -498,29 +515,8 @@ impl NoderaCore {
             .iter()
             .find(|held| held.url == target)
             .ok_or_else(|| format!("no store here is served from {target}"))?;
-        let updated = match fetched.and_then(|body| stores::parse_index(&body)) {
-            Ok(index) => {
-                let built_in = store.built_in;
-                stores::store_from(&target, index, now_millis(), built_in)
-            }
-            // Beside the services, never instead of them. See `refresh_tracker_stores`.
-            Err(e) => {
-                let mut failed = store.clone();
-                failed.last_error = e.to_string();
-                failed
-            }
-        };
-        let replacement = updated.clone();
-        self.update_settings(move |settings| {
-            if let Some(store) = settings
-                .network
-                .tracker_stores
-                .iter_mut()
-                .find(|held| held.url == replacement.url)
-            {
-                *store = replacement;
-            }
-        })?;
+        let updated = Self::refreshed_store(store, fetched);
+        self.store_replacing(vec![updated.clone()], false)?;
         Ok(updated)
     }
 
@@ -540,22 +536,9 @@ impl NoderaCore {
                 let mut changed = false;
                 let original_stores = document.network.tracker_stores.clone();
                 for store in &mut document.network.tracker_stores {
-                    let url = store.url.clone();
-                    let fetched =
-                        tokio::task::spawn_blocking(move || stores::fetch_index(&url)).await;
-                    match fetched {
-                        Ok(Ok(body)) => match stores::parse_index(&body) {
-                            Ok(index) => {
-                                let built_in = store.built_in;
-                                *store =
-                                    stores::store_from(&store.url, index, now_millis(), built_in);
-                                changed = true;
-                            }
-                            Err(e) => store.last_error = e.to_string(),
-                        },
-                        Ok(Err(e)) => store.last_error = e.to_string(),
-                        Err(e) => store.last_error = format!("the fetch task failed: {e}"),
-                    }
+                    let fetched = Self::fetch_store_index(&store.url).await;
+                    changed |= fetched.is_ok();
+                    *store = Self::refreshed_store(store, fetched);
                 }
                 let refreshed_stores = document.network.tracker_stores;
                 let persisted = self.settings.update(move |current| {
@@ -984,6 +967,46 @@ impl NoderaCore {
         accepted
     }
 
+    /// Close the tunnel, then publish the failure — the rule every launch failure after CONNECT
+    /// obeys.
+    ///
+    /// It was written out **six** times inside [`Self::play`], twenty lines apiece, and the six
+    /// copies had already stopped agreeing: two of them dropped the *"; its tunnel could not be
+    /// closed"* suffix, so a player whose launch failed **and** whose tunnel survived was told only
+    /// about the first half and left holding a session nothing would clean up.
+    ///
+    /// The rule, once:
+    ///
+    /// 1. close the tunnel and find out whether it is really gone;
+    /// 2. if it is, this launch owns nothing any more — clear the session id;
+    /// 3. if it is not, say so in the same sentence as the failure, because it is the same problem
+    ///    to the person reading it;
+    /// 4. publish, marking the launch finished **only** when the tunnel actually closed. A launch
+    ///    still holding a tunnel is not finished; it is a leak with a nice message on it.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    async fn fail_and_close(
+        &self,
+        launch_id: crate::launch::LaunchId,
+        mut state: crate::launch::LaunchState,
+        tunnel: crate::launch::TunnelLease,
+        reason: impl Into<String>,
+        remedy: crate::launch::Remedy,
+        sink: &dyn crate::launch::LaunchSink,
+    ) {
+        let cleanup = tunnel.close().await;
+        let closed = cleanup.closed_or_absent();
+        let mut reason = reason.into();
+        if closed {
+            state.session_id = None;
+        } else {
+            reason.push_str(&format!(
+                "; its tunnel could not be closed: {}",
+                cleanup.error
+            ));
+        }
+        self.publish_launch(launch_id, state.failed(reason, remedy), sink, closed);
+    }
+
     /// Join a world and start the game in it.
     ///
     /// # The order is the design
@@ -1061,27 +1084,20 @@ impl NoderaCore {
         if !joined.ok {
             // EOF, timeout, or an error reply does not prove CONNECT failed before opening a port.
             state.session_id = Some(session_id.as_str().to_owned());
-            let mut reason = if joined.error.is_empty() {
+            let reason = if joined.error.is_empty() {
                 "the worker could not open a tunnel to that world".to_owned()
             } else {
                 joined.error.clone()
             };
-            let cleanup = tunnel.close().await;
-            let closed = cleanup.closed_or_absent();
-            if closed {
-                state.session_id = None;
-            } else {
-                reason.push_str(&format!(
-                    "; its tunnel could not be closed: {}",
-                    cleanup.error
-                ));
-            }
-            self.publish_launch(
+            self.fail_and_close(
                 launch_id,
-                state.failed(reason, Remedy::Retry),
+                state,
+                tunnel,
+                reason,
+                Remedy::Retry,
                 sink.as_ref(),
-                closed,
-            );
+            )
+            .await;
             return;
         }
         state.session_id = Some(session_id.as_str().to_owned());
@@ -1105,33 +1121,28 @@ impl NoderaCore {
         let prepared = match preparation {
             Ok(prepared) => prepared,
             Err(no) => {
-                let fallback = no.remedy == Remedy::CopyAddress;
-                if fallback {
-                    // Address is now the usable result. Backend retains tunnel until leave_world.
+                if no.remedy == Remedy::CopyAddress {
+                    // Address is now the usable result. The backend retains the tunnel until
+                    // `leave_world`, so this is the one failure that does NOT close: the launch
+                    // ends, but the player still has something to use.
                     tunnel.preserve();
+                    self.publish_launch(
+                        launch_id,
+                        state.failed(no.reason, no.remedy),
+                        sink.as_ref(),
+                        false,
+                    );
                 } else {
-                    let cleanup = tunnel.close().await;
-                    if cleanup.closed_or_absent() {
-                        state.session_id = None;
-                    } else {
-                        state.reason = format!(
-                            "{}; its tunnel could not be closed: {}",
-                            no.reason, cleanup.error
-                        );
-                    }
+                    self.fail_and_close(
+                        launch_id,
+                        state,
+                        tunnel,
+                        no.reason,
+                        no.remedy,
+                        sink.as_ref(),
+                    )
+                    .await;
                 }
-                let reason = if state.reason.is_empty() {
-                    no.reason
-                } else {
-                    state.reason.clone()
-                };
-                let finished = fallback || state.session_id.is_none();
-                self.publish_launch(
-                    launch_id,
-                    state.failed(reason, no.remedy),
-                    sink.as_ref(),
-                    !fallback && finished,
-                );
                 return;
             }
         };
@@ -1162,27 +1173,19 @@ impl NoderaCore {
             }
             Some(Ok(child)) => child,
             Some(Err(error)) => {
-                let cleanup = tunnel.close().await;
-                let closed = cleanup.closed_or_absent();
-                if closed {
-                    state.session_id = None;
-                }
-                let mut reason = format!(
+                let reason = format!(
                     "{} could not be started: {error}",
                     command.program.display()
                 );
-                if !closed {
-                    reason.push_str(&format!(
-                        "; its tunnel could not be closed: {}",
-                        cleanup.error
-                    ));
-                }
-                self.publish_launch(
+                self.fail_and_close(
                     launch_id,
-                    state.failed(reason, Remedy::PickInstall),
+                    state,
+                    tunnel,
+                    reason,
+                    Remedy::PickInstall,
                     sink.as_ref(),
-                    closed,
-                );
+                )
+                .await;
                 return;
             }
         };
@@ -1221,20 +1224,15 @@ impl NoderaCore {
                     Ok(Some(status)) => Some((status.success(), status.code())),
                     Ok(None) => None,
                     Err(error) => {
-                        let cleanup = tunnel.close().await;
-                        let closed = cleanup.closed_or_absent();
-                        if closed {
-                            state.session_id = None;
-                        }
-                        self.publish_launch(
+                        self.fail_and_close(
                             launch_id,
-                            state.failed(
-                                format!("launcher process could not be observed: {error}"),
-                                Remedy::Retry,
-                            ),
+                            state,
+                            tunnel,
+                            format!("launcher process could not be observed: {error}"),
+                            Remedy::Retry,
                             sink.as_ref(),
-                            closed,
-                        );
+                        )
+                        .await;
                         return;
                     }
                 };
@@ -1277,20 +1275,15 @@ impl NoderaCore {
                             .exit_code
                             .map(|code| format!(" with code {code}"))
                             .unwrap_or_default();
-                        let cleanup = tunnel.close().await;
-                        let closed = cleanup.closed_or_absent();
-                        if closed {
-                            state.session_id = None;
-                        }
-                        self.publish_launch(
+                        self.fail_and_close(
                             launch_id,
-                            state.failed(
-                                format!("launcher exited before handoff{code}"),
-                                Remedy::Retry,
-                            ),
+                            state,
+                            tunnel,
+                            format!("launcher exited before handoff{code}"),
+                            Remedy::Retry,
                             sink.as_ref(),
-                            closed,
-                        );
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -1320,6 +1313,8 @@ impl NoderaCore {
             state.session_id = None;
             self.publish_launch(launch_id, state.at(Phase::Exited), sink.as_ref(), true);
         } else {
+            // Not a launch failure: the game ran. Its own sentence rather than `fail_and_close`,
+            // which would say the launch failed.
             self.publish_launch(
                 launch_id,
                 state.failed(
