@@ -218,20 +218,33 @@ public final class EntityCaptureBridge {
     }
 
     private void onJoin(EntityJoinLevelEvent event) {
-        if (event.getLevel() instanceof ServerLevel && !(event.getEntity() instanceof Player)
-                && materializationDepth.get() == 0) {
-            deferredJoins.add(event.getEntity());
+        try {
+            if (event.getLevel() instanceof ServerLevel && !(event.getEntity() instanceof Player)
+                    && materializationDepth.get() == 0) {
+                deferredJoins.add(event.getEntity());
+            }
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane join capture failed: {}", e.toString());
         }
     }
 
     private void onServerTickPost(ServerTickEvent.Post event) {
-        for (int i = deferredJoins.size(); i > 0; i--) {
-            Entity entity = deferredJoins.poll();
-            if (entity != null && !entity.isRemoved() && entity.level() instanceof ServerLevel) {
-                captureJoin(entity);
+        // The deferred-join drain AND the runtime's own tick end. Both reach the coordinator
+        // (signing, transport, the region store), and NeoForge's bus rethrows straight into
+        // the server tick loop — the sibling guards at onTickPost and onLeave say so already.
+        try {
+            for (int i = deferredJoins.size(); i > 0; i--) {
+                Entity entity = deferredJoins.poll();
+                if (entity != null && !entity.isRemoved() && entity.level() instanceof ServerLevel) {
+                    captureJoin(entity);
+                }
             }
+            runtime.tickEnd(event.getServer());
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane server tick failed: {}", e.toString());
         }
-        runtime.tickEnd(event.getServer());
     }
 
     /** @return the entity's type id, e.g. {@code minecraft:zombie} (L-24's per-species switch). */
@@ -357,63 +370,73 @@ public final class EntityCaptureBridge {
      * ground they are falling towards.
      */
     private void onTickPre(EntityTickEvent.Pre event) {
-        if (!(event.getEntity().level() instanceof ServerLevel)) {
-            return;
-        }
-        Captured tracked = captured.get(event.getEntity().getUUID());
-        if (tracked != null && tracked.validatedItem && !runtime.delegated(tracked.region)) {
-            captured.remove(event.getEntity().getUUID());
+        try {
+            if (!(event.getEntity().level() instanceof ServerLevel)) {
+                return;
+            }
+            Captured tracked = captured.get(event.getEntity().getUUID());
+            if (tracked != null && tracked.validatedItem && !runtime.delegated(tracked.region)) {
+                captured.remove(event.getEntity().getUUID());
+            }
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane pre-tick failed: {}", e.toString());
         }
     }
 
     private void onTickPost(EntityTickEvent.Post event) {
-        Entity entity = event.getEntity();
-        if (!(entity.level() instanceof ServerLevel)) {
-            return;
-        }
-        if (entity instanceof Player) {
-            if (entity instanceof ServerPlayer player) {
-                ensurePlayerPresence(player);
-                capturePlayerMove(player);
-            }
-            return;
-        }
-        Captured prior = captured.get(entity.getUUID());
-        if (prior == null) {
-            return;
-        }
-        // Items mirror the same way ghosts do, now that vanilla ticks them again. This direction
-        // used to be disabled for items — the canonical state was never corrected by reality — which
-        // is what let the engine's flat-world item physics walk an item's canonical position down to
-        // Y = 1.0 while the real one sat on the floor, with each commit teleporting the real one
-        // into the ground and vanilla shoving it back out.
-        PersistedEntityState current = prior.validatedItem && entity instanceof ItemEntity item
-                ? MinecraftEntityAdapters.item(item, prior.state.id())
-                : MinecraftEntityAdapters.ghost(entity);
-        RegionId currentRegion = MinecraftEntityAdapters.region(entity);
         try {
-            if (!prior.region.equals(currentRegion)) {
-                if (runtime.delegated(currentRegion)) {
-                    runtime.transferGhost(prior.region, currentRegion, prior.state, current);
-                } else {
-                    runtime.externalEntity(prior.region, prior.state, null);
-                }
-            } else if (GhostUpdatePolicy.shouldEmit(prior.state, current)) {
-                runtime.externalEntity(currentRegion, prior.state, current);
-            } else {
+            Entity entity = event.getEntity();
+            if (!(entity.level() instanceof ServerLevel)) {
                 return;
             }
-        } catch (RuntimeException laneFailure) {
-            // Crash containment: a lane-state failure on one ghost must never take the server
-            // tick down (a guard mismatch here crashed the whole integrated server on the live
-            // ownership drive). Drop this ghost's capture — resync/re-capture owns recovery.
+            if (entity instanceof Player) {
+                if (entity instanceof ServerPlayer player) {
+                    ensurePlayerPresence(player);
+                    capturePlayerMove(player);
+                }
+                return;
+            }
+            Captured prior = captured.get(entity.getUUID());
+            if (prior == null) {
+                return;
+            }
+            // Items mirror the same way ghosts do, now that vanilla ticks them again. This direction
+            // used to be disabled for items — the canonical state was never corrected by reality — which
+            // is what let the engine's flat-world item physics walk an item's canonical position down to
+            // Y = 1.0 while the real one sat on the floor, with each commit teleporting the real one
+            // into the ground and vanilla shoving it back out.
+            PersistedEntityState current = prior.validatedItem && entity instanceof ItemEntity item
+                    ? MinecraftEntityAdapters.item(item, prior.state.id())
+                    : MinecraftEntityAdapters.ghost(entity);
+            RegionId currentRegion = MinecraftEntityAdapters.region(entity);
+            try {
+                if (!prior.region.equals(currentRegion)) {
+                    if (runtime.delegated(currentRegion)) {
+                        runtime.transferGhost(prior.region, currentRegion, prior.state, current);
+                    } else {
+                        runtime.externalEntity(prior.region, prior.state, null);
+                    }
+                } else if (GhostUpdatePolicy.shouldEmit(prior.state, current)) {
+                    runtime.externalEntity(currentRegion, prior.state, current);
+                } else {
+                    return;
+                }
+            } catch (RuntimeException laneFailure) {
+                // Crash containment: a lane-state failure on one ghost must never take the server
+                // tick down (a guard mismatch here crashed the whole integrated server on the live
+                // ownership drive). Drop this ghost's capture — resync/re-capture owns recovery.
+                org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                        "entity-lane capture failed for {} in {} — dropping capture ({})",
+                        entity.getUUID(), currentRegion, laneFailure.toString());
+                captured.remove(entity.getUUID());
+                return;
+            }
+            captured.put(entity.getUUID(), new Captured(currentRegion, current, false));
+        } catch (RuntimeException | LinkageError e) {
             org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
-                    "entity-lane capture failed for {} in {} — dropping capture ({})",
-                    entity.getUUID(), currentRegion, laneFailure.toString());
-            captured.remove(entity.getUUID());
-            return;
+                    "entity-lane post-tick failed: {}", e.toString());
         }
-        captured.put(entity.getUUID(), new Captured(currentRegion, current, false));
     }
 
     /**
@@ -485,71 +508,91 @@ public final class EntityCaptureBridge {
     }
 
     private void onLeave(EntityLeaveLevelEvent event) {
-        if (!(event.getLevel() instanceof ServerLevel) || materializationDepth.get() != 0) {
-            return;
-        }
-        if (event.getEntity() instanceof Player) {
-            // A logout or a dimension change: the next position this node sees is unrelated to the
-            // last one it proposed, and an anchor kept across that gap manufactures a "teleport".
-            movement.forget(event.getEntity().getUUID());
-            // L-11: the presence goes with the player. Vanilla is the durable inventory store —
-            // Minecraft persists it across the logout and every root gain was projected into it
-            // when it committed — so dropping the root here loses nothing, and the next login
-            // re-seeds the root from that same vanilla inventory.
-            RegionId held = presence.remove(event.getEntity().getUUID());
-            if (held != null && event.getEntity() instanceof ServerPlayer player) {
-                try {
-                    runtime.unregisterPlayer(player, held);
-                } catch (RuntimeException laneFailure) {
-                    org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").debug(
-                            "player-root unregistration for {} failed ({})",
-                            player.getUUID(), laneFailure.toString());
-                }
+        try {
+            if (!(event.getLevel() instanceof ServerLevel) || materializationDepth.get() != 0) {
+                return;
             }
-            return;
-        }
-        Captured prior = captured.remove(event.getEntity().getUUID());
-        Entity.RemovalReason reason = event.getEntity().getRemovalReason();
-        if (prior != null && reason != Entity.RemovalReason.UNLOADED_TO_CHUNK
-                && reason != Entity.RemovalReason.CHANGED_DIMENSION) {
-            runtime.externalEntity(prior.region, prior.state, null);
+            if (event.getEntity() instanceof Player) {
+                // A logout or a dimension change: the next position this node sees is unrelated to the
+                // last one it proposed, and an anchor kept across that gap manufactures a "teleport".
+                movement.forget(event.getEntity().getUUID());
+                // L-11: the presence goes with the player. Vanilla is the durable inventory store —
+                // Minecraft persists it across the logout and every root gain was projected into it
+                // when it committed — so dropping the root here loses nothing, and the next login
+                // re-seeds the root from that same vanilla inventory.
+                RegionId held = presence.remove(event.getEntity().getUUID());
+                if (held != null && event.getEntity() instanceof ServerPlayer player) {
+                    try {
+                        runtime.unregisterPlayer(player, held);
+                    } catch (RuntimeException laneFailure) {
+                        org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").debug(
+                                "player-root unregistration for {} failed ({})",
+                                player.getUUID(), laneFailure.toString());
+                    }
+                }
+                return;
+            }
+            Captured prior = captured.remove(event.getEntity().getUUID());
+            Entity.RemovalReason reason = event.getEntity().getRemovalReason();
+            if (prior != null && reason != Entity.RemovalReason.UNLOADED_TO_CHUNK
+                    && reason != Entity.RemovalReason.CHANGED_DIMENSION) {
+                runtime.externalEntity(prior.region, prior.state, null);
+            }
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane leave handling failed: {}", e.toString());
         }
     }
 
     private void onToss(ItemTossEvent event) {
-        if (event.getPlayer() instanceof ServerPlayer player
-                && event.getEntity().level() instanceof ServerLevel) {
-            RegionId region = MinecraftEntityAdapters.region(event.getEntity());
-            if (runtime.delegated(region) && runtime.submitDrop(player, event.getEntity())) {
-                event.setCanceled(true);
+        try {
+            if (event.getPlayer() instanceof ServerPlayer player
+                    && event.getEntity().level() instanceof ServerLevel) {
+                RegionId region = MinecraftEntityAdapters.region(event.getEntity());
+                if (runtime.delegated(region) && runtime.submitDrop(player, event.getEntity())) {
+                    event.setCanceled(true);
+                }
             }
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane drop submission failed — the drop stays vanilla: {}", e.toString());
         }
     }
 
     private void onPickupPre(ItemEntityPickupEvent.Pre event) {
-        if (!(event.getPlayer() instanceof ServerPlayer player)) {
-            return;
-        }
-        ItemEntity item = event.getItemEntity();
-        Optional<NetworkEntityId> id = NetworkEntityIdAttachment.existing(item);
-        if (id.isEmpty()) {
-            return;
-        }
-        RegionId region = MinecraftEntityAdapters.region(item);
-        if (runtime.validatedItem(region, id.get())
-                && runtime.submitPickup(player, region, id.get())) {
-            event.setCanPickup(TriState.FALSE);
+        try {
+            if (!(event.getPlayer() instanceof ServerPlayer player)) {
+                return;
+            }
+            ItemEntity item = event.getItemEntity();
+            Optional<NetworkEntityId> id = NetworkEntityIdAttachment.existing(item);
+            if (id.isEmpty()) {
+                return;
+            }
+            RegionId region = MinecraftEntityAdapters.region(item);
+            if (runtime.validatedItem(region, id.get())
+                    && runtime.submitPickup(player, region, id.get())) {
+                event.setCanPickup(TriState.FALSE);
+            }
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane pickup admission failed — the pickup stays vanilla: {}", e.toString());
         }
     }
 
     private void onPearlTeleport(EntityTeleportEvent.EnderPearl event) {
-        ServerPlayer player = event.getPlayer();
-        ServerLevel level = player.serverLevel();
-        RegionId destination = MinecraftEntityAdapters.region(
-                level, event.getTargetX(), event.getTargetZ());
-        runtime.pearlTeleported(player, destination);
-        PEARL_LOG.info("PEARL: {} teleported to {} (delegated: {})",
-                player.getGameProfile().getName(), destination, runtime.delegated(destination));
+        try {
+            ServerPlayer player = event.getPlayer();
+            ServerLevel level = player.serverLevel();
+            RegionId destination = MinecraftEntityAdapters.region(
+                    level, event.getTargetX(), event.getTargetZ());
+            runtime.pearlTeleported(player, destination);
+            PEARL_LOG.info("PEARL: {} teleported to {} (delegated: {})",
+                    player.getGameProfile().getName(), destination, runtime.delegated(destination));
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane pearl teleport handling failed: {}", e.toString());
+        }
     }
 
     /** Regions already announced as holding ghosts — the announcement is once per region. */

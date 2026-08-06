@@ -80,7 +80,10 @@ land first.
 0. **Reduction pass, 2026-08-05 (issue #213 phase 4).** The two god-class splits below are pure
    moves: they buy readability, not size, and both sit behind `Server*Event` handlers where
    NeoForge's EventBus does not isolate a listener exception, so every try/catch has to move with
-   the code it protects. Neither was taken in a reduction PR. What was taken is the one *measured*
+   the code it protects. That rule is now enforced rather than remembered:
+   `EventHandlerFirewallTest` reads the mod's bytecode and fails any game-bus handler with a call
+   outside a `catch` that would hold a `RuntimeException`, so an extraction that leaves the guard
+   behind is a red build (issue #231). Neither split was taken in a reduction PR. What was taken is the one *measured*
    duplication in `mod/common/**` production code: `NoderaPeerService`'s three copies of the
    relay-route parse. The three payload records below (`NoderaLanePlanPayload`,
    `NoderaNodeAnnouncePayload`, `NoderaSessionPayload`) share a `CustomPacketPayload` header and are
