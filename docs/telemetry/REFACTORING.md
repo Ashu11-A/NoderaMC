@@ -9,16 +9,16 @@ jscpd finds **zero** clones wholly inside the telemetry modules — every measur
 
 | File | Lines | % duplicated | Duplicated-with | Refactor plan |
 |---|---|---|---|---|
-| `telemetry/build.rs` | 38 | 100.0 | `rendezvous/build.rs` (+ `nodera-tracker/build.rs` sibling) | Lift the walk-up `VERSION` lookup + `NODERA_VERSION` env stamp into `nodera-service` (a shared `build_util` or an `xtask`), so each service crate's `build.rs` becomes a one-line call. All three stays in sync by construction. |
-| `telemetry/src/main.rs` | 343 | 51.0 | `nodera-rendezvous/src/main.rs`, `nodera-tracker/src/main.rs` | Move the shared CLI skeleton — arg parse, `serve` shell (load → `apply_env` → `validate` → bind → print "listening on"), `shutdown_signal`, `healthcheck` — into `nodera-service::cli`. Each binary keeps only its `Config`/service wiring. |
+| ~~`telemetry/build.rs`~~ | ~~38~~ | ~~100.0~~ | ~~`rendezvous/build.rs`, `nodera-tracker/build.rs`~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): all three are two lines calling `nodera_build::stamp_version()`, from `library/rust/nodera-service/build-version` — a dependency-free package rather than a module of `nodera-service`, so a cross-compiled release build does not compile tokio and ureq for the host as well. |
+| ~~`telemetry/src/main.rs`~~ | ~~343~~ | ~~51.0~~ | ~~`nodera-rendezvous/src/main.rs`, `nodera-tracker/src/main.rs`~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): `nodera_service::cli::run` takes the parse and the dispatch, `config::{configure, bind}` the serve preamble, `serve::shutdown_signal` the signal. `--print-schema` stays this service's own and is declared as an extra flag rather than forking the parser — the answer to "what does NoderaMC collect?" has to come from the running binary. |
 | `peer/src/main/java/dev/nodera/diagnostics/metric/TpsMeter.java` | 206 | 48.1 | `diagnostics/metric/TickSkewMeter.java` | Extract an abstract `TickWindowMeter` base (sample window, `record`, `snapshot`, monotonic-time seam). `TpsMeter` and `TickSkewMeter` then differ only in what they compute over the same window. Removes ~99 duplicated lines and the dual-test pair (`TpsMeterTest`/`TickSkewMeterTest`). |
 | `peer/src/main/java/dev/nodera/diagnostics/metric/TickSkewMeter.java` | 251 | 39.4 | `diagnostics/metric/TpsMeter.java` | Same as above — the meter is the other half of the `TickWindowMeter` extraction. |
-| `telemetry/src/wire.rs` | 287 | 18.5 | `nodera-rendezvous/src/wire.rs`, `nodera-tracker/src/wire.rs` | `read_frame`/`write_frame`/`serve_connection`/`run`/`maintenance_loop` are service-agnostic; move them into `nodera-service::net` (framing already lives in `nodera-codec`). The telemetry-specific body is the `Ingest::handle_frame` call, which stays. |
-| `telemetry/src/config.rs` | 341 | 15.5 | `nodera-rendezvous/src/config.rs`, `nodera-tracker/src/config.rs` | The env-overlay application + `validate` + `bounds` pattern repeats. The env machinery is already shared (`nodera_service::env`); lift the `Config::validate`-against-`ConfigError` + "every key has an env override" self-test into a shared trait/test-helper. |
+| `telemetry/src/wire.rs` | 245 | ~4 | (self) | **Completed 2026-08-06** (Plan 11 round 2, item 6): `now_millis`/`read_frame`/`write_frame` and the accept loop are `nodera_service::{frame, serve}`. This crate's copy of `read_frame` was the **only** one generic over the stream, so it was the only one whose frame-size bound could be tested against an in-memory pipe; that test now covers all three services. `serve_connection` stays: it opens with the public-endpoint admission check, which nothing else has. |
+| `telemetry/src/config.rs` | 320 | ~5 | `nodera-rendezvous/src/config.rs`, `nodera-tracker/src/config.rs` (the env-override self-test) | **Completed 2026-08-06** (Plan 11 round 2, item 6): the overlay is a `nodera_service::env_overlay!` table and the file read is `config::load_toml`. `ConfigError` deliberately stays this service's own: its variants are about *what it will collect* (`PublicWithoutTlsFront`, `BadProxyCidr`), not about a file, and a test asserts on them by name. The "every key has an env override" self-test is still written three times and is the remaining share. |
 | `peer/src/main/java/dev/nodera/diagnostics/metric/TrafficMeter.java` | 101 | 11.9 | itself (internal clone) | Two ~6-line runs of per-direction accounting repeat inside one file; extract a private `record(Direction, bytes)` helper. Small, low-risk, in-file. |
 | `peer/src/main/java/dev/nodera/diagnostics/view/TrackerStatusView.java` | 79 | 11.4 | `diagnostics/view/RendezvousStatusView.java` | Both render a service-status panel (rows + health dot) from the same view-model shape. Extract a `ServiceStatusView` base parameterised by the metric set; the two subclasses supply their rows. |
 | `peer/src/main/java/dev/nodera/diagnostics/view/RendezvousStatusView.java` | 115 | 7.8 | `diagnostics/view/TrackerStatusView.java` | The other half of the `ServiceStatusView` extraction above. |
-| `telemetry/src/limits.rs` | 170 | 7.1 | `nodera-rendezvous/src/limits.rs` | `IngestQuota` (fixed-window batch+event counters, charge-before-verdict) mirrors the rendezvous limiter. A shared fixed-window quota in `nodera-service::quota` removes it; keep the per-service limits in config. |
+| ~~`telemetry/src/limits.rs`~~ | ~~170~~ | ~~7.1~~ | ~~`nodera-rendezvous/src/limits.rs`~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): deleted; `nodera_service::limits::PairQuota` is the two-counter variant of the same fixed window, beside the single-counter `Quota` the other two use. Charge-before-verdict is preserved and still asserted — a refused batch must still cost its sender. |
 | `peer/src/main/java/dev/nodera/diagnostics/DiagnosticsCollector.java` | 155 | 5.8 | its own test (`DiagnosticsCollectorTest.java`) | Test mirrors the collector's assembly order; extract a tiny `DiagnosticsFixtures` builder the test and any future caller share. Test-only coupling, low priority. |
 | `telemetry/src/service.rs` | 524 | 3.4 | itself (internal clone) | A small (~9-line) run repeats inside `write`/`refuse`; a private `bump_reason(counter, reason)` helper absorbs it. Negligible. |
 | `docker/telemetry/Dockerfile` | 54 | — | `docker/tracker/Dockerfile`, `docker/rendezvous/Dockerfile` | Documented as deliberately near-identical (see its `AI-AGENT-INSTRUCTION`). Collapse into one `ARG SERVICE=nodera-telemetry` + `cargo build -p $SERVICE` Dockerfile invoked per service; removes the three-way hand-sync discipline. Manual: Dockerfiles are outside the jscpd rust+java scan. |
@@ -26,25 +26,20 @@ jscpd finds **zero** clones wholly inside the telemetry modules — every measur
 
 ## Sequencing
 
-Ordered by independence and payoff, with the constraint that the cross-crate refactors must land
-*with* the tracker and rendezvous categories' sign-off (they are the other two ends of the clone).
+Re-ranked 2026-08-06, after item 2 below landed.
 
-1. **`TickSkewMeter` / `TpsMeter` → `TickWindowMeter`** — highest in-category duplication
-   (~40–48%, ~99 lines), fully contained in `peer/.../diagnostics/metric/`, no cross-category
-   coordination, pure correctness-preserving extraction. Do first.
-2. **Lift the Rust service scaffold into `nodera-service`** — `build.rs`, `main.rs`, `wire.rs`,
-   `config.rs`, `limits.rs` together account for ~330 duplicated lines, the single biggest absolute
-   win. It is cross-crate (tracker + rendezvous), so schedule it as one PR after `nodera-service`
-   grows the `cli`/`net`/`quota`/`build_util` helpers, and all three service crates switch in the
-   same commit.
+1. **`TickSkewMeter` / `TpsMeter` → `TickWindowMeter`** — now the largest remaining row in the
+   category (~40–48%, ~99 lines), fully contained in `peer/.../diagnostics/metric/`, no
+   cross-category coordination. Do first.
+2. ~~**Lift the Rust service scaffold into `nodera-service`.**~~ Landed 2026-08-06 (Plan 11 round 2,
+   item 6), as one commit across all three service crates as this row required. Workspace Rust
+   duplication went from 109 clones / 1,373 lines / 3.10% to 81 clones / 777 lines / 1.80%.
 3. **`TrackerStatusView` / `RendezvousStatusView` → `ServiceStatusView`** — small, in-category,
-   low-risk; natural follow-up to #1 (same package, same review surface).
-4. **Slim `ingest/nodera-telemetry.toml`** — drop keys that equal `Config::default()`, leaving a
-   reviewable deployment delta. Trivial, but do it after #2 so any default moves with the config
-   refactor rather than under it.
-5. **One `ARG`-driven service Dockerfile** — already documented as deliberately shared, so the
-   lowest-priority change; only worth it once #2 lands and the three build paths already agree by
-   construction rather than by discipline.
+   low-risk.
+4. **Slim `ingest/nodera-telemetry.toml`** — drop keys that equal `Config::default()`. Now unblocked:
+   the defaults did not move in the refactor above.
+5. **One `ARG`-driven service Dockerfile** — lowest priority; the three build paths now agree by
+   construction on the version stamp, which was the part discipline was holding together.
 
 Out of scope but noted: `../plans/Plan.6.md` §4 ("What is collected") does not name `tracker.services`
 or `service.drain`, both of which `schema.rs` now declares. That is a programme-plan drift, not a
