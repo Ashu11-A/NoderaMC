@@ -300,3 +300,76 @@ punish writing one.
 - **Lose test coverage.** The PASS count is flat or higher at every merge.
 - **Hit 30% in Java by finding something else to call "not code".** If production Java lands at 24%,
   the plan reports 24%.
+
+---
+
+## What would actually reach 30%
+
+The programme delivered 1,396 of the 49,366 lines a 30% cut requires — **2.8% of the goal**. The
+question that matters now is not "why so little" but "what shape of work reaches the rest", and the
+tree answers it before any plan does.
+
+### The distribution rules out per-file work
+
+Measured on the merged tree, 163,630 code lines across 1,430 files:
+
+| | code | share |
+|---|---:|---:|
+| top 10 files | 11,433 | 7.0% |
+| top 25 files | 21,931 | 13.4% |
+| top 50 files | 34,974 | 21.4% |
+| top 100 files | 53,285 | 32.6% |
+| top 400 files | 107,990 | 66.0% |
+
+Java production has a median file of **47.5 code lines**, and the 418 files at or below 60 lines —
+59% of all production files — hold 19% of the code. This is a long tail, not a few monoliths.
+
+The consequence is arithmetic: **deleting the fifty largest files in the repository outright would
+yield 21.4%, still short of the target**, and those files are the ones that cannot be deleted. Any
+plan built on "decompose the god-classes" is bounded well under 10% before it starts, which is why
+phase 4 came out at +26 lines and would have come out near zero even if it had reached all twelve of
+its targets. A 30% cut has to be a change that touches hundreds of files at once.
+
+### What is reachable, with the measurement behind each
+
+| lever | measured basis | realistic yield |
+|---|---|---:|
+| **Generate the wire layer** | 75 `Encodable` types = 6,116 lines, ~1,726 inside hand-written `encode`/`decode`; Java `CodecRegistry`+`MessageCodec` 878; `InfrastructureCodec` 711; Rust `wire`+`codec`+`tags`+`frame` 1,476; `rendezvous/src/wire.rs` 740; `MessageSamples` 450 | **4,000–5,000** |
+| **Continue test consolidation** | `java.test` is 59,672 lines — 36.5% of all code, with a test:production ratio of 1.07 in `:peer` and 1.24 in `:engine`. 176 candidate rows remain open across nine `REFACTORING.md` registers; the `ArchiveFixture` cluster alone is six files at 36–68% duplication | **8,000–12,000** |
+| **Phase 1 re-run after phase 3** | 92 of 263 dead-code candidates were test-driven and unlandable until the harness consolidated; that blocker is now gone | **1,000–2,000** |
+| **Rust monolith splits** | `core.rs` 1,080, `settings.rs` 1,016, `tracker/src/service.rs` 1,228, `update.rs` 782 — plus hand-written serde parsing that `#[derive(Deserialize)]` replaces | **1,000–2,000** |
+| **TypeScript primitives** | `TrackerStores.tsx` 916, `Settings.tsx` 762 — phase 4 reached neither | **~1,000** |
+
+**Ceiling: roughly 15,000–22,000 lines, or 9–13% of the tree.** That is what disciplined,
+behaviour-preserving reduction can produce here, and it is worth doing — the test lever alone is
+larger than everything the five phases delivered combined.
+
+### 30% requires removing scope, not restructuring it
+
+The remaining ~27,000 lines do not exist because the code is badly written. They exist because the
+project does that much. Reaching 30% means one of:
+
+1. **One wire implementation instead of two.** Java and Rust each carry a full encoder, decoder and
+   tag table for the same protocol — roughly 10,400 lines across both sides. The repository already
+   generates `library/rust/nodera-codec/src/kinds.rs` from `WireRegistry.java`, so the mechanism
+   exists and is trusted; extending it from the tag table to the message bodies is the single
+   largest structural lever available, and generated lines are excluded from the ratchet because
+   they are not maintained lines.
+2. **Fewer delivery targets.** `paper-plugin` (784), the telemetry plane (3,488), the Android lane,
+   the website — each is real scope, and each is a product decision rather than a refactor.
+3. **A lower test:production ratio.** Going from ~1.1 to ~0.6 removes ~25,000 lines. That is only
+   honest if enumerated cases are replaced by property-based ones that cover strictly more, not by
+   deleting assertions — and phase 3's flat PASS count is the discipline that would have to hold.
+
+### Recommendation
+
+Re-baseline the target. **30% is not a property this codebase can have while doing what it does**,
+and the plan committed to reporting that if the work showed it. Replace it with two commitments the
+tree supports:
+
+- **A measured 10% code reduction** from the levers above, in the order given — test consolidation
+  first, because it is the largest and the phase-1 unblock depends on it.
+- **The ratchet stays.** Its value turned out not to be the reduction at all. Across five phases it
+  caught three defects in its own design, and the phases it gated found a mutation test asserting on
+  one message family, an escape corrupting telemetry replies, an unbounded map, and an orphaned API.
+  A gate that makes the tree's size a reviewable number is worth keeping whatever the number does.
