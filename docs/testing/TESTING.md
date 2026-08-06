@@ -23,12 +23,29 @@ scripts/nodera-test.sh all                     # scenarios, then benchmarks, the
   --report DIR    where the report goes (default build/reports/nodera)
 ```
 
+The size ratchet is not a scenario and does not need a stack; it is a second-long Python pass over
+git-tracked source, and it runs in `scripts/dev.sh --test` and in the `build` workflow beside
+`scripts/version.sh --check`:
+
+```bash
+scripts/loc-metrics.py                         # per-language table
+scripts/loc-metrics.py --by-module             # per module, crate and package
+scripts/loc-metrics.py --check                 # fail if the tree grew past scripts/lib/loc-baseline.json
+scripts/loc-metrics.py --baseline              # re-stamp, when a growth is deliberate
+scripts/loc-metrics.py --selftest              # 18 lexer fixtures — runs before --check in the gate
+```
+
+`--selftest` runs first everywhere `--check` does. The ratchet is worth exactly as much as the lexer
+underneath it, and a regression that made the classifier read comments as code would otherwise
+present as a tree that shrank. The programme it serves is [`Plan.11.md`](../plans/Plan.11.md).
+
 Artefacts:
 
 | Path | What it is |
 |---|---|
 | `build/reports/nodera/TEST-REPORT.md` | scenarios, benchmarks and structure in one document |
 | `build/reports/nodera/test-report.json` | the same, machine-readable |
+| `build/reports/nodera/LOC-BASELINE.md` | source size by language and by component, from `--baseline` |
 | `run/results/<scenario>/<stamp>/` | that run's service logs, client logs, worker state snapshots |
 | `run/.e2e-suite.lock` | the exclusive lock live scenarios take — they run one at a time |
 

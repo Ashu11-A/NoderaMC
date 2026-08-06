@@ -61,6 +61,15 @@ jobs:
       # to make the documented claim true.
       - name: Every version mirror agrees with VERSION
         run: scripts/version.sh --check
+      # The size ratchet of the Plan 11 reduction programme (docs/plans/Plan.11.md). `--selftest`
+      # runs first because the ratchet is only worth as much as the lexer under it: a regression
+      # that made the classifier count comments as code would otherwise show up as a tree that
+      # shrank. Growth is not forbidden — it has to be re-stamped with `--baseline` in the same
+      # commit, which turns "the tree got bigger" into a line somebody reviews.
+      - name: Source size is within its stamped baseline
+        run: |
+          scripts/loc-metrics.py --selftest
+          scripts/loc-metrics.py --check
       # `layout.properties` is the one layout table, and `LayoutManifestTest` holds Gradle, the Java
       # harness, the scripts and the Rust tests to it. Workflow YAML, Dockerfiles, `.dockerignore`
       # and `tauri.*.conf.json` cannot read it — GitHub, Docker and Tauri parse them first — and

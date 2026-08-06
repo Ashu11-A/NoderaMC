@@ -1,0 +1,186 @@
+<!-- AI-AGENT-INSTRUCTION: This is an ACTIVE PROGRAMME PLAN — the scoping document for the
+     source-reduction effort that runs on `refactor/reuse-driven-shrink`. It is cross-cutting and
+     owned by no single docs category. Update the phase table when a phase merges; do not delete
+     the measured baseline, because every claim the programme makes is a delta against it. -->
+
+# Plan 11 — the tree gets smaller by being written once
+
+## Context
+
+This repository is at 90.4% of its roadmap and holds 246,102 lines of source across three languages.
+Nothing about that number is wrong on its own. What is wrong is how much of it is the same thing
+written more than once: nine action classes with parallel `encode`/`decode`/`tag`, five inline JSON
+builders in one control handler, 74 hand-rolled logger fields, 25 integration tests each standing up
+the same mesh in its own 30–80 lines, a protocol specification stored as 449 lines of comment above
+46 lines of code, and one Rust crate with three files over 890 lines apiece.
+
+The programme's goal is a directional **30% reduction in code lines**, achieved by eliminating
+redundancy, extracting shared primitives and moving specifications into `docs/` — never by removing
+a feature. Repackaging `dev.nodera.research.*` out of the build was considered and rejected: that is
+feature removal wearing a refactor's clothes.
+
+**The 30% figure is a target, not a gate.** TypeScript and Rust are expected to reach it;
+production Java is expected to land nearer 24% once the reuse work is exhausted. CI does not fail
+because Java lands at 26%. What CI *does* enforce is that the tree never grows past its last stamped
+measurement without somebody stamping a new one in the same commit.
+
+---
+
+## The measurement
+
+Before this plan there was no agreed way to count. Two different people counting this tree got two
+different answers, and one of them was counting `app/ui/src` and calling it "TypeScript".
+
+`scripts/loc-metrics.py` is now the answer, over `scripts/lib/loc_classify.py`, which is a lexer
+rather than a regex — because a regex cannot tell `// comment` from `"https://example"`, cannot tell
+Rust's `'a` lifetime from a `'x'` literal, and eats the rest of a file the first time it reads the
+`/*` inside a TypeScript regex literal as a block comment. All three shapes exist here.
+
+Only git-tracked files are counted. That is what makes the number reproducible on a clean clone and
+what excludes `target/`, `build/` and `node_modules/` without maintaining a list of them. Generated
+files are measured, reported, and then excluded from the ratchet: `nodera-codec`'s `kinds.rs` grows
+by three lines every time a wire kind is appended, and a size gate that fails on that would be a
+gate against adding messages.
+
+### Baseline — 2026-08-05 at `9959df1`
+
+| bucket | files | total | code | comment | blank | comment/code |
+|---|---|---|---|---|---|---|
+| `java.main` | 760 | 118,836 | 69,241 | 39,830 | 9,765 | 57.5% |
+| `java.test` | 464 | 67,832 | 52,014 | 6,864 | 8,954 | 13.2% |
+| `rust.main` | 111 | 43,208 | 31,448 | 8,348 | 3,412 | 26.5% |
+| `rust.test` | 3 | 570 | 444 | 91 | 35 | 20.5% |
+| `ts` | 82 | 15,656 | 11,405 | 3,239 | 1,012 | 28.4% |
+| **TOTAL** | **1,420** | **246,102** | **164,552** | **58,372** | **23,178** | **35.5%** |
+
+Generated and excluded from the ratchet: `library/rust/nodera-codec/src/kinds.rs`, 505 code lines.
+
+This measurement corrected two figures the programme was originally scoped against. The Java
+"121,224 code" that framed the 30% target was total *lines*, not code lines — real Java code is
+121,255, of which 69,241 is production and 52,014 is test. And TypeScript was scoped at 21 files
+because only `app/ui` had been looked at; the real surface is 82 files across `app/ui` (8,113 code),
+`web` (3,179) and `library/ts/nodera-ui` (113).
+
+### Where the code is
+
+| component | total | code | comment | c/code |
+|---|---|---|---|---|
+| `:peer` | 70,084 | 45,533 | 17,468 | 38.4% |
+| `:engine` | 30,400 | 21,636 | 5,510 | 25.5% |
+| `:transport` (frozen) | 20,511 | 12,493 | 6,115 | 48.9% |
+| `:neoforge-mod` | 20,282 | 12,874 | 5,734 | 44.5% |
+| `nodera-core` | 17,724 | 12,365 | 3,961 | 32.0% |
+| `:core` (frozen) | 15,536 | 9,803 | 4,037 | 41.2% |
+| `:testing` | 14,753 | 9,163 | 4,194 | 45.8% |
+| `nodera-app-ui` | 11,004 | 8,113 | 2,150 | 26.5% |
+| `:storage` | 8,516 | 5,711 | 1,842 | 32.3% |
+| `nodera-codec` | 7,142 | 5,217 | 1,409 | 27.0% |
+| `nodera-tracker` | 6,170 | 4,846 | 876 | 18.1% |
+| `:endpoint` (frozen) | 5,508 | 3,258 | 1,614 | 49.5% |
+| `nodera-telemetry` | 4,549 | 3,488 | 691 | 19.8% |
+| `nodera-site` | 4,380 | 3,179 | 957 | 30.1% |
+| `nodera-rendezvous` | 4,243 | 3,345 | 564 | 16.9% |
+| `nodera-service` | 3,211 | 2,292 | 632 | 27.6% |
+| `nodera-app` | 1,365 | 844 | 414 | 49.1% |
+| `:paper-plugin` | 1,078 | 784 | 180 | 23.0% |
+| `nodera-ui` | 272 | 113 | 132 | 116.8% |
+
+Regenerate either table with `scripts/loc-metrics.py` and `scripts/loc-metrics.py --by-module`.
+
+---
+
+## The levers
+
+The programme has five, and four of them add code before they remove it. That is the point: a shared
+primitive is more lines than any single call site it replaces and fewer lines than all of them.
+
+| lever | where | mechanism |
+|---|---|---|
+| **A** — decompose the god-classes | Java's largest files | extract collaborators into shared support packages |
+| **B** — generic base abstractions | `core/action/*`, dispatch tables, logging | sealed interfaces, a codec registry, a `Logged` mixin |
+| **C** — one test harness | 25 `*IT.java`, Rust `#[cfg(test)]` fixtures | `PeerTestHarness`, a shared fixtures module |
+| **D** — specifications out of comments | the high-density files | block comments become `docs/<category>/Task.<n>.md`, with a one-line pointer left behind |
+| **E** — split the monoliths | `nodera-core`, `tracker/service.rs`, `app/ui/src` | focused modules, `ui/primitives.tsx` |
+
+Two rules constrain all five. **Frozen modules** — `:core`, `:transport`, `:endpoint` — may have
+comments moved and nothing else; their contracts are versioned. And **wire tags are append-only**:
+lever B rewrites how a codec is dispatched, never what number it answers to. Renumbering a tag is a
+network split, not a refactor.
+
+---
+
+## Phases
+
+One task, one issue, one sub-branch, one PR. Every sub-branch merges into
+`refactor/reuse-driven-shrink`; the integration branch reaches `main` only through a PR, after a
+live `scripts/dev.sh --play` run.
+
+| # | phase | issue | branch | status |
+|---|---|---|---|---|
+| 0 | measure the tree, and make the measurement a gate | [#209](https://github.com/Ashu11-A/NoderaMC/issues/209) | `chore/loc-tooling` | in progress |
+| 1 | delete what nothing can reach | [#210](https://github.com/Ashu11-A/NoderaMC/issues/210) | `refactor/remove-dead-clusters` | not started |
+| 2 | specifications move to `docs/` | [#211](https://github.com/Ashu11-A/NoderaMC/issues/211) | `docs/migrate-spec-comments` | not started |
+| 3 | one integration-test harness | [#212](https://github.com/Ashu11-A/NoderaMC/issues/212) | `refactor/test-harness-dedup` | not started |
+| 4 | decompose god-classes, extract primitives | [#213](https://github.com/Ashu11-A/NoderaMC/issues/213) | `refactor/decompose-<file>` (one per file) | not started |
+| 5 | one codec dispatch, one keep-alive, 0.2.0 | [#214](https://github.com/Ashu11-A/NoderaMC/issues/214) | `release/v0.2.0-wire-bump` | not started |
+
+### Phase 1 is the only deletion phase
+
+`fixtures/structure/budget.json` ratchets 267 unreachable methods, 136 methods nothing references at
+all, 415 test-only methods and 29 test-only classes. `./gradlew :peer:structureReport` finds them and
+its debugger-profiled run of the real `nodera-headless` worker confirms none of them execute. A
+method no entry point can reach is not a feature.
+
+The trap here is `docs/LIMITATIONS.md`: a limitation row can be staged on a green test that drives a
+class production never calls. Check `structureReport` §2.2 before deleting anything a row depends
+on, and never close an issue that `docs/LIMITATIONS.md` tracks.
+
+### Phase 2 keeps more than it moves
+
+Public-API Javadoc stays. Consensus and wire invariants stay — those are the comments that stop
+somebody breaking the protocol. What moves is historical narrative, restatements of what the next
+line plainly does, private-method Javadoc, and license headers that duplicate `LICENSE`. Every moved
+block leaves a pointer to the section that now holds it, so the code still says where to look.
+
+### Phase 3's gate is the PASS count
+
+`scripts/test-totals.sh --java` must report the same number of passing tests before and after. A
+consolidation that quietly drops assertions is the most likely way this phase fails, and the count
+is what catches it. Read the skipped column too: an `assumeTrue` guard against a path that moved is
+a SKIP, not a failure.
+
+### Phase 5 needs two clients
+
+Dropping `SessionKeepAlive` v1 is the one change here that no unit test fully clears. The exit is a
+live `scripts/dev.sh --play` run after `scripts/nodera-test.sh all` is green.
+
+---
+
+## Gates
+
+| gate | when | command |
+|---|---|---|
+| Java unit gate | every commit | `./gradlew check` |
+| Rust gate | every commit | `cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings` |
+| Companion app | phases touching `app/` | the same three, inside `app/` — it is a separate cargo workspace |
+| Size ratchet | every commit | `scripts/loc-metrics.py --selftest && scripts/loc-metrics.py --check` |
+| Structural ratchet | phases 1 and 4 | `./gradlew :peer:structureReport` — `budget.json` must drop |
+| Cross-language fixtures | phase 5 | `:transport:WireFixtureTest` + `cargo test`, byte-exact |
+| Acceptance scenarios | every merge to the integration branch | `scripts/nodera-test.sh all` |
+| Live two-player run | integration branch → `main` | `scripts/dev.sh --play` |
+
+The size ratchet runs `--selftest` first, because the ratchet is worth exactly as much as the lexer
+under it: a regression that made the classifier count comments as code would otherwise present as a
+tree that shrank.
+
+---
+
+## What this plan will not do
+
+- **Remove a feature.** Not one, in any phase, under any measurement pressure.
+- **Repackage `dev.nodera.research.*` out of the build.** Rejected; see Context.
+- **Renumber a wire tag.**
+- **Change code in `:core`, `:transport` or `:endpoint`.** Comments only.
+- **Lose test coverage.** The PASS count is flat or higher at every merge.
+- **Hit 30% in Java by finding something else to call "not code".** If production Java lands at 24%,
+  the plan reports 24%.

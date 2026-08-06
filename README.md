@@ -212,6 +212,7 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cd app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 scripts/version.sh --check       # every version mirror agrees with the root VERSION file
+scripts/loc-metrics.py --check   # source size is within its stamped baseline (ratchets down only)
 scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
 scripts/test-totals.sh --java    # how many tests PASSED/FAILED — what the badges above show
 scripts/check-layout-drift.sh    # workflow/Docker/Tauri paths still resolve
