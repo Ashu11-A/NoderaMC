@@ -52,6 +52,18 @@ REPORT_FILE = "reports/nodera/LOC-BASELINE.md"
 # — and one combined number would let a win in either hide a loss in the other.
 BUCKETS = ("java.main", "java.test", "rust.main", "rust.test", "ts")
 
+# Which of the stamped limits `--check` actually enforces: the code ones, and not the comment ones.
+#
+# Comment counts are measured, stamped and diffed, because moving a specification out of a comment
+# block and into `docs/` is one of the reduction programme's levers and it has to be visible. They
+# are NOT gated, and the reason is a real incentive this tool created before the exclusion existed:
+# an agent extracting a collaborator from a god-class found the comment bucket blocking its commit,
+# and trimmed comments to pay for the new file's header. Nothing valuable was lost that time — the
+# documentation had moved with the code — but a size gate that makes deleting documentation the
+# cheapest way to go green is a gate pointed at the wrong thing. Code is the target; a comment
+# somebody adds to explain a hard invariant must never fail a build.
+GATED = frozenset(f"{bucket}.code" for bucket in BUCKETS)
+
 _RATCHET_NOTE = (
     "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, "
     "classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising "
@@ -59,7 +71,8 @@ _RATCHET_NOTE = (
     "rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the "
     "SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) "
     "are measured but excluded from these limits, because appending a wire kind must never fail a "
-    "size gate."
+    "size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes "
+    "deleting documentation the cheapest way to go green is pointed at the wrong thing."
 )
 
 
@@ -355,11 +368,18 @@ def check(root: pathlib.Path, measurement: Measurement) -> int:
     risen = {
         key: (baseline.get(key, 0), value)
         for key, value in current.items()
-        if value > baseline.get(key, 0)
+        if key in GATED and value > baseline.get(key, 0)
     }
     if not risen:
         total = measurement.total()
         print(f"loc-metrics: OK — {total.code} code, {total.comment} comment, within baseline")
+        grown = {
+            key: (baseline.get(key, 0), value)
+            for key, value in current.items()
+            if key not in GATED and value > baseline.get(key, 0)
+        }
+        for key, (was, now) in sorted(grown.items()):
+            print(f"  note: {key} rose {was} → {now} (+{now - was}); measured, not gated")
         return 0
     print("loc-metrics: the tree grew past its baseline", file=sys.stderr)
     for key, (was, now) in sorted(risen.items()):

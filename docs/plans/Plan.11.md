@@ -205,6 +205,15 @@ The size ratchet runs `--selftest` first, because the ratchet is worth exactly a
 under it: a regression that made the classifier count comments as code would otherwise present as a
 tree that shrank.
 
+It gates the `*.code` limits only. Comment counts are measured, stamped and diffed — lever D is
+nothing but a comment count — and a rise in them prints a note rather than failing. That exclusion
+was bought with evidence: while phase 5 was extracting a codec table out of `MessageCodec`, the
+comment bucket blocked the commit and the work was distorted to trim comments and pay for the new
+file's header. Nothing valuable was lost that time; the documentation had moved with the code. But a
+gate that makes deleting documentation the cheapest route to green is a gate aimed at the wrong
+thing, and a programme whose whole justification is that comments carry the invariants cannot also
+punish writing one.
+
 ---
 
 ## What this plan will not do
