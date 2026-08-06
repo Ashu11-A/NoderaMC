@@ -70,21 +70,6 @@ public final class EntityCaptureBridge {
         }
 
         /**
-         * Whether this node may take a vanilla outcome away from the player in {@code region} —
-         * i.e. whether it is that region's primary, so a commit is synchronous.
-         *
-         * <p>Exposed on this interface because the capture path needs the same answer the submit
-         * paths already ask {@code VanillaCancelGate} for. Without it the bridge was zeroing an
-         * item's pickup delay on the strength of a lane that only engages on the primary, which is
-         * the whole of the "players cannot drop items" bug.
-         *
-         * @return {@code false} by default, which is the safe answer: vanilla keeps its behaviour.
-         */
-        default boolean mayCancelVanilla(RegionId region) {
-            return false;
-        }
-
-        /**
          * Propose one validated movement step (L-12). Vanilla movement is never cancelled for it —
          * the client proposes and the committee decides, and a step the committee refuses is
          * reconciled by the committed state like any other rejection.
@@ -118,8 +103,6 @@ public final class EntityCaptureBridge {
                 RegionId source, RegionId target, PersistedEntityState expected,
                 PersistedEntityState replacement);
 
-        void revokeForEntity(RegionId region, Entity entity);
-
         void pearlTeleported(ServerPlayer player, RegionId destination);
 
         void tickEnd(MinecraftServer server);
@@ -139,7 +122,6 @@ public final class EntityCaptureBridge {
             @Override public void transferGhost(
                     RegionId source, RegionId target, PersistedEntityState expected,
                     PersistedEntityState replacement) {}
-            @Override public void revokeForEntity(RegionId region, Entity entity) {}
             @Override public void pearlTeleported(ServerPlayer player, RegionId destination) {}
             @Override public void tickEnd(MinecraftServer server) {}
         };
@@ -223,13 +205,6 @@ public final class EntityCaptureBridge {
         movement.clear();
         presence.clear();
         return true;
-    }
-
-    /** Stop suppressing or reporting entities after their region leaves delegation. */
-    public void releaseRegion(RegionId region) {
-        captured.entrySet().removeIf(entry -> entry.getValue().region.equals(region));
-        deferredJoins.removeIf(entity -> entity.level() instanceof ServerLevel
-                && MinecraftEntityAdapters.region(entity).equals(region));
     }
 
     /** Suppress capture echo while the canonical applier creates/removes vanilla projections. */

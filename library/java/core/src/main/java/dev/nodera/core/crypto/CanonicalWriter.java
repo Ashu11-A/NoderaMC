@@ -178,9 +178,4 @@ public final class CanonicalWriter {
     public Bytes toBytes() {
         return Bytes.unsafeWrap(baos.toByteArray());
     }
-
-    /** Reset the writer for reuse (discards current contents). */
-    public void reset() {
-        baos.reset();
-    }
 }

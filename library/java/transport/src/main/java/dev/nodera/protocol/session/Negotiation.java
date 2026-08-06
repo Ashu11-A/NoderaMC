@@ -171,10 +171,4 @@ public final class Negotiation {
         return PeerSession.of(peer, ack);
     }
 
-    /** Convenience for tests and loopback: negotiate both halves in one call. */
-    public static PeerSession negotiate(NodeIdentity mine, LocalProfile local,
-                                        Function<Hello, HelloAck> remote) {
-        Hello hello = hello(mine, local);
-        return accept(hello.nodeId(), remote.apply(hello));
-    }
 }

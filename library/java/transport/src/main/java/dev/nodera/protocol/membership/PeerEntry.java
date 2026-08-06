@@ -63,12 +63,6 @@ public record PeerEntry(NodeId nodeId, String route, NodeCapabilities capabiliti
         clientVersion = clientVersion == null ? "" : clientVersion;
     }
 
-    /** Back-compat constructor for callers that publish a key but no client agent. */
-    public PeerEntry(NodeId nodeId, String route, NodeCapabilities capabilities, boolean bootstrap,
-                     Bytes publicKey) {
-        this(nodeId, route, capabilities, bootstrap, publicKey, "");
-    }
-
     /** Back-compat constructor for callers with no key to publish (tests, probe-only meshes). */
     public PeerEntry(NodeId nodeId, String route, NodeCapabilities capabilities, boolean bootstrap) {
         this(nodeId, route, capabilities, bootstrap, Bytes.empty(), "");

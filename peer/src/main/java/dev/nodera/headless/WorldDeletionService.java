@@ -211,12 +211,6 @@ public final class WorldDeletionService {
         }
     }
 
-    /** @return the restore this node holds for a world, if its owner has undone the deletion. */
-    public Optional<dev.nodera.storage.WorldRevival> revival(String worldIdHex) {
-        return worldIdHex == null ? Optional.empty()
-                : Optional.ofNullable(revived.get(key(worldIdHex)));
-    }
-
     /**
      * What a publish did.
      *

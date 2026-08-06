@@ -93,11 +93,6 @@ public final class PlayerNodeRegistry {
         return NODES.get(player);
     }
 
-    /** @return an insertion-stable snapshot of every announced player node. */
-    public static Map<UUID, PlayerNode> snapshot() {
-        return new LinkedHashMap<>(NODES);
-    }
-
     /** Drop everything (server stopped). */
     public static void clear() {
         NODES.clear();

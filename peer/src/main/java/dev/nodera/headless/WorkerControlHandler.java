@@ -1371,11 +1371,6 @@ public final class WorkerControlHandler implements ControlHandler {
             lanUnavailable = lanUnavailable == null ? "" : lanUnavailable;
         }
 
-        /** Backwards-compatible constructor for an embedding with a working LAN lane. */
-        public LiveLanes(LanSessionService lan, dev.nodera.peer.tunnel.TunnelService tunnel,
-                         dev.nodera.peer.discovery.TrackerClient tracker, List<String> rendezvous) {
-            this(lan, tunnel, tracker, rendezvous, "");
-        }
     }
 
     @Override
@@ -1551,24 +1546,14 @@ public final class WorkerControlHandler implements ControlHandler {
         private final dev.nodera.storage.fs.FsContentStore contentStore;
 
         /**
-         * @param content     the piece plane (upload/download bounds, the pause flag); nullable.
-         * @param replication the replication lane (byte budget, sweep cadence); nullable.
-         * @param transport   the socket transport (connection cap); nullable.
-         * @param tracker     the node's shared tracker client (endpoint list); nullable.
-         */
-        public ConfigSeams(dev.nodera.distribution.ContentTransferService content,
-                           WorldReplicationService replication,
-                           dev.nodera.transport.socket.SocketPeerTransport transport,
-                           dev.nodera.peer.discovery.TrackerClient tracker) {
-            this(content, replication, transport, tracker, null);
-        }
-
-        /**
-         * As above, plus the relocatable blob store behind {@code storage.peer_worlds_dir} (L-58).
-         *
-         * @param contentStore the on-disk content store, or {@code null} when this embedding has
-         *                     none — the archive-directory key is then {@code rejected} with a
-         *                     reason rather than silently reported as applied.
+         * @param content      the serve/download lane (byte budgets); nullable.
+         * @param replication  the replication lane (byte budget, sweep cadence); nullable.
+         * @param transport    the socket transport (connection cap); nullable.
+         * @param tracker      the node's shared tracker client (endpoint list); nullable.
+         * @param contentStore the relocatable blob store behind {@code storage.peer_worlds_dir}
+         *                     (L-58), or {@code null} when this embedding has none — the
+         *                     archive-directory key is then {@code rejected} with a reason rather
+         *                     than silently reported as applied.
          */
         public ConfigSeams(dev.nodera.distribution.ContentTransferService content,
                            WorldReplicationService replication,

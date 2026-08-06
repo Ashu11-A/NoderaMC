@@ -82,11 +82,6 @@ public final class MessageRouter {
         existing.add(handler);
     }
 
-    /** How many handlers are registered for a kind. */
-    public int handlerCount(int kind) {
-        return handlers.getOrDefault(kind, List.of()).size();
-    }
-
     /**
      * Decode a received frame and deliver it if it is allowed.
      *

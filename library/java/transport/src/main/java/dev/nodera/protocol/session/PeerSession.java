@@ -63,16 +63,6 @@ public final class PeerSession {
         return new PeerSession(peer, SessionRole.OBSERVER, Set.of());
     }
 
-    /** A session with everything this build can do — for loopback and tests. */
-    public static PeerSession full(NodeId peer) {
-        return new PeerSession(peer, SessionRole.ADMITTED, WireFeature.all());
-    }
-
-    /** The authenticated peer this session belongs to. */
-    public NodeId peer() {
-        return peer;
-    }
-
     /** What the peer may do; see {@link SessionRole}. */
     public SessionRole role() {
         return role;

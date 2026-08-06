@@ -1,13 +1,13 @@
 {
-  "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
-  "measured": "2026-08-06 on the full tree, after the Plan 11 phase branches merged (#210 #211 #212 #213 #214). never_referenced_methods 136 -> 91, unreachable_methods 267 -> 264. RE-MEASURED on the combined tree, not merged from the branches, and it had to be: #210 stamped 93/264 and #213 stamped 134/267, so resolving that conflict by taking either side silently discards the other's tightening -- and a limit that is too generous never fails, so nothing would have noticed. A ratchet file is a measurement of one tree; it cannot be merged, only re-measured.",
+  "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
+  "measured": "2026-08-06 on refactor/dead-clusters-round2 (Plan 11 round 2 item 1+2, issue #210), re-measured on this branch rather than merged from anywhere. never_referenced_methods 91 -> 4, unreachable_methods 264 -> 117, test_only_methods 415 -> 318, test_only_classes 29 -> 12, severe_cost_findings 4 -> 3. The reduction is at CLUSTER granularity: 51 production files whose whole design no production entry point could reach, deleted with their dedicated tests, plus the 91 individually-unreferenced methods inside files that survive. The four never-referenced methods left are deliberate and named in the PR: `PeerTrafficMeter#snapshot` (issue #218 tracks it as the per-peer table's only eviction path), `RendezvousPeerTransport#onDrainNotice` (Plan 11's defect #1 — the service-drain lane needs a caller, not a deletion), `WireEnum#decodeOrUnknown` (the NDR2 unknown-code contract) and `MutableRegionState#inHalo` (a RegionWorldView override the report cannot see through). A ratchet file is a measurement of one tree; it cannot be merged, only re-measured.",
   "limits": {
     "dead_classes": 0,
-    "test_only_classes": 29,
-    "never_referenced_methods": 91,
-    "test_only_methods": 415,
-    "unreachable_methods": 264,
+    "test_only_classes": 12,
+    "never_referenced_methods": 4,
+    "test_only_methods": 318,
+    "unreachable_methods": 117,
     "huge_methods": 0,
-    "severe_cost_findings": 4
+    "severe_cost_findings": 3
   }
 }

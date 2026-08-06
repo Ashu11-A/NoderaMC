@@ -55,11 +55,6 @@ public final class TickSkewMeter {
         this.emaWeightBasisPoints = emaWeightBasisPoints;
     }
 
-    /** @return the configured newest-sample EMA weight in basis points. */
-    public int emaWeightBasisPoints() {
-        return emaWeightBasisPoints;
-    }
-
     /**
      * Record one validator-progress observation.
      *

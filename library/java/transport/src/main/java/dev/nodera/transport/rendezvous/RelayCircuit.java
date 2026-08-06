@@ -26,11 +26,6 @@ public final class RelayCircuit implements Closeable {
         this.session = Objects.requireNonNull(session, "session");
     }
 
-    /** @return whether this side initiated the circuit. */
-    public boolean isInitiator() {
-        return session.isInitiator();
-    }
-
     /**
      * Seal and send one application frame.
      *

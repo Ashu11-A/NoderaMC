@@ -516,11 +516,6 @@ public final class RendezvousPeerTransport implements PeerTransport {
         }
     }
 
-    /** @return the rendezvous endpoints in use, best first. @Thread-context any thread. */
-    public List<RendezvousEndpoint> endpoints() {
-        return endpoints;
-    }
-
     /**
      * Register a handler for verified drain notices arriving on this peer's relay control channel.
      *
@@ -598,11 +593,6 @@ public final class RendezvousPeerTransport implements PeerTransport {
             throw last;
         }
         lastRegistrationError = null;
-    }
-
-    /** @return this peer's relay route, or {@code null} before start / when unreserved. */
-    public String relayRoute() {
-        return relayRoute;
     }
 
     /**

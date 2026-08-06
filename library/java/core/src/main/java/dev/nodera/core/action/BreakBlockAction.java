@@ -36,21 +36,6 @@ public record BreakBlockAction(NBlockPos pos) implements GameAction {
         pos.encode(w);
     }
 
-    /**
-     * Full-frame decode (reads tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code BREAK_BLOCK_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static BreakBlockAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.BREAK_BLOCK_ACTION) {
-            throw new IllegalStateException("expected BREAK_BLOCK_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
-    }
-
     static BreakBlockAction decodeBody(CanonicalReader r) {
         NBlockPos pos = NBlockPos.decode(r);
         return new BreakBlockAction(pos);

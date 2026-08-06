@@ -31,22 +31,6 @@ public final class WorkerStateParser {
     public record HostedWorldInfo(String worldId, String name, long players, String mcRoute,
                                   boolean seeding, boolean owned, long seeders) {
 
-        /** Shape before ownership and seeder count were carried. */
-        public HostedWorldInfo(String worldId, String name, long players, String mcRoute,
-                               boolean seeding) {
-            this(worldId, name, players, mcRoute, seeding, false, 0);
-        }
-
-        /** Pre-join-flow shape (no game endpoint reported). */
-        public HostedWorldInfo(String worldId, String name, long players) {
-            this(worldId, name, players, "", false);
-        }
-
-        /** Shape before {@code seeding} was carried — a world this install hosts. */
-        public HostedWorldInfo(String worldId, String name, long players, String mcRoute) {
-            this(worldId, name, players, mcRoute, false);
-        }
-
         /**
          * Whether this node <b>hosts</b> the world rather than only keeping its bytes alive.
          *

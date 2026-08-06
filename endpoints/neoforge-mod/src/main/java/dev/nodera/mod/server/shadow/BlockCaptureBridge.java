@@ -265,8 +265,4 @@ public final class BlockCaptureBridge {
         return entity instanceof FakePlayer;
     }
 
-    /** Test seam: the level type check the listeners perform, without an event. */
-    static boolean isServerLevel(LevelAccessor level) {
-        return level instanceof ServerLevel;
-    }
 }

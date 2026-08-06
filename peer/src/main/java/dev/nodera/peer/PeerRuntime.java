@@ -365,26 +365,6 @@ public final class PeerRuntime implements DiagnosticsSource {
     }
 
     /**
-     * Feed one locally verified regional certificate into the optional Task 25 synchronizer.
-     * Runtime factories without a synchronizer remain source- and behavior-compatible.
-     *
-     * @return {@code true} if the certified assignment/progress snapshot advanced.
-     */
-    public boolean onCertifiedCommit(RegionCommittee assignment, long lastAppliedTick) {
-        return tickSync != null && tickSync.onCertifiedCommit(assignment, lastAppliedTick);
-    }
-
-    /**
-     * Feed a locally verified commit from elsewhere in the network into the lag reference without
-     * claiming local application progress for that region.
-     *
-     * @return {@code true} if the certified network reference advanced.
-     */
-    public boolean onCertifiedNetworkReference(long committedTick) {
-        return tickSync != null && tickSync.onCertifiedNetworkReference(committedTick);
-    }
-
-    /**
      * {@link DiagnosticsSource} contribution (Task 18): publish the session view + per-peer links.
      * Reads only {@code volatile} snapshots, so it is safe to call from the collector's sample
      * thread (the server tick thread) — not the runtime's state thread.

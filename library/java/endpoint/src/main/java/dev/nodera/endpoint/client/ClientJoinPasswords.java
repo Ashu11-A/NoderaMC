@@ -67,11 +67,6 @@ public final class ClientJoinPasswords {
         }
     }
 
-    /** @return whether a password is remembered for this world. */
-    public static boolean has(String worldIdHex) {
-        return worldIdHex != null && PASSWORDS.containsKey(key(worldIdHex));
-    }
-
     /** Forget every remembered password (leaving the game, or an explicit clear). */
     public static void clear() {
         PASSWORDS.clear();

@@ -88,18 +88,6 @@ public final class ObserverLaneRuntime implements EntityCaptureBridge.Runtime {
     }
 
     @Override
-    public void revokeForEntity(RegionId region, Entity entity) {
-        boolean first = refusals.refuse(
-                region, dev.nodera.protocol.simulationmsg.RegionRefusal.Reason.NON_DELEGABLE_ENTITY);
-        if (first) {
-            LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep "
-                            + "it); refusal announced to the mesh",
-                    region, entity.getType().builtInRegistryHolder().key().location());
-        }
-        EntityCaptureBridge.get().releaseRegion(region);
-    }
-
-    @Override
     public void pearlTeleported(ServerPlayer player, RegionId destination) {
         // Evidence for the pearl drive belongs to the owning lane, which this is not.
     }
@@ -109,8 +97,4 @@ public final class ObserverLaneRuntime implements EntityCaptureBridge.Runtime {
         // No committer, no metrics, no lag window: there is nothing here that ticks.
     }
 
-    /** @return how many regions this observer has refused (diagnostics). */
-    public int refusedCount() {
-        return refusals.refusedCount();
-    }
 }

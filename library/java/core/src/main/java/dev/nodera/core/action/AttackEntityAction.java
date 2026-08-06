@@ -45,21 +45,6 @@ public record AttackEntityAction(NetworkEntityId target, FixedVec3 origin) imple
         origin.encode(w);
     }
 
-    /**
-     * Full-frame decode (tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code ATTACK_ENTITY_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static AttackEntityAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ATTACK_ENTITY_ACTION) {
-            throw new IllegalStateException("expected ATTACK_ENTITY_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
-    }
-
     static AttackEntityAction decodeBody(CanonicalReader r) {
         return new AttackEntityAction(NetworkEntityId.decode(r), FixedVec3.decode(r));
     }

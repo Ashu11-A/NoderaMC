@@ -54,20 +54,6 @@ public final class RelayCircuitClient {
     }
 
     /**
-     * Read the next {@code RelayIncoming} on a reservation's control socket and validate its echoed
-     * proof against the held reservation. Split from {@link #completeAccept} so the caller can look
-     * up the connecting peer's identity key by the source id the incoming carries.
-     *
-     * @param reserved the reservation and its control socket.
-     * @return the validated incoming circuit announcement.
-     * @throws IOException on transport failure, EOF, or a mismatched proof.
-     * @Thread-context the reserver's accept thread.
-     */
-    public static RelayIncoming readIncoming(RendezvousClient.Reserved reserved) throws IOException {
-        return readIncoming(reserved, notice -> { });
-    }
-
-    /**
      * Read the next control frame, dispatching a drain notice to {@code onDrain} and continuing to
      * wait for a circuit.
      *

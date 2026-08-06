@@ -81,11 +81,6 @@ public record Hello(int wireEpoch,
         }
     }
 
-    /** @return {@code true} if this peer advertises {@code feature}. */
-    public boolean supports(WireFeature feature) {
-        return features.contains(feature.code());
-    }
-
     /**
      * The bytes {@link #signature} covers: every field except the signature itself.
      *

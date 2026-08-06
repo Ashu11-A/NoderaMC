@@ -109,11 +109,6 @@ public final class WorldHostingService implements AutoCloseable {
     private final dev.nodera.peer.archival.RetentionPolicy retention =
             new dev.nodera.peer.archival.RetentionPolicy();
 
-    /** @return the retention policy driving the announce's decommission deadline (L-38). */
-    public dev.nodera.peer.archival.RetentionPolicy retention() {
-        return retention;
-    }
-
     private final Map<String, HostedWorld> worlds = new ConcurrentHashMap<>();
     private final Map<String, dev.nodera.transport.Reachability.Probe> trackerReachable =
             new ConcurrentHashMap<>();
@@ -985,11 +980,6 @@ public final class WorldHostingService implements AutoCloseable {
         for (HostedWorld world : worlds.values()) {
             registerRendezvous(world, RegistrationEvent.REGISTER);
         }
-    }
-
-    /** @return the rendezvous endpoints in use, best first. @Thread-context any thread. */
-    public List<RendezvousEndpoint> rendezvousEndpoints() {
-        return rendezvousEndpoints;
     }
 
     private void registerRendezvous(HostedWorld world, RegistrationEvent event) {

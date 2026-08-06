@@ -175,36 +175,6 @@ public final class NoderaPeerService {
         return INSTANCE;
     }
 
-    /**
-     * Start the host peer for this world (Task 30). Called by a dedicated server that auto-hosts, or
-     * by the pause-menu "Share" action on a player's integrated server — the role, not the dist,
-     * decides who calls this. Idempotent: re-calling while already hosting keeps the existing runtime
-     * and only refreshes the share options.
-     *
-     * <p>Beyond starting the peer, this announces the world to the configured tracker(s) (so peers
-     * can discover it, Task 28) and registers a signed record with the configured rendezvous
-     * service(s) (so peers can reach it across NATs, Task 29). Both engage automatically from the
-     * embedded default endpoints ({@link NoderaConfig#DEFAULT_TRACKER_ENDPOINTS} /
-     * {@link NoderaConfig#DEFAULT_RENDEZVOUS_ENDPOINTS}); an unreachable service degrades to
-     * direct/no-announce rather than failing the share.
-     *
-     * @param bindHost      local bind address.
-     * @param port          local P2P port.
-     * @param advertiseHost host that joiners dial ({@code "auto"} → best local non-loopback address).
-     * @param options       the share options (password, delegation, visibility); never {@code null}.
-     * @param worldId       the world identity used to key tracker/rendezvous (interim placeholder
-     *                      until the live genesis hash, Task 9/30c); may be {@code null}.
-     * @param worldName     the world's display name for the tracker directory.
-     * @return the advertised host route ({@code host:port}); {@code null} if the P2P socket bind
-     *         failed and even an ephemeral-port retry failed (issue #39) — the world then runs in
-     *         vanilla-only mode rather than crashing the server.
-     */
-    public synchronized String startHost(String bindHost, int port, String advertiseHost,
-                                          ShareOptions options, Bytes worldId, String worldName) {
-        return startHost(bindHost, port, advertiseHost, options, worldId, worldName,
-                NodeIdentity.generate());
-    }
-
     /** Start the host with a save-persistent identity used by durable validation records. */
     public synchronized String startHost(
             String bindHost, int port, String advertiseHost, ShareOptions options,
@@ -913,17 +883,6 @@ public final class NoderaPeerService {
         hostWorldName = null;
         hostCaps = null;
         gameRoute = null;
-    }
-
-    /**
-     * Client callback: the server told us its P2P route via {@link NoderaSessionPayload}; join the
-     * mesh. Idempotent (a re-login while still connected is a no-op).
-     *
-     * @param bootstrapRoute the server's advertised P2P route.
-     * @param advertiseHost  this client's advertise host ({@code "auto"} → best local address).
-     */
-    public synchronized void onServerSessionInfo(String bootstrapRoute, String advertiseHost) {
-        onServerSessionInfo(bootstrapRoute, advertiseHost, null);
     }
 
     /**

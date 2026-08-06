@@ -75,16 +75,6 @@ public final class ChunkTicketService {
         apply(level, holds.release(region), true);
     }
 
-    /** Session shutdown: release everything exactly once. */
-    public void releaseAll(ServerLevel level) {
-        apply(level, holds.releaseAll(), true);
-    }
-
-    /** @return how many distinct chunks this service is currently holding. */
-    public int heldChunks() {
-        return holds.heldChunks();
-    }
-
     private void apply(ServerLevel level, RegionChunkHolds.Delta delta, boolean simulate) {
         if (level == null || delta.isEmpty()) {
             return;

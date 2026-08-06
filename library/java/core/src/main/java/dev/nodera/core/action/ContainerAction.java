@@ -65,21 +65,6 @@ public record ContainerAction(
         w.writeU8(count);
     }
 
-    /**
-     * Full-frame decode (tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code CONTAINER_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static ContainerAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CONTAINER_ACTION) {
-            throw new IllegalStateException("expected CONTAINER_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
-    }
-
     static ContainerAction decodeBody(CanonicalReader r) {
         NBlockPos pos = NBlockPos.decode(r);
         FixedVec3 origin = FixedVec3.decode(r);

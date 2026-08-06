@@ -23,8 +23,4 @@ public class TransportException extends RuntimeException {
         super(message, cause);
     }
 
-    /** Constructs a new exception with the specified cause. */
-    public TransportException(Throwable cause) {
-        super(cause);
-    }
 }

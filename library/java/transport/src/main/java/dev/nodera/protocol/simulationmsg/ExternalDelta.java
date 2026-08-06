@@ -19,13 +19,6 @@ public record ExternalDelta(
 
     public static final int EXTERNAL_DELTA_ENCODING_VERSION = 2;
 
-    /** Legacy v1 constructor; v1 frames did not carry the resulting snapshot tick. */
-    public ExternalDelta(
-            RegionId region, SnapshotVersion baseVersion,
-            Bytes encodedDelta, Bytes certificateBytes) {
-        this(region, baseVersion, encodedDelta, certificateBytes, 0L, 1);
-    }
-
     /** Current transition with explicit resulting snapshot tick. */
     public ExternalDelta(
             RegionId region, SnapshotVersion baseVersion,

@@ -50,21 +50,6 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
         w.writeU8(face);
     }
 
-    /**
-     * Full-frame decode (reads tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code PLACE_BLOCK_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static PlaceBlockAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PLACE_BLOCK_ACTION) {
-            throw new IllegalStateException("expected PLACE_BLOCK_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
-    }
-
     static PlaceBlockAction decodeBody(CanonicalReader r) {
         NBlockPos pos = NBlockPos.decode(r);
         int blockStateId = r.readU32AsInt();

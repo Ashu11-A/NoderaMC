@@ -430,16 +430,6 @@ public final class WorldReplicationService implements AutoCloseable {
         return adopted;
     }
 
-    /**
-     * The name the tracker directory published for a world this node replicates.
-     *
-     * @param worldIdHex the world.
-     * @return the name, or {@code null} when no sweep has seen this world listed.
-     */
-    public String nameFor(String worldIdHex) {
-        return catalogNames.get(worldIdHex);
-    }
-
     static boolean isReplicableWorld(Bytes worldId) {
         return !CommonsPresence.WORLD_ID.equals(worldId);
     }
