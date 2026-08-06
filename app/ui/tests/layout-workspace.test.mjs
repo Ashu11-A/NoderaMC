@@ -21,6 +21,10 @@ const rootManifest = JSON.parse(
 );
 
 test("the root package.json's workspaces are exactly layout.properties' package.* directories", () => {
+  // The count first. `deepEqual` between two empty arrays holds, so a manifest reader that returned
+  // nothing — a moved `layout.properties`, a `package.*` prefix that changed — would pass this rule
+  // and leave the one below iterating no packages at all. Three today: the kit and two applications.
+  assert.ok(packageDirectories().length >= 3, `layout.properties declares ${packageDirectories().length} package(s)`);
   assert.deepEqual(
     [...rootManifest.workspaces].sort(),
     [...packageDirectories()].sort(),

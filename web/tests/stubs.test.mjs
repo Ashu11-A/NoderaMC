@@ -42,6 +42,10 @@ test("the route table and stubs.json name the same three pages", () => {
   const listed = declared.map((entry) => entry.route).sort();
   assert.deepEqual(flagged, listed);
   assert.equal(flagged.length, 3, "the stub set changed; that is a decision, not a refactor");
+  // Both sides, not one and an equality. `deepEqual([], [])` holds, so a `stubs.json` that failed
+  // to parse into anything would satisfy the line above AND leave the rule below — "every stub names
+  // the task that will fill it" — walking nothing.
+  assert.equal(declared.length, 3, "content/stubs.json declares a different number of stubs");
 });
 
 test("every stub names the task that will fill it, and why it is not filled", () => {

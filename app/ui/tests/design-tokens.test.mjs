@@ -178,7 +178,13 @@ test("every launch phase and remedy has a word on the Play screen", () => {
     );
   }
 
-  for (const remedy of variants("Remedy")) {
+  // Counted for the same reason `phases` is, and it was the half that had been left out: `variants`
+  // returns whatever its `^    Variant,$` regex matched, so a `rustfmt` change or a variant carrying
+  // a payload yields an empty list rather than an error, and "every remedy has a button" then holds
+  // over no remedies.
+  const remedies = variants("Remedy");
+  assert.ok(remedies.length >= 3, `only found ${remedies.length} remedies`);
+  for (const remedy of remedies) {
     const key = kebab(remedy);
     assert.ok(
       play.includes(`"${key}"`) || play.includes(`${key}:`),

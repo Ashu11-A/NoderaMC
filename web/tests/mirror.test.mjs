@@ -87,13 +87,19 @@ test("no mirrored source has grown a YAML header", () => {
 /* ------------------------------------------------------------------ 3. links, resolved once */
 
 test("the mirror rewrote its links, and left none of them relative", () => {
-  for (const page of generated.entries) {
-    for (const [, href] of page.html.matchAll(/href="([^"]+)"/g)) {
-      assert.ok(
-        href.startsWith("/") || href.startsWith("#") || /^(https?:|mailto:)/.test(href),
-        `${page.route} kept the relative link ${href}, which resolves against the page's URL`,
-      );
-    }
+  // Flattened across the pages, and counted before anything is asserted. Counted ACROSS rather than
+  // per page because a mirrored document with no links is legitimate — `publish-a-service-list` has
+  // none. What is not legitimate is the mirror emitting no links at all: this rule is about how a
+  // link was rewritten, so a renderer that stopped emitting `href=` satisfies it perfectly.
+  const links = generated.entries.flatMap((page) =>
+    [...page.html.matchAll(/href="([^"]+)"/g)].map(([, href]) => [page.route, href]),
+  );
+  assert.ok(links.length > 20, `the mirror emitted ${links.length} link(s) across every page`);
+  for (const [route, href] of links) {
+    assert.ok(
+      href.startsWith("/") || href.startsWith("#") || /^(https?:|mailto:)/.test(href),
+      `${route} kept the relative link ${href}, which resolves against the page's URL`,
+    );
   }
 });
 
