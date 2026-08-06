@@ -14,15 +14,21 @@ builders in one control handler, 74 hand-rolled logger fields, 25 integration te
 the same mesh in its own 30–80 lines, a protocol specification stored as 449 lines of comment above
 46 lines of code, and one Rust crate with three files over 890 lines apiece.
 
-The programme's goal is a directional **30% reduction in code lines**, achieved by eliminating
+The programme's goal was a directional **30% reduction in code lines**, achieved by eliminating
 redundancy, extracting shared primitives and moving specifications into `docs/` — never by removing
 a feature. Repackaging `dev.nodera.research.*` out of the build was considered and rejected: that is
 feature removal wearing a refactor's clothes.
 
-**The 30% figure is a target, not a gate.** TypeScript and Rust are expected to reach it;
-production Java is expected to land nearer 24% once the reuse work is exhausted. CI does not fail
-because Java lands at 26%. What CI *does* enforce is that the tree never grows past its last stamped
-measurement without somebody stamping a new one in the same commit.
+> **Round 1 delivered 0.85% of a 30% target — 2.8% of the goal.** Five read-only analyses then
+> measured every lever the plan had estimated, and four of the five estimates were wrong. The target
+> is now **10%**, the levers are the measured ones, and a second objective of equal weight has been
+> added: lowering the error rate. Everything from here to "Round 2" is the executed record of round
+> 1, kept because every later claim is a delta against it. **The current plan is
+> [§Round 2](#round-2--re-baselined-to-10-on-measured-numbers) and
+> [§The error-rate programme](#the-error-rate-programme).**
+
+**The 30% figure was a target, not a gate.** What CI *does* enforce is that the tree never grows past
+its last stamped measurement without somebody stamping a new one in the same commit.
 
 ---
 
@@ -302,74 +308,248 @@ punish writing one.
   the plan reports 24%.
 
 ---
+## Round 2 — re-baselined to 10%, on measured numbers
 
-## What would actually reach 30%
+Round 1 targeted 30% and delivered 0.85%. Five read-only analyses then measured every lever the
+plan had estimated. **Four of the five estimates were wrong, three of them badly, and in both
+directions.** The target is now **10%**, no feature is removed, and every figure below came from
+reading the tree rather than from reasoning about file sizes.
 
-The programme delivered 1,396 of the 49,366 lines a 30% cut requires — **2.8% of the goal**. The
-question that matters now is not "why so little" but "what shape of work reaches the rest", and the
-tree answers it before any plan does.
+### The measurement was wrong a third and fourth time
 
-### The distribution rules out per-file work
+Round 1 already corrected `:testing`'s bucket. The analyses found the same bug twice more, and it
+is always the same mistake — splitting production from test by whatever is convenient for the
+language rather than by what the lines are:
 
-Measured on the merged tree, 163,630 code lines across 1,430 files:
+| | before | after | why |
+|---|---:|---:|---|
+| `.mjs` / `.js` | **not counted at all** | 4,555 code lines enter | 45 tracked files: both frontend test suites, the site's whole generator chain, two of `nodera-ui`'s three largest modules. Moving TypeScript into a `.mjs` file read as pure reduction |
+| `rust.main` | 31,448 | **19,997** | Rust keeps unit tests in the file they test; 11,432 of 32,347 Rust code lines (35.3%) sat in `#[cfg(test)]` blocks counted as production |
+| `ts` | one bucket | `ts.main` 12,720 + `ts.test` 3,217 | the split `java` and `rust` already had |
 
-| | code | share |
-|---|---:|---:|
-| top 10 files | 11,433 | 7.0% |
-| top 25 files | 21,931 | 13.4% |
-| top 50 files | 34,974 | 21.4% |
-| top 100 files | 53,285 | 32.6% |
-| top 400 files | 107,990 | 66.0% |
+Cross-checked against two hand-counts made without the tool: `nodera-core` production 8,172 (agreed
+exactly), `nodera-ui` 435 (agreed exactly), whole-tree Rust production 19,997 against 20,092.
 
-Java production has a median file of **47.5 code lines**, and the 418 files at or below 60 lines —
-59% of all production files — hold 19% of the code. This is a long tail, not a few monoliths.
+**This is why `tracker/src/service.rs` appeared in round 1 as a 1,228-line monolith to split.** It is
+417 lines of service and 811 lines of its own tests. Three of the four "Rust monoliths" round 1
+named were ordinary files whose `wc -l` was dominated by a test module, and splitting all four
+yields approximately zero.
 
-The consequence is arithmetic: **deleting the fifty largest files in the repository outright would
-yield 21.4%, still short of the target**, and those files are the ones that cannot be deleted. Any
-plan built on "decompose the god-classes" is bounded well under 10% before it starts, which is why
-phase 4 came out at +26 lines and would have come out near zero even if it had reached all twelve of
-its targets. A 30% cut has to be a change that touches hundreds of files at once.
+### Baseline — 2026-08-06, corrected buckets
 
-### What is reachable, with the measurement behind each
+| bucket | files | code | comment |
+|---|---:|---:|---:|
+| `java.main` | 710 | 60,260 | 35,646 |
+| `java.test` | 525 | 59,672 | 11,457 |
+| `rust.main` | 111 | 19,997 | 7,476 |
+| `rust.test` | 4 | 11,845 | 993 |
+| `ts.main` | 97 | 12,720 | 4,172 |
+| `ts.test` | 30 | 3,217 | 1,347 |
+| **TOTAL** | **1,477** | **167,711** | **61,091** |
 
-| lever | measured basis | realistic yield |
-|---|---|---:|
-| **Generate the wire layer** | 75 `Encodable` types = 6,116 lines, ~1,726 inside hand-written `encode`/`decode`; Java `CodecRegistry`+`MessageCodec` 878; `InfrastructureCodec` 711; Rust `wire`+`codec`+`tags`+`frame` 1,476; `rendezvous/src/wire.rs` 740; `MessageSamples` 450 | **4,000–5,000** |
-| **Continue test consolidation** | `java.test` is 59,672 lines — 36.5% of all code, with a test:production ratio of 1.07 in `:peer` and 1.24 in `:engine`. 176 candidate rows remain open across nine `REFACTORING.md` registers; the `ArchiveFixture` cluster alone is six files at 36–68% duplication | **8,000–12,000** |
-| **Phase 1 re-run after phase 3** | 92 of 263 dead-code candidates were test-driven and unlandable until the harness consolidated; that blocker is now gone | **1,000–2,000** |
-| **Rust monolith splits** | `core.rs` 1,080, `settings.rs` 1,016, `tracker/src/service.rs` 1,228, `update.rs` 782 — plus hand-written serde parsing that `#[derive(Deserialize)]` replaces | **1,000–2,000** |
-| **TypeScript primitives** | `TrackerStores.tsx` 916, `Settings.tsx` 762 — phase 4 reached neither | **~1,000** |
+### The levers, measured
 
-**Ceiling: roughly 15,000–22,000 lines, or 9–13% of the tree.** That is what disciplined,
-behaviour-preserving reduction can produce here, and it is worth doing — the test lever alone is
-larger than everything the five phases delivered combined.
+| lever | round 1 estimate | **measured** | who |
+|---|---:|---:|---|
+| Java production | 1,000–2,000 | **5,500 / 6,300 / 7,000** | Analyst 3 |
+| Java test | 8,000–12,000 | **3,800 / 4,200 / 4,900** | Analyst 1 |
+| Rust production | 1,000–2,000 | **700 / 900 / 1,000** | Analyst 4 |
+| Rust inline tests | not sized | **400 / 550 / 800** | Analyst 4 |
+| TypeScript | ~1,000 | **300 / 380 / 500** | Analyst 5 |
+| Wire generation | 4,000–5,000 | **400 / 500 / 600** (TLV plane only) | Analyst 2 |
+| **TOTAL** | | **11,100 / 12,830 / 14,800** | |
+| **as % of 167,711** | | **6.6% / 7.7% / 8.8%** | |
 
-### 30% requires removing scope, not restructuring it
+**10% is 16,771 lines and the measured ceiling is 14,800.** The gap at the central estimate is
+3,941 lines. That shortfall is stated here rather than closed by optimism, and §"Reaching the last
+1.2 points" says what it would actually take.
 
-The remaining ~27,000 lines do not exist because the code is badly written. They exist because the
-project does that much. Reaching 30% means one of:
+### What each analysis overturned
 
-1. **One wire implementation instead of two.** Java and Rust each carry a full encoder, decoder and
-   tag table for the same protocol — roughly 10,400 lines across both sides. The repository already
-   generates `library/rust/nodera-codec/src/kinds.rs` from `WireRegistry.java`, so the mechanism
-   exists and is trusted; extending it from the tag table to the message bodies is the single
-   largest structural lever available, and generated lines are excluded from the ratchet because
-   they are not maintained lines.
-2. **Fewer delivery targets.** `paper-plugin` (784), the telemetry plane (3,488), the Android lane,
-   the website — each is real scope, and each is a product decision rather than a refactor.
-3. **A lower test:production ratio.** Going from ~1.1 to ~0.6 removes ~25,000 lines. That is only
-   honest if enumerated cases are replaced by property-based ones that cover strictly more, not by
-   deleting assertions — and phase 3's flat PASS count is the discipline that would have to hold.
+**Java production is worth three times what round 1 thought, and phase 3 unlocked nothing.** Round 1
+claimed 92 test-driven dead-code candidates became deletable once the test harness consolidated.
+They did not: `test_only_methods` is still 415 and `test_only_classes` still 29, because a method a
+test calls is still a method a test calls after the test moves. Phase 3 in fact *added* two
+never-referenced constructors. The real reason phase 1 stopped at 45 methods is that it deleted
+**methods** rather than **clusters**: a dead method inside a live class is a 5-line win, while the
+retired central-coordinator design is 1,467 lines in one go. A transitive-closure over `java.main`
+from real entry points finds **63 files, 3,933 code lines, unreachable from any production entry
+point** — and `docs/network/REFACTORING.md` already carries an explicit *Delete* verdict on most of
+them.
 
-### Recommendation
+**The test lever is a third to a half of what round 1 assumed**, because round 1 read jscpd's
+*percentages* as removable-line fractions. `HeldVersionBeatsAnUnreachableNewerOneTest` is "68.4%
+duplicated" and is a 79-line file, of which about 15 survive the extraction cost. The calibration
+was already in the programme's own record: phase 3 consolidated the largest cluster in the tree and
+netted −768. The biggest lever in `java.test` turns out not to be duplication at all — it is
+**7,207 lines of `import` and `package` declarations, 12.1% of the bucket**, which no register can
+see because jscpd does not treat an import block as a clone.
 
-Re-baseline the target. **30% is not a property this codebase can have while doing what it does**,
-and the plan committed to reporting that if the work showed it. Replace it with two commitments the
-tree supports:
+**Wire generation should not be done as scoped.** Gross generatable is 3,737 lines, but the net after
+annotations, the generator itself and the (c) exclusions is ~1,800 — and **50 of the 91 `Encodable`
+types have no golden fixture at all**, nine of which are on-disk formats. Generating encoder and
+decoder from one schema means the round-trip test passes while the bytes are wrong, and for those
+nine the failure is not a network split but every existing player's saved world, node identity and
+world registry becoming unreadable, with a green build. Only the TLV plane — fixture-covered,
+unsigned, forward-compatible, totality-tested — is worth generating.
 
-- **A measured 10% code reduction** from the levers above, in the order given — test consolidation
-  first, because it is the largest and the phase-1 unblock depends on it.
-- **The ratchet stays.** Its value turned out not to be the reduction at all. Across five phases it
-  caught three defects in its own design, and the phases it gated found a mutation test asserting on
-  one message family, an escape corrupting telemetry replies, an unbounded map, and an orphaned API.
-  A gate that makes the tree's size a reviewable number is worth keeping whatever the number does.
+**The `Encodable` frame helper was buried inside that row and is worth doing on its own.** The decode
+guard `int tag = r.readU16(); if (tag != TypeTags.X) throw …` appears **106 times across 86 files**,
+5 source lines each; the encode pair appears 77 times. A `CanonicalReader#expectFrame(int)` and
+`CanonicalWriter#writeFrame(int)` remove **~400 lines** and are byte-identical on the wire. This is
+precisely the construct that produced phase 5's −399, and round 1 hid it inside a codegen programme
+and deferred it.
+
+### The order of work
+
+Ranked by lines per unit of risk, not by lines.
+
+| # | item | lines | confidence |
+|---|---|---:|---|
+| 1 | **Delete the 63 unreachable files** at cluster granularity — the retired coordinator design (1,467), the archival/discovery cluster (1,108), storage test doubles living in `src/main` (248), orphans with no register row (305) | 3,560 | high |
+| 2 | **The 91 `never_referenced` methods inside surviving files** — no test change, no capability question | 710 | high |
+| 3 | **`Encodable` frame helper** — `expectFrame` / `writeFrame` | 400 | high |
+| 4 | **`@Nested` grouping of sibling test classes** — 12.1% of `java.test` is declarations | 2,000–2,500 | high |
+| 5 | **One engine fixture instead of seven** (`CommFixtures`, `CoordFixtures`, `shadow/Fixtures`, `FbFixtures`, `simulation/TestFixtures`, `StoreFixtures`, `DistFixtures` = 606 lines), plus `executeTicks` ×18 and `blockAt` ×9 | 700–850 | high |
+| 6 | **Consolidate the four network services onto `nodera-service`** — 1,020 jscpd-measured duplicated production lines; the three `build.rs` are **byte-identical** and have been since 2026-07-28 | 700 | high |
+| 7 | **Residual `unreachable` methods** once their cluster roots go | 800 | medium |
+| 8 | **`ControlServer.dispatch`** — a 27-arm string-constant ladder, 147 lines, to a verb table | 80 | medium |
+| 9 | **`ArchiveMesh` fixture** for the eight-file archive cluster | 100–125 | high |
+| 10 | **`SpawnedService` fixture** — and it is the fix for the 12 skips (see below) | 80–110 | high |
+| 11 | **TypeScript**: 25 exported symbols with zero references (216), one `Banner`, `RowText`, `usePoll` | 380 | high |
+| 12 | **TLV-plane generation** — only after the fixture gap is closed | 400–600 | medium |
+| 13 | **`@ParameterizedTest`** on 9 measured clusters — it is on the classpath and used **zero times** in 525 files | 350–450 | medium |
+| 14 | **`core.rs` retyped clusters** — the "a launch failure always closes its tunnel" rule is written **six** times, not the three the register records | 100 | high |
+| 15 | **`nodera-core/telemetry.rs`** — the one hand-rolled parser in the Rust tree, replaced by a derive | 45 | high |
+
+Items 1–3 are Java production and land 4,670 lines on their own. Items 4, 5, 9, 10 and 13 are the
+test lever. Nothing in this list removes a feature and nothing removes an assertion.
+
+### Reaching the last 1.2 points
+
+The measured ceiling is 8.8%. Closing to 10% needs 1,971 more lines than the optimistic case, and
+there are exactly three honest ways:
+
+1. **Take item 4 at its full 3,002 rather than the discounted 2,000–2,500.** The discount exists
+   because 47 files in `peer/…/headless` become ~12 files of 400+ lines, against a house style of
+   one behaviour per class with a Javadoc naming the live failure it came from. That is a style
+   decision, not a refactor, and it should be made deliberately rather than absorbed.
+2. **Re-bucket `peer/src/jmh` out of `java.main`** — 482 lines, the same argument that moved
+   `:testing`. This is a measurement correction, not a reduction, and must be reported as one.
+3. **Accept that 10% is the wrong number and 8% is the right one.** Round 1 committed to reporting
+   what it measured rather than what it hoped; the same rule applies here.
+
+There is no fourth way that does not remove a feature.
+
+---
+
+## The error-rate programme
+
+The second objective, and on the evidence of round 1 the more valuable one: five phases produced
+1,396 lines and found defects worth considerably more. This section is what the analyses concluded
+about *why*, and what would catch the next one mechanically.
+
+### The pattern, stated once
+
+Every confirmed defect in this programme is the same shape wearing different clothes: **the
+repository is excellent at writing the mechanism and inconsistent at writing the edge that proves
+the mechanism runs.**
+
+- the mutation test read its tag from the `NDR2` magic → nothing asserted how many message families
+  were exercised;
+- `PeerTrafficMeter#snapshot()` → nothing asserted the eviction path has a caller;
+- the orphaned 11-argument constructor → nothing asserted each overload has an exercise;
+- three divergent JSON escapes → nothing asserted there is one escape;
+- `assumeTrue` on a moved path → nothing asserted the guard passed;
+- suites asserting on log strings → nothing asserted the string is the one production writes.
+
+In every case a value was produced and **nothing asserted anything about the count of things that
+value covered.** The fix class is identical in all six: *make the gate report a cardinality, and
+ratchet it.* That is exactly what `fixtures/structure/budget.json`, `scripts/lib/loc-baseline.json`
+and `token-audit.mjs`'s `inspected > 100` already do. The programme built the right instrument three
+times and never generalised it.
+
+### The checks, ranked by value ÷ false-positive cost
+
+| # | check | flags **today** | false positives |
+|---|---|---|---|
+| 1 | **`scripts/test-totals.sh --tap`**, parsing `node:test`'s `# pass N`, wired into `build-app-ui.sh` and `build-site.sh` with a stamped count | 0 defects, but brings **209 uncounted frontend tests** under a gate | **zero** — arithmetic |
+| 2 | **Build the binaries the 12 skips wait for** | **12 skips that have never run in the main gate** | zero |
+| 3 | **A reference check** — every exported symbol has ≥1 reference outside its defining file, with a ratcheted allowlist | **25 TS symbols, 10 Rust `pub fn`** | ~20%, causes known: bare function references, trait dispatch, re-exports, `.mdx` consumers |
+| 4 | **A vacuity guard** — an asserting loop over a derived collection needs a cardinality assertion first | **9 unguarded loops** | ~15%, → ~5% scoped per-file |
+| 5 | **Duplicate-component-name check** (TS) | 1 (`Banner` ×2) | ~0 for the name half |
+
+Checks 1 and 2 are free and should land first. They measure rather than judge, which is the lesson
+the size ratchet already taught: *its value turned out not to be the reduction at all.*
+
+### `node --test` on an empty glob exits 0
+
+Verified by running it: `# pass 0`, `# fail 0`, **exit 0**. `app/ui/package.json` and
+`web/package.json` both end their gate with `node --test "tests/*.test.mjs"`, and neither
+`scripts/build-app-ui.sh` nor `scripts/build-site.sh` asserts a count. **209 frontend tests could
+vanish from this repository without anything turning red.** `scripts/test-totals.sh`'s own header
+says *"a job that skips into green asserts nothing and still renders passing"* — it has `--java` and
+`--cargo` and no TAP mode.
+
+### The 12 skips have never run in the main gate
+
+All twelve enumerated: 7 × `TrackerServiceIT`, 1 × `RendezvousRelayIT:89`, 1 ×
+`WorldContinuityIT:92`, 1 × `CompanionCrashSurvivalIT:117`, 2 × `TelemetryRegistryMirrorTest`. Every
+one is "a cargo binary or the peer distribution was not built". `.github/workflows/build.yml:28`
+runs `./gradlew check build` in the `java` job; `cargo build --release --bin nodera-tracker` is at
+`:149` in a **different** job. So `2,423 passed / 12 skipped` overstates what CI proves, and
+`docs/testing/TESTING.md`'s own rule — anything the build produces is built by the runner rather
+than waited for — is the fix.
+
+### Defects to file, ranked
+
+Behavioural, user-visible or security-relevant:
+
+1. `library/java/transport/.../RendezvousPeerTransport.java:535` — `onDrainNotice` has **no caller
+   anywhere**, so `drainHandlers` is permanently empty. **The service-drain migration lane from
+   PR #78 does not run on any node**; a peer never moves off a draining relay, it waits for the
+   circuit to break.
+2. `peer/.../distribution/WorldArchive.java:178` — the weakest of the tree's **three** path-traversal
+   guards is the only one whose input is attacker-controlled (zip-entry names from a downloaded
+   world archive). No `toAbsolutePath()`, and the class Javadoc claims an absolute-path refusal that
+   is not in the code. Phase 4 already unified two disagreeing copies of this guard; this is the third.
+3. `peer/.../validation/WorkerValidationService.java:1531` — `validateTransferPlan` (the proposer's
+   own check) omits four clauses that `validateTransferSide` (every remote member's check) enforces.
+   A proposer can broadcast a plan its own committee will unanimously refuse.
+4. `tracker/src/deletion.rs:190-203` — the tombstone write is guarded, the **rename is not**, and
+   neither failure is logged. A full disk silently un-deletes a world at the next restart — the
+   resurrection the world-deletion design exists to prevent.
+5. `library/rust/nodera-core/src/daemon.rs:542` — `while let Ok(Some(line))` treats a non-UTF-8 line
+   as end-of-stream, permanently killing the worker log pump. The dashboard's log panel goes empty
+   and stays empty with no error anywhere.
+6. `rendezvous/src/config.rs:50` — `circuit_idle_timeout_seconds` is loaded, env-overridable and
+   **validated**, and nothing reads it; the real timeout is hard-coded at `wire.rs:366`.
+7. `tracker/src/service.rs:318` — `let _ = outcome;`. `ServiceOutcome`'s four variants have no reader
+   in the tree, so a relay draining a service it never registered is told "accepted".
+8. `library/rust/nodera-codec/tests/mutation.rs:38` — `WORLD_REVIVAL_GOSSIP` (76) falls through to
+   the discovery decoder and every mutation of that fixture is silently skipped. Same shape as the
+   magic-bytes bug already fixed in the same file; `fixtures.rs` handles tag 76 correctly, which is
+   why the two disagree.
+9. `library/rust/nodera-codec/src/tags.rs:157-160` — four tracker tags are declared supported and
+   implemented in Rust, but their fixtures live in `java-only/`, which `tests/fixtures.rs` does not
+   read. Four live tracker paths are never held to the Java bytes.
+10. Eight NeoForge `Server*Event` handlers that do not self-catch, each beside a guarded sibling in
+    the same file — `ServerBootstrap.java:227` `onPlayerLoggedOut` is the worst, six unguarded calls
+    including archive seeding, while its login twin at `:190` is guarded with the comment "must never
+    take the server down with the player mid-login".
+11. `library/java/core/.../StableHashTest.java:21` — computes the expected value by calling the
+    function under test, then asserts equality. Its Javadoc claims it detects any change to the
+    mixing algorithm. It detects nothing.
+12. `library/rust/nodera-core/src/settings.rs:977` — a caller-supplied closure runs while holding the
+    settings lock; one panic poisons it and every subsequent `snapshot()` panics forever.
+
+### What this round will not do
+
+- Remove a feature. Not one, under any measurement pressure.
+- Generate the strict canonical plane. 50 of 91 value types have no golden bytes; nine are on-disk
+  formats where a wrong generated encoder is silent data loss.
+- Convert enumerated rule tests to properties. A jqwik `@Property` reports **one** test where the
+  cases it replaces reported N, so the flat-PASS-count gate and that lever are mutually exclusive as
+  written — and for the redstone and fluid tests a generator would assert only determinism, which
+  `DeterminismPropertyTest` already covers.
+- Claim a re-bucketing as a reduction.
