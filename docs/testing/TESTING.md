@@ -39,6 +39,14 @@ scripts/loc-metrics.py --selftest              # 18 lexer fixtures — runs befo
 underneath it, and a regression that made the classifier read comments as code would otherwise
 present as a tree that shrank. The programme it serves is [`Plan.11.md`](../plans/Plan.11.md).
 
+`--check` gates the `*.code` limits only. Comment counts are measured, stamped and diffed — moving a
+specification out of a comment block is one of the programme's levers and has to be visible — but a
+rise in them prints a note and passes. The exclusion is not a softening: a gate that makes deleting
+documentation the cheapest way to go green is pointed at the wrong thing, and it demonstrably was.
+An agent extracting a collaborator from a god-class hit the comment bucket and trimmed comments to
+pay for the new file's header. That time the documentation had moved with the code and nothing was
+lost. The next time it would not have been.
+
 Artefacts:
 
 | Path | What it is |

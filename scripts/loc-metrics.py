@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import json
 import pathlib
 import subprocess
@@ -52,6 +53,18 @@ REPORT_FILE = "reports/nodera/LOC-BASELINE.md"
 # — and one combined number would let a win in either hide a loss in the other.
 BUCKETS = ("java.main", "java.test", "rust.main", "rust.test", "ts")
 
+# Which of the stamped limits `--check` actually enforces: the code ones, and not the comment ones.
+#
+# Comment counts are measured, stamped and diffed, because moving a specification out of a comment
+# block and into `docs/` is one of the reduction programme's levers and it has to be visible. They
+# are NOT gated, and the reason is a real incentive this tool created before the exclusion existed:
+# an agent extracting a collaborator from a god-class found the comment bucket blocking its commit,
+# and trimmed comments to pay for the new file's header. Nothing valuable was lost that time — the
+# documentation had moved with the code — but a size gate that makes deleting documentation the
+# cheapest way to go green is a gate pointed at the wrong thing. Code is the target; a comment
+# somebody adds to explain a hard invariant must never fail a build.
+GATED = frozenset(f"{bucket}.code" for bucket in BUCKETS)
+
 _RATCHET_NOTE = (
     "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, "
     "classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising "
@@ -59,7 +72,8 @@ _RATCHET_NOTE = (
     "rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the "
     "SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) "
     "are measured but excluded from these limits, because appending a wire kind must never fail a "
-    "size gate."
+    "size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes "
+    "deleting documentation the cheapest way to go green is pointed at the wrong thing."
 )
 
 
@@ -120,13 +134,34 @@ def _layout_keys() -> list[str]:
 
 
 def bucket_of(path: pathlib.Path, language: str) -> str:
-    """Which ratchet bucket a file belongs to."""
+    """Which ratchet bucket a file belongs to.
+
+    Source set decides it, with one exception that source set gets wrong: everything in the
+    `:testing` module is test code, including its `src/main`. That module is the shared test library
+    — `LoopbackTransport`, the wire-fixture IO, the live harness — and it is compiled into `main`
+    only because that is how one Gradle module exposes types to another module's tests. Bucketing it
+    by source set reports a test harness as production code, which is not a naming quibble: it made
+    a consolidation that removed 1,484 lines of duplicated test setup show up as +695 lines of
+    production growth, and the size gate went red for doing exactly what it was asked to do.
+    """
     if language == "ts":
         return "ts"
     parts = path.parts
     if language == "java":
+        if _in_testing_module(path):
+            return "java.test"
         return "java.test" if "test" in _source_set(parts) else "java.main"
     return "rust.test" if "tests" in parts else "rust.main"
+
+
+@functools.lru_cache(maxsize=1)
+def _testing_module() -> pathlib.Path:
+    """`:testing`'s directory, relative to the root, from the layout manifest."""
+    return layout.module("testing").relative_to(layout.root())
+
+
+def _in_testing_module(path: pathlib.Path) -> bool:
+    return _testing_module() in path.parents
 
 
 def _source_set(parts: tuple[str, ...]) -> str:
@@ -355,11 +390,18 @@ def check(root: pathlib.Path, measurement: Measurement) -> int:
     risen = {
         key: (baseline.get(key, 0), value)
         for key, value in current.items()
-        if value > baseline.get(key, 0)
+        if key in GATED and value > baseline.get(key, 0)
     }
     if not risen:
         total = measurement.total()
         print(f"loc-metrics: OK — {total.code} code, {total.comment} comment, within baseline")
+        grown = {
+            key: (baseline.get(key, 0), value)
+            for key, value in current.items()
+            if key not in GATED and value > baseline.get(key, 0)
+        }
+        for key, (was, now) in sorted(grown.items()):
+            print(f"  note: {key} rose {was} → {now} (+{now - was}); measured, not gated")
         return 0
     print("loc-metrics: the tree grew past its baseline", file=sys.stderr)
     for key, (was, now) in sorted(risen.items()):
