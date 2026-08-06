@@ -36,6 +36,20 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Default-services history moved to REFERENCE.md; a comment-duplication finding logged (Plan.11 phase 2)
+
+`NoderaSettings.defaults()`'s Javadoc carried the history of why the built-in tracker/rendezvous
+defaults stopped being localhost-always (invisible in a checkout, fatal everywhere else) and why
+`DefaultServices` is now the one compiled-in copy. Moved to [`REFERENCE.md`](REFERENCE.md) §Ports and
+defaults, with a pointer left at the call site. Separately, a full census of `library/java/transport`
+(excluding `protocol/codec`/`protocol/wire`) found the `SealedRecord`-family records
+(`PeerCandidate`, `SignedPeerRecord`, `ServiceDirectoryEntry`, `ServiceObservation`, `ServiceRecord`,
+`ServiceScore`) repeat three Javadoc one-liners verbatim — logged in [`REFACTORING.md`](REFACTORING.md)
+as confirmation of, not an addition to, the existing `SealedRecord` duplication rows: jscpd's clone
+detector does not strip comments, so those lines are already inside the reported `%`. No code
+changed; `:core:compileJava`/`:endpoint:compileJava` verified green (the settled call site is in
+`library/java/endpoint`).
+
 ### 2026-08-01 — Android storage inspection and commons catalog entries are handled explicitly
 
 Android denies `Files.getFileStore` even for app-private paths, so owner-only atomic writes now try

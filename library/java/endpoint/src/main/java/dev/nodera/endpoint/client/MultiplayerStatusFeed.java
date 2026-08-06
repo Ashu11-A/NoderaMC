@@ -103,7 +103,6 @@ public final class MultiplayerStatusFeed {
         rendezvous = List.copyOf(r);
     }
 
-    /** A cheap liveness check: can we open a TCP connection to {@code host:port}? */
     /**
      * Probe one configured route.
      *

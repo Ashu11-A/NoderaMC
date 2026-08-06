@@ -393,6 +393,14 @@ production run and defaults to the project's own published list. The companion a
 rule and compiles the same file in as its built-in store, so worker and app default to one set of
 addresses by construction.
 
+**Why this replaced localhost-always and a second hardcoded copy.** The defaults used to be
+localhost *unconditionally*, which was invisible in a checkout (the dev stack really is on those
+ports) and fatal everywhere else: a player's own machine has no tracker on `25600`, so the node
+announced nowhere and reported that no tracker was answering. `dev.nodera.core.services.DefaultServices`
+(fed by `NoderaSettings.defaults()` on the endpoint side) is now the **only** copy — `NoderaConfig`
+used to declare its own defaults and `HeadlessPeerMain` hardcoded the same two strings again with a
+comment promising they matched. A comment is not a mechanism; a single compiled-in source is.
+
 ## What is deliberately not there
 
 These are properties of the design, not bugs waiting to be fixed. Per-category open work lives in

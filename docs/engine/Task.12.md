@@ -57,6 +57,18 @@ Landed sub-lanes:
   `GenesisRecertification`.
 - **Byzantine mesh proof (L-18, RETIRED).** `ByzantineMeshIT` puts a genuinely adversarial peer on
   the wire against honest members running the production path.
+- **Deterministic validation rollout.** `ValidationLane.DETERMINISTIC_VALIDATION` (root switch for
+  region committees, re-execution and quorum co-signing) shipped **off** for the initial release — a
+  deliberate scope decision while the content and discovery planes were being diagnosed, so every
+  live problem had one candidate cause instead of two. It is **on** now (2026-08-04) because the
+  chunk-delta lane depends on it: committed region snapshots are what `RegionSeedSpool` pushes to the
+  worker over `NODERA-SEED-REGION`, the mechanism that replaced whole-world repacking — with the lane
+  off there are no commits, so there are no region deltas, and the only way to move a change between
+  peers is to move the entire world again. Both activation roots
+  (`NoderaHost.activateEntityLaneFromWorld` on the session server,
+  `ClientValidationLane#apply` on every other client) are gated on it, deliberately on both sides
+  rather than the server alone, so a client that receives a plan from an older or hostile peer never
+  starts a lane this build has switched off.
 
 Remaining: the client prediction and rollback overlay (**L-16**), zero-reconnect local-replica view
 during migration (**L-17**), deterministic worldgen, and

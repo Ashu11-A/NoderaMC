@@ -119,6 +119,22 @@ mod then logged a refusal for a call that had succeeded.
 Both were found in the same live run, both are worker-owned, and both produce the symptom this task
 already exists to remove: a world the network cannot give you a clean single copy of.
 
+### Why "I cannot check" must not mean "no" (`AuthorshipMemo`)
+
+Authorship is decided by asking the always-on worker for its node id and comparing it with the
+author recorded in `nodera-world.dat` — a question to a separate process over a socket, which has
+three answers, not two: yes, no, and *not right now* (the worker is restarting, the control socket
+timed out, the companion was closed). The third answer used to be folded into "no". The consequence
+was not a warning or a degraded feature: the author of a world lost the ability to administer it, and
+could not get it back, because the command that grants operator status is itself gated on holding it
+— a transient socket failure became a permanent-feeling loss of control over somebody's own world.
+
+The fix is `dev.nodera.endpoint.world.AuthorshipMemo`: the answer is written down the first time it
+is genuinely established, next to the save it is about, and a check that cannot run falls back to it.
+It is a **memo, not a credential** — consulted only when the authoritative check is unavailable,
+overwritten by the next real check in either direction, and it confers nothing on the network: every
+peer still verifies signatures against the world's author key and has never heard of this file.
+
 ### What is deliberately *not* done
 
 Deduplicating by **name** anywhere. Names decorate a world; two players may legitimately share
