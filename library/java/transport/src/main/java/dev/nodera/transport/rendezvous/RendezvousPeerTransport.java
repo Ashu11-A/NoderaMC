@@ -123,6 +123,13 @@ public final class RendezvousPeerTransport implements PeerTransport {
         this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
         this.client = new RendezvousClient(identity, Duration.ofSeconds(5), Duration.ofSeconds(10));
         this.directTransport = directTransport;
+        // The transport is its own first drain listener (#232). Registering here rather than leaving
+        // it to whoever composes the transport is what makes the migration lane run at all: the
+        // handler list shipped empty on every node for the life of PR #78, so a relay announcing a
+        // drain was heard by nobody and a peer sat on it until the circuit broke. Additional
+        // listeners — a service directory that wants to re-score, a UI that wants to say why the
+        // relay changed — still register through {@link #onDrainNotice} and run after this one.
+        onDrainNotice(this::migrateOffDrainingRelay);
     }
 
     /** @return this peer's node id. */
@@ -523,6 +530,11 @@ public final class RendezvousPeerTransport implements PeerTransport {
      * replacements the notice named, and pushes a new endpoint list back through
      * {@link #setEndpoints}. That loop is what makes a relay restart a migration.
      *
+     * <p>A transport with no directory in front of it does the same thing for itself — the
+     * constructor registers {@link #migrateOffDrainingRelay} first, so the migration happens on
+     * every node holding a relay reservation whether or not anything else is listening. Handlers
+     * added here run after it, in registration order.
+     *
      * @param handler called with each verified notice.
      * @throws IllegalArgumentException if {@code handler} is null.
      * @Thread-context any thread.
@@ -530,6 +542,55 @@ public final class RendezvousPeerTransport implements PeerTransport {
     public void onDrainNotice(java.util.function.Consumer<
             dev.nodera.protocol.service.ServiceDrainNotice> handler) {
         drainHandlers.add(Objects.requireNonNull(handler, "handler"));
+    }
+
+    /**
+     * The built-in drain listener: leave the relay that said it is going, and take the replacements
+     * it named with us.
+     *
+     * <p>The notice is the only warning a peer gets. Waiting for the reservation socket to break
+     * instead means the inbound path is already gone by the time anything reacts, and
+     * {@link #reserveAnywhere()} would then re-try the very relay that announced the drain — it
+     * skips a {@code draining} reply, but only after spending a connect on it, and only for as long
+     * as the service is still up to answer.
+     *
+     * <p>The replacements matter more than the removal. They are relays this peer was very likely
+     * never configured with: the draining service learned them from a tracker one announce ago, and
+     * carrying them in the notice is what lets a peer whose only configured relay is the one leaving
+     * migrate instead of going dark. {@link #setEndpoints} re-registers immediately, so the new
+     * relays hold this peer's record before the old one's deadline rather than up to a TTL later —
+     * and it ignores an empty list, so a notice naming no reachable replacement leaves the peer on
+     * the draining relay for the remainder of its grace period, which is strictly better than none.
+     */
+    private void migrateOffDrainingRelay(dev.nodera.protocol.service.ServiceDrainNotice notice) {
+        Set<RendezvousEndpoint> leaving = endpointsOf(notice.record().routes());
+        java.util.LinkedHashSet<RendezvousEndpoint> next = new java.util.LinkedHashSet<>();
+        for (RendezvousEndpoint endpoint : endpoints) {
+            if (!leaving.contains(endpoint)) {
+                next.add(endpoint);
+            }
+        }
+        for (dev.nodera.protocol.service.ServiceDirectoryEntry replacement : notice.replacements()) {
+            next.addAll(endpointsOf(replacement.record().routes()));
+        }
+        setEndpoints(List.copyOf(next));
+    }
+
+    /**
+     * Parse a service record's advertised routes into endpoints, skipping the ones that will not
+     * parse. Routes are a service's own claim about itself, and one malformed entry must not discard
+     * the three good ones beside it.
+     */
+    private static Set<RendezvousEndpoint> endpointsOf(List<String> routes) {
+        java.util.LinkedHashSet<RendezvousEndpoint> parsed = new java.util.LinkedHashSet<>();
+        for (String route : routes) {
+            try {
+                parsed.add(RendezvousEndpoint.parse(route));
+            } catch (RuntimeException notDialable) {
+                // Skipped, not fatal — see above.
+            }
+        }
+        return parsed;
     }
 
     private void onDrain(dev.nodera.protocol.service.ServiceDrainNotice notice) {
