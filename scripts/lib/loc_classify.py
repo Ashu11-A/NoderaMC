@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import dataclasses
 import pathlib
+import re
 
 # Extension to language. The key is what `pathlib.Path.suffix` returns, lowercased.
 _EXTENSIONS = {
@@ -56,6 +57,14 @@ _EXTENSIONS = {
     ".tsx": "ts",
     ".mts": "ts",
     ".cts": "ts",
+    # JavaScript lexes identically to TypeScript for every construct this module cares about, and
+    # leaving it out was not a gap in coverage but a hole in the gate: 45 tracked `.mjs`/`.js` files
+    # carrying 7,468 lines sat outside the ratchet entirely, which made *moving TypeScript into a
+    # `.mjs` file* read as pure reduction. Two of `nodera-ui`'s largest modules are already `.mjs`
+    # with hand-written `.d.mts` companions, so the move was not hypothetical.
+    ".js": "ts",
+    ".mjs": "ts",
+    ".cjs": "ts",
 }
 
 LANGUAGES = ("java", "rust", "ts")
@@ -128,6 +137,66 @@ def classify(path: str | pathlib.Path, lang: str | None = None) -> Counts:
         raise ValueError(f"no language for {path} (extensions: {sorted(_EXTENSIONS)})")
     text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
     return classify_text(text, language)
+
+
+_CFG_TEST = re.compile(r"^\s*#\[cfg\(test\)\]")
+
+
+def classify_partitioned(text: str, lang: str) -> tuple[Counts, Counts]:
+    """Split one source string into (production, test) counts.
+
+    Only Rust partitions: it puts its unit tests inside the file they test, in a
+    ``#[cfg(test)] mod tests { … }`` block, and counting that block as production code overstates
+    every Rust production figure in this repository by a third. Measured at the time this was
+    written: 11,432 of 32,347 Rust code lines — 35.3% — were inside such a block, so
+    ``tracker/src/service.rs`` read as a 1,228-line monolith when 811 of those lines are its tests
+    and only 417 are the service.
+
+    This is the third appearance of one bug. `:testing`'s `src/main` was reported as production
+    because the split was made by Gradle source set; `.mjs` was reported as nothing at all because
+    the split was made by extension. In each case the tree was fine and the question was wrong.
+
+    Java and TypeScript return everything as production here; their test code is identified by path
+    in ``scripts/loc-metrics.py``, which is the correct split for languages that keep tests in
+    separate files.
+    """
+    if lang != "rust":
+        return classify_text(text, lang), Counts()
+
+    lines = text.splitlines()
+    test_lines: list[str] = []
+    main_lines: list[str] = []
+    index = 0
+    while index < len(lines):
+        if _CFG_TEST.match(lines[index]):
+            end = _block_end(lines, index)
+            test_lines.extend(lines[index:end + 1])
+            index = end + 1
+        else:
+            main_lines.append(lines[index])
+            index += 1
+    return (
+        classify_text("\n".join(main_lines), lang),
+        classify_text("\n".join(test_lines), lang),
+    )
+
+
+def _block_end(lines: list[str], start: int) -> int:
+    """The last line of the braced item beginning at or just after ``start``.
+
+    Brace counting is enough here and string-aware lexing is not needed: an unbalanced brace inside
+    a string literal in a test module would have to survive `cargo fmt` and `rustc`, and the failure
+    mode if one ever did is a miscount, not a crash — the loop is bounded by the file.
+    """
+    depth = 0
+    opened = False
+    for index in range(start, len(lines)):
+        depth += lines[index].count("{") - lines[index].count("}")
+        if "{" in lines[index]:
+            opened = True
+        if opened and depth <= 0:
+            return index
+    return len(lines) - 1
 
 
 def classify_text(text: str, lang: str) -> Counts:

@@ -1,16 +1,18 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 on the full tree, after the Plan 11 phase branches merged (#210 #211 #212 #213 #214). Re-measured on the combined tree rather than merged from the branches: #213 stamped a deliberate rise to 60,841 that only holds in isolation, and taking any one branch's stamp discards the others. Total code 164,552 -> 163,156 -- the whole programme's result, -1,396 lines, -0.85% against a 30% target.",
+  "measured": "2026-08-06 on the full tree at the Plan 11 integration merge. THIRD correction to what the buckets mean, all three the same bug: (1) .mjs/.js were counted as nothing at all -- 45 files, 7,468 lines, including both frontend test suites and the site's whole generator chain -- so moving TypeScript into a .mjs file read as pure reduction; (2) Rust keeps unit tests inside the file they test, and 11,432 of 32,347 Rust code lines (35.3%) sat in #[cfg(test)] blocks counted as production, which is why tracker/src/service.rs read as a 1,228-line monolith when 811 of those lines are its tests; (3) ts now splits main from test the way java and rust already did. The tree did not change. rust.main 31,448 -> 19,997 and ts 11,405 -> 12,720 main + 3,217 test are re-measurements, not movement.",
   "limits": {
     "java.main.code": 60260,
     "java.main.comment": 35646,
     "java.test.code": 59672,
     "java.test.comment": 11457,
-    "rust.main.code": 31406,
-    "rust.main.comment": 8354,
-    "rust.test.code": 436,
-    "rust.test.comment": 115,
-    "ts.code": 11382,
-    "ts.comment": 3248
+    "rust.main.code": 19997,
+    "rust.main.comment": 7476,
+    "rust.test.code": 11845,
+    "rust.test.comment": 993,
+    "ts.main.code": 12720,
+    "ts.main.comment": 4172,
+    "ts.test.code": 3217,
+    "ts.test.comment": 1347
   }
 }

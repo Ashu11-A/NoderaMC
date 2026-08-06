@@ -51,7 +51,7 @@ REPORT_FILE = "reports/nodera/LOC-BASELINE.md"
 # The buckets the ratchet holds. Java and Rust are split because production code and test code are
 # reduced by different work — Phase 3 consolidates harnesses, Phase 4 decomposes production classes
 # — and one combined number would let a win in either hide a loss in the other.
-BUCKETS = ("java.main", "java.test", "rust.main", "rust.test", "ts")
+BUCKETS = ("java.main", "java.test", "rust.main", "rust.test", "ts.main", "ts.test")
 
 # Which of the stamped limits `--check` actually enforces: the code ones, and not the comment ones.
 #
@@ -84,7 +84,15 @@ _RATCHET_NOTE = (
 
 def tracked_sources(root: pathlib.Path) -> list[pathlib.Path]:
     """Every source file git tracks, as paths relative to the repository root."""
-    patterns = ["*.java", "*.rs", "*.ts", "*.tsx", "*.mts", "*.cts"]
+    patterns = [
+        "*.java", "*.rs",
+        "*.ts", "*.tsx", "*.mts", "*.cts",
+        # `.mjs`/`.js` were missing until 2026-08-06, and their absence was not a gap in coverage
+        # but a hole in the gate: 45 tracked files carrying 7,468 lines — the site's whole generator
+        # chain, both frontend test suites, and `nodera-ui`'s two largest modules — sat outside the
+        # ratchet, so moving TypeScript into a `.mjs` file read as pure reduction.
+        "*.js", "*.mjs", "*.cjs",
+    ]
     out = subprocess.run(
         ["git", "ls-files", "-z", "--", *patterns],
         cwd=root,
@@ -144,13 +152,19 @@ def bucket_of(path: pathlib.Path, language: str) -> str:
     a consolidation that removed 1,484 lines of duplicated test setup show up as +695 lines of
     production growth, and the size gate went red for doing exactly what it was asked to do.
     """
-    if language == "ts":
-        return "ts"
     parts = path.parts
+    if language == "ts":
+        # A `tests/` directory or a `*.test.*` name. Both frontend packages put their suites in
+        # `tests/`, and `nodera-ui` puts its one test-support module there too.
+        name = path.name
+        is_test = "tests" in parts or "test" in parts or ".test." in name or ".spec." in name
+        return "ts.test" if is_test else "ts.main"
     if language == "java":
         if _in_testing_module(path):
             return "java.test"
         return "java.test" if "test" in _source_set(parts) else "java.main"
+    # Rust files under `tests/` are integration tests. Everything else is partitioned per file by
+    # `classify_partitioned`, because Rust keeps its unit tests inside the file they test.
     return "rust.test" if "tests" in parts else "rust.main"
 
 
@@ -194,11 +208,16 @@ class Measurement:
         bucket: str,
         counts: Counts,
         generated: bool,
+        count_file: bool = True,
     ) -> None:
-        self.files[bucket] += 1
+        # `count_file=False` for the inline-test half of a Rust file: its lines belong to
+        # `rust.test` but the file itself has already been counted once, under `rust.main`.
+        if count_file:
+            self.files[bucket] += 1
         if generated:
             self.generated[bucket] += counts
-            self.generated_files.append(str(path))
+            if str(path) not in self.generated_files:
+                self.generated_files.append(str(path))
         else:
             self.by_bucket[bucket] += counts
         per_component = self.by_component.setdefault(component, {})
@@ -226,15 +245,16 @@ def measure(root: pathlib.Path) -> Measurement:
         language = loc_classify.language_of(relative)
         if language is None:
             continue
-        counts = loc_classify.classify(root / relative)
+        text = (root / relative).read_text(encoding="utf-8", errors="replace")
+        generated = loc_classify.is_generated(root / relative)
         component = _component_of(relative, mapping)
-        result.add(
-            relative,
-            component,
-            bucket_of(relative, language),
-            counts,
-            loc_classify.is_generated(root / relative),
-        )
+        bucket = bucket_of(relative, language)
+        # Rust carries its unit tests inside the file they test, so one file can land in two
+        # buckets. Every other language keeps them in separate files and the path decides.
+        main, inline_test = loc_classify.classify_partitioned(text, language)
+        result.add(relative, component, bucket, main, generated)
+        if inline_test.total:
+            result.add(relative, component, "rust.test", inline_test, generated, count_file=False)
     return result
 
 
