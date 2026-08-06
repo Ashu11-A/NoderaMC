@@ -316,7 +316,13 @@ exit names the SDK, and the guard still has no live mixin call site) and, at the
 - **L-9 RETIRED** — projectiles, TNT, and rails/minecarts as validated state.
 - **L-11 core** — `EntityKind.PLAYER` puts owner and the 36-slot inventory in the root; a portal
   hand-off moves the whole inventory through the dupe-proof joint-certificate pipeline.
-- **L-18 rotation** — `CommitteeManager.draftRotation` is deterministic rendezvous-hash rotation.
+- **L-18 rotation** — was `CommitteeManager.draftRotation`, a certified deterministic rendezvous-hash
+  rotation; deleted 2026-08-06 (`24e6f0e`, issue #210) as a **superseded design**, not a missing call
+  site. Rotation is no longer a certifiable event: committees are re-derived deterministically by
+  `EntityLaneBootstrap.plan` from inputs every member already holds, so every member computes the
+  same new committee from the same facts and there is nothing for a certificate to attest. The
+  determinism this bullet claimed is intact and lives in `ViewOwnershipPlanner`; the certificate is
+  gone. Wiring both would have put two rotation mechanisms in one lane.
 - **T16 container lane engine core complete** — four increments in one day: container contents in the
   hashed root; `CHEST` + `ContainerAction`; `HOPPER` as a self-scheduling 8-tick machine; comparators
   emitting container fill with reactive re-settling.
