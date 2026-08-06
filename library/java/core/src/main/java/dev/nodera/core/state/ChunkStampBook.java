@@ -95,25 +95,11 @@ public final class ChunkStampBook {
     }
 
     /**
-     * The reading a column gets when nothing in this process ever wrote it.
-     *
-     * <h2>Why the chain height is no longer in here</h2>
-     *
-     * <p>This used to be {@code Hlc(tick, snapshotVersion, nil)} — a region's <b>consensus chain
-     * height</b> used directly as a clock counter. The justification given was determinism: two peers
-     * packing the same snapshot had to produce the same index root. That justification was wrong.
-     * {@link RegionChunkIndex#computeRoot} excludes the clock entirely, so root determinism holds
-     * unconditionally and never needed anything from this reading.
-     *
-     * <p>What the coupling did instead was make merges resolve by chain height at column granularity.
-     * Two peers that had been apart counted their heights independently, so a region that happened to
-     * sit at height 900 outranked a genuinely-later column from a peer at height 3, and that peer's
-     * edits were discarded. A number that means "how many times my committee committed" cannot answer
-     * "which of these two columns is more recent", and it should never have been asked to.
-     *
-     * <p>What remains is the tick, which is at least a time-like quantity, and the nil origin, which
-     * sorts below every real node id — so a column nobody has touched never outranks one somebody
-     * actually edited.
+     * The reading a column gets when nothing in this process ever wrote it: the tick (time-like) and
+     * the nil origin, which sorts below every real node id, so an untouched column never outranks one
+     * somebody actually edited. Why this no longer includes the region's chain height, and what broke
+     * when it did: {@code docs/engine/Task.2.md} §Design ("Why chunk freshness no longer runs through
+     * the consensus chain height").
      *
      * @param tick the snapshot's tick.
      * @return the fallback reading.

@@ -43,12 +43,6 @@ public final class ModTelemetry {
     }
 
     /**
-     * Bind the façade to a worker and read the consent state from it.
-     *
-     * <p>Called once when the mod connects to the companion. Reading rather than assuming is the
-     * point: the decision lives on the node, and the game is one of several things that may ask.
-     */
-    /**
      * Bind this façade to {@link CompanionLink} so it follows the linked worker automatically.
      *
      * <p>Called once by an endpoint's bootstrap. The link used to call {@code attach}/{@code detach}

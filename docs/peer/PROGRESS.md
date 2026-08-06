@@ -50,6 +50,35 @@ is a ratchet moving sideways rather than down.
 
 Evidence: `./gradlew :peer:test` green, `:peer:structureReport` green against the tightened
 `fixtures/structure/budget.json`, `scripts/loc-metrics.py --check` OK.
+### 2026-08-05 — Second pass: full territory census, not a five-file sample (Plan.11 phase 2)
+
+A quantified census of the full comment-migration territory (`scripts/lib/loc_classify` over 249
+files, 8,815 comment lines) found the mass is not concentrated — only three files exceed 150 comment
+lines and the rest average ~38 per file — so the productive method is reading down the list, not
+generalising from the largest outliers. Read all 29 `library/java/endpoint` files in full (the
+category's strongest density signal, 77.6%) plus the top of `library/java/core` and
+`library/java/transport` beyond the first pass. Result: `AuthorshipMemo`'s "why 'I cannot check' must
+not mean 'no'" history (the incident: a transient worker-socket failure read as a permanent loss of
+world administration) moved to [`Task.8.md`](Task.8.md) §"Why 'I cannot check' must not mean 'no'",
+with a pointer left at the call site. Also found and removed two dead, self-superseded Javadoc blocks
+— `endpoint/telemetry/ModTelemetry.followCompanionLink` and
+`endpoint/client/MultiplayerStatusFeed.reachable` each carried an orphaned one-line comment
+describing a design the very next Javadoc block (for the same declaration) had already replaced; a
+repo-wide scan for the same adjacent-block pattern found no further instances. Most of the territory
+remains protected content (consensus/wire invariants, past-bug "why" explanations, short public-API
+Javadoc) — see the phase-2 PR for the full accounting. No code changed; `:core:compileJava` and
+`:endpoint:compileJava` verified green.
+
+### 2026-08-05 — Control protocol spec moved out of the comment block and into a reference doc
+
+`ControlProtocol.java` carried the wire grammar, reply shapes and design rationale for all 30 verbs
+as Javadoc — 449 comment lines above 46 code lines, the headline example
+[`docs/plans/Plan.11.md`](../plans/Plan.11.md) phase 2 names. That prose is now
+[`REFERENCE.md`](REFERENCE.md): one section per verb, nothing dropped. The Java file keeps every
+constant's short wire-form line, the invariant `NO_VALUE` explains (the "Teste 1" → "0" rename bug),
+and a one-line pointer per multi-paragraph entry naming the doc section that holds the rest — 270
+comment lines remain, code line count unchanged (46). No behaviour changed; `:peer:compileJava`
+verified green.
 
 ### 2026-08-03 — Replicated worlds reach the companion before their download completes
 

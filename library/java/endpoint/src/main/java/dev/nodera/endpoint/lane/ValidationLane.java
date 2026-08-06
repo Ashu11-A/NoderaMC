@@ -2,15 +2,8 @@ package dev.nodera.endpoint.lane;
 
 /**
  * The root switch for the <b>deterministic player validation</b> system — region committees,
- * re-execution of every batch on every member, and quorum co-signing.
- *
- * <p><b>On.</b> It was off for the initial release — a deliberate scope decision while the content
- * and discovery planes were being diagnosed, so that every live problem had one candidate cause
- * instead of two. It is on now because the chunk-delta lane depends on it: committed region
- * snapshots are what {@code RegionSeedSpool} pushes to the worker over {@code NODERA-SEED-REGION},
- * and that push is the vehicle that replaced the whole-world repack. With the lane off there are no
- * commits, so there are no region deltas, so the only way to move a change between peers is to move
- * the entire world again.
+ * re-execution of every batch on every member, and quorum co-signing. Currently on; rollout history
+ * (why it shipped off, why it flipped on): {@code docs/engine/Task.12.md} §Status detail.
  *
  * <h2>What trust means</h2>
  *

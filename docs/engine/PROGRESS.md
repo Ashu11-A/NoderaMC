@@ -57,6 +57,16 @@ are staged on exactly that kind of unwired machinery, and were left alone delibe
 
 Evidence: `./gradlew :engine:test` and `:storage:test` green, `:peer:structureReport` green against
 the tightened `fixtures/structure/budget.json` (never-referenced 136 → 93, unreachable 267 → 264).
+### 2026-08-05 — Duplicated design history moved out of two comments (Plan.11 phase 2)
+
+`RegionChunkIndex` and `ChunkStampBook` each carried their own retelling of the same story — why
+per-region chain height was removed from column-freshness comparison, and what broke while it was
+still there. Consolidated into one place, [`Task.2.md`](Task.2.md) §Design, with a one-line pointer
+left at both sites. Also logged a duplication finding in [`REFACTORING.md`](REFACTORING.md): the
+repeated `@Thread-context`/`Full-frame decode` one-line Javadoc across ~40 `Encodable` types is real
+(jscpd already counts it inside the existing rows' `%` figures, since it does not strip comments)
+but is not separately actionable — it retires when the `CanonicalFrame` tag+version helper lands, not
+via a comment-editing pass. No code changed; `:core:compileJava` verified green.
 
 ### 2026-07-28 — Deterministic helper duplication removed (L-52)
 

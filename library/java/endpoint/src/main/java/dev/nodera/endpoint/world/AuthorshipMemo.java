@@ -7,25 +7,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * What a save last <i>proved</i> about whether this installation authored it.
- *
- * <h2>Why "I cannot check" must not mean "no"</h2>
- *
- * <p>Authorship is decided by asking the always-on worker for its node id and comparing it with the
- * author recorded in {@code nodera-world.dat}. That is a question to a separate process over a
- * socket, and it has three answers, not two: yes, no, and <i>not right now</i> — the worker is
- * restarting, the control socket timed out, the companion was closed.
- *
- * <p>The third answer used to be folded into "no". The consequence was not a warning or a degraded
- * feature: the author of a world lost the ability to administer it, and could not get it back,
- * because the command that grants operator status is itself gated on holding it. A transient socket
- * failure became a permanent-feeling loss of control over somebody's own world.
- *
- * <p>So the answer is written down the first time it is genuinely established, next to the save it
- * is about, and a check that cannot run falls back to it. This is a <b>memo, not a credential</b>:
- * it is consulted only when the authoritative check is unavailable, it is overwritten by the next
- * real check in either direction, and it confers nothing on the network — every peer still verifies
- * signatures against the world's author key and has never heard of this file.
+ * What a save last <i>proved</i> about whether this installation authored it: a fallback for when
+ * the authoritative worker check cannot run right now, not a substitute for it. Full rationale (why
+ * "cannot check" must not collapse to "no", and the incident that motivated this class):
+ * {@code docs/peer/Task.8.md} §"Why 'I cannot check' must not mean 'no'". This is a <b>memo, not a
+ * credential</b> — it confers nothing on the network, which still verifies every signature against
+ * the world's author key.
  *
  * @Thread-context static helpers over a small file; safe for any thread. Concurrent writers race to
  *                 write the same answer, which is harmless.
