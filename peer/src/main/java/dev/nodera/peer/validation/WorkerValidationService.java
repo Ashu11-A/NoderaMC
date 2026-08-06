@@ -1541,32 +1541,27 @@ public final class WorkerValidationService {
                 publicKey, certificate.signedPortion(), certificate.serverSignature());
     }
 
+    /**
+     * The proposer's own check on a transfer plan, before it broadcasts it — <b>the same check every
+     * remote member will run</b>, applied to both replicas this node holds.
+     *
+     * <p>It used to be a separate, hand-written list of clauses, and it was the weaker of the two
+     * (issue #233). {@link #validateTransferSide} additionally requires that the replica's region is
+     * the one the descriptor names, and that each delta's own {@code region}, {@code baseVersion} and
+     * {@code resultingRoot} agree with it. A proposer missing those could assemble a plan its whole
+     * committee would unanimously refuse, and it discovered that only when the quorum never arrived
+     * — a broadcast, a round trip and a vote timeout spent on something it could have known locally.
+     *
+     * <p>There are no cross-side clauses left to add here. Every clause the old body carried is one
+     * of the two sides', including {@code target.snapshot.tick() == descriptor.tick()}, which
+     * {@code validateTransferSide} applies on the target side only for the same reason it did here:
+     * the source delta is what moves the tick, so the source replica is a tick behind by
+     * construction.
+     */
     private boolean validateTransferPlan(
             EntityTransferPrepare prepare, Replica source, Replica target) {
-        EntityTransferDescriptor descriptor = prepare.descriptor();
-        if (!descriptor.sourceEpoch().equals(source.lease.epoch())
-                || !descriptor.targetEpoch().equals(target.lease.epoch())
-                || !descriptor.sourceBaseVersion().equals(source.snapshot.version())
-                || !descriptor.targetBaseVersion().equals(target.snapshot.version())
-                || !descriptor.sourcePrevRoot().equals(source.headRoot)
-                || !descriptor.targetPrevRoot().equals(target.headRoot)
-                || target.snapshot.tick() != descriptor.tick()
-                || !descriptor.sourceTransitionRoot().equals(
-                StateRoot.of(hashes.hash(prepare.sourceDelta())))
-                || !descriptor.targetTransitionRoot().equals(
-                StateRoot.of(hashes.hash(prepare.targetDelta())))) {
-            return false;
-        }
-        try {
-            RegionSnapshot sourceAfter = SnapshotDeltaApplier.apply(
-                    source.snapshot, prepare.sourceDelta(), descriptor.tick());
-            RegionSnapshot targetAfter = SnapshotDeltaApplier.apply(
-                    target.snapshot, prepare.targetDelta(), descriptor.tick());
-            return StateRoot.of(hashes.hash(sourceAfter)).equals(descriptor.sourceResultingRoot())
-                    && StateRoot.of(hashes.hash(targetAfter)).equals(descriptor.targetResultingRoot());
-        } catch (RuntimeException invalidDelta) {
-            return false;
-        }
+        return validateTransferSide(prepare, source, true)
+                && validateTransferSide(prepare, target, false);
     }
 
     private boolean validateTransferSide(

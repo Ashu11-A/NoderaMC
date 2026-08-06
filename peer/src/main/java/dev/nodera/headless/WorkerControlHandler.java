@@ -270,12 +270,17 @@ public final class WorkerControlHandler implements ControlHandler {
         // real per-peer throughput. The membership view supplies identity/route/agent; the
         // per-peer meter supplies the bytes actually moved with each of them.
         List<String> peerJson = new ArrayList<>();
+        // Read the meter ONCE per state poll rather than once per member. Beyond the obvious, this
+        // is the meter's production readout (issue #218): its idle sweep is driven by the recording
+        // side, but nothing ever asked it for a table, so the class shipped with a reader that was
+        // never read.
+        java.util.Map<NodeId, PeerTrafficMeter.PeerTraffic> perPeer =
+                peerMeter == null ? java.util.Map.of() : peerMeter.byNode();
         for (dev.nodera.protocol.membership.PeerEntry member : runtime.sessionView().members()) {
             if (member.nodeId().equals(self)) {
                 continue;
             }
-            PeerTrafficMeter.PeerTraffic traffic =
-                    peerMeter == null ? null : peerMeter.forNode(member.nodeId());
+            PeerTrafficMeter.PeerTraffic traffic = perPeer.get(member.nodeId());
             // The route the peer publishes is where we dial it; the meter's route is where bytes
             // actually crossed. Prefer the published one and fall back to the observed one.
             String route = member.route();
