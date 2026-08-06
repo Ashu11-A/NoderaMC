@@ -16,6 +16,11 @@
 
 <div align="center">
 
+<!-- AI-AGENT-INSTRUCTION: The banner is a render, not hand art — a real Minecraft world exported to
+     geometry and shaded in Blender; see the Branding section. Do not edit `branding/*.png` by hand
+     and do not swap this for a drawn logo. -->
+<img src="branding/banner.png" alt="NoderaMC — Minecraft without a server." width="760">
+
 # NoderaMC
 
 <!-- AI-AGENT-INSTRUCTION: Badges are <img> tags, NOT markdown `![]()`. Some renderers treat a URL
@@ -159,6 +164,30 @@ scripts/dev.sh --play --spare-peers 0    # thin the swarm below quorum and watch
 
 The mod **requires** the worker and aborts startup with an install prompt if nothing answers on
 `127.0.0.1:25610` (set `companion.required = false` in `config/nodera-client.toml` to opt out).
+
+## Branding
+
+<!-- AI-AGENT-INSTRUCTION: `branding/` holds the delivered mark, and `layout.properties` declares it
+     as `dir.branding`. Never hand-edit those PNGs, never redraw the mark, and never point an icon
+     path somewhere else — the four files in `app/icons/` are the exact set `app/tauri.conf.json`
+     names, and `web/public/` is what Vite copies to the site root. A new mark means a new render
+     from the world in `branding/world.manifest`, cut into the same ladder. -->
+
+The mark is not drawn. It is a 32-block cube of a real Minecraft world — a vanilla ruined portal
+standing where four chunks meet, in a forest at `x -1728, z -384` of seed `8675309` on 1.21.1 —
+exported to geometry and shaded in Blender with nearest-neighbour block textures, so every pixel of
+it is Minecraft's own art rather than an impression of it. `branding/world.manifest` records the
+seed, the biome, the portal template, the exported bounds and the camera: enough to stand in that
+spot in-game and see the thing on the banner.
+
+Everything downstream is cut from one 2048 px render, downscaled in linear light:
+
+| Where | Files |
+|---|---|
+| `branding/` | `logo-{16,32,48,64,128,256,512,1024}.png`, `banner.png`, `world.manifest` |
+| `app/icons/` | `32x32.png`, `128x128.png`, `icon.png` (window + tray), `icon.ico` (7 frames) |
+| `web/public/` | `favicon.png`, `apple-touch-icon.png` — copied to the site root by the Vite build |
+| Android | the five `mipmap-*` buckets under `app/gen/`, cut from `logo-512.png` by `scripts/android-apk.sh` — `gen/` is generated, so an APK built without that step ships Tauri's placeholder |
 
 ## Build & test
 

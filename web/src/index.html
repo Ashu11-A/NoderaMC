@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!--
+      A raster, not the `/favicon.svg` this asked for until the mark existed — nothing in the tree
+      answered that URL, so every page served a browser's default. The mark is a render of a
+      Minecraft world (`branding/`, and this is one size off that ladder); there is no vector of it
+      to serve, and a traced approximation would be a second mark that drifts from the first.
+      `web/public/` is copied to the site root verbatim, so this is the same file `add-store.html`
+      resolves.
+    -->
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!--
       `data-theme="dark"` is on the tag rather than written by an inline boot script, and that is a
       decision with a cost: a visitor whose system prefers light sees one frame of dark before

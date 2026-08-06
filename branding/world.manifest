@@ -1,0 +1,56 @@
+{
+  "biome": "minecraft:forest",
+  "template": "minecraft:ruined_portal/giant_portal_3",
+  "rotation": "none",
+  "integrity": 1.0,
+  "boundaryLogs": 0,
+  "boundaryLeaves": 0,
+  "surfaceWater": 0.028,
+  "surfaceSpread": 10,
+  "portal": {
+    "x": -1728,
+    "z": -384,
+    "surfaceY": 84,
+    "masonry": {
+      "hits": 25,
+      "expected": 25,
+      "centreX": -1729,
+      "centreY": 87,
+      "centreZ": -384
+    }
+  },
+  "chunks": {
+    "minX": -109,
+    "minZ": -25,
+    "maxX": -108,
+    "maxZ": -24
+  },
+  "blocks": {
+    "minX": -1744,
+    "minZ": -400,
+    "maxX": -1713,
+    "maxZ": -369
+  },
+  "height": {
+    "min": 55,
+    "max": 110
+  },
+  "cube": {
+    "size": 32,
+    "floorY": 55,
+    "topY": 84,
+    "centreX": -1728,
+    "centreZ": -384
+  },
+  "id": "scene-03",
+  "camera": {
+    "elevation": 41.9,
+    "azimuth": 142.3,
+    "margin": 1.08
+  },
+  "pack": "",
+  "packLabel": "vanilla16",
+  "seed": "8675309",
+  "mcVersion": "1.21.1",
+  "world": "endpoints/neoforge-mod/run/LogoSweep"
+}
