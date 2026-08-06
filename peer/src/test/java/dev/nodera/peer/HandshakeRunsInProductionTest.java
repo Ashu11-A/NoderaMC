@@ -9,6 +9,7 @@ import dev.nodera.protocol.session.Negotiation;
 import dev.nodera.protocol.session.SessionRole;
 import dev.nodera.testkit.LoopbackTransport;
 import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
+import dev.nodera.testkit.peer.Await;
 import dev.nodera.transport.PeerAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;

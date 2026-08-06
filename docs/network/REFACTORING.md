@@ -114,6 +114,26 @@ trusting this list's date. Second, **wiring is not free**: every row above becom
 with live failure modes, so a row wired without a test that would fail if the call site were removed
 has simply moved the defect (`CompanionSessionBindingIsCalledTest` is the cheap shape of that test).
 
+## Completed
+
+| Refactor | Evidence | Completed |
+|---|---|---|
+| The committee-lane IT fixture — nine `peer/.../peer/validation/*IT.java` each declared their own `Worker` record, their own fourteen-line factory, and their own copy of `uniformColumn`/`fullUniformSnapshot`/`signedPlace` | `dev.nodera.testkit.peer.{PeerTestHarness,ValidationNode,RegionFixtures}`; `scripts/test-totals.sh --java` 2,423 passed · 0 failed · 12 skipped, unchanged. Plan 11 phase 3, issue #212 | 2026-08-05 |
+| `nodera-codec/tests` — `fixtures.rs` and `mutation.rs` each carried their own `fixtures_dir` / `fixture_files` / name-of-file lookup | `library/rust/nodera-codec/tests/common/mod.rs`; `cargo test -p nodera-codec` 79 passed. Routing of a tag to its codec family stays per-file on purpose — the two route differently | 2026-08-05 |
+
+**A defect the second row uncovered.** `mutation.rs` read its wire tag as
+`u16::from_be_bytes([golden[0], golden[1]])` — the first two bytes of the `NDR2` magic, not a tag —
+so `round_trip_as` fell through to `DiscoveryMessage` for every fixture, and the rendezvous, service
+and consensus frames were decode-failed and skipped by the `if let Ok(...)`. The mutation invariant
+had therefore only ever been asserted on the discovery family. Putting `tag_of` beside it in
+`common/` made the disagreement with `fixtures.rs` visible; the correct read passes.
+
+**A blind spot worth recording.** Neither this register nor `../peer/REFACTORING.md` had a row for
+the nine validation ITs, though they duplicated 30–80 lines apiece. Both were built from one `jscpd`
+run, and jscpd's clone threshold does not catch a block that has been retyped rather than pasted —
+the nine factories differ in identifier names and argument order while being the same code. A future
+sweep should not read the absence of a row as evidence of no duplication.
+
 ## Sequencing
 
 Ordered by ratio of risk removed to blast radius. Each item is one branch and one PR.

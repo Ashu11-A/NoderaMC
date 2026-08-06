@@ -5,9 +5,13 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-07-29 · **25 unit tests · 0 failing** (module `testing`,
-from the `./gradlew check` XML reports) — the live scenarios themselves run in the `e2e-live`
-workflow nightly, and `scripts/nodera-test.sh list` is the smoke test that all twenty resolve.
+**Category:** testing · **Last run:** 2026-08-05 · **39 unit tests · 0 failing** (module `testing`,
+from the per-module JUnit XML) — the live scenarios themselves run in the `e2e-live` workflow
+nightly, and `scripts/nodera-test.sh list` is the smoke test that all twenty resolve.
+
+Whole-tree Java totals from the same run, via `scripts/test-totals.sh --java`:
+**2,423 passed · 0 failed · 12 skipped**. That command reads JUnit XML rather than a job's exit
+code, so a suite that skipped into green cannot contribute to the number.
 
 ```bash
 scripts/nodera-test.sh list                    # every scenario, its tags, what a pass proves
@@ -46,6 +50,41 @@ documentation the cheapest way to go green is pointed at the wrong thing, and it
 An agent extracting a collaborator from a god-class hit the comment bucket and trimmed comments to
 pay for the new file's header. That time the documentation had moved with the code and nothing was
 lost. The next time it would not have been.
+
+**`:testing` buckets as `java.test`, not `java.main`.** Everything in that module is test code; it
+compiles into `src/main` only because that is how one Gradle module exposes types to another
+module's tests. The classifier reads the exception from `layout.properties`, so relocating the
+module cannot silently un-fix it. Before that, extracting a shared fixture out of twenty-five tests
+reported as production growth and turned the gate red for doing exactly what its issue asked.
+
+---
+
+## 1a. The in-JVM mesh harness
+
+`scripts/nodera-test.sh` drives the LIVE scenarios. The in-JVM integration tests — the twenty-five
+`*IT.java` that boot peers over `LoopbackTransport` without a Minecraft process anywhere — use
+`dev.nodera.testkit.peer` instead, and run inside `./gradlew :peer:test`.
+
+| Type | What it is |
+|---|---|
+| `PeerTestHarness` | one `LoopbackNetwork` plus the teardown of everything built on it; `close()` unwinds in reverse creation order |
+| `ValidationNode` | a committee member: identity, transport, optional `PeerRuntime`, `WorkerValidationService` over the real engine, certificate store |
+| `WorkerNode` | an always-on worker behind a real `ControlServer`, spoken to through `dev.nodera.testkit.harness.ControlClient` — the product's own client, so no assertion can pass on a state the product cannot read |
+| `MeshNode<S>` | a peer carrying one wire-speaking service, with the mutable membership list that service relays to |
+| `RegionFixtures` | the snapshot and signed-action values every committee test starts from |
+| `Await` | `until` (fails on expiry) and `quietly` (returns, so the test keeps its own failure message) |
+
+**The rule for extending it: where two tests disagree, the difference becomes a named parameter.** A
+default that quietly settles a disagreement leaves both tests green and one of them meaningless. The
+parameters that exist today because of exactly that are the committee vote timeout, the world seed
+and the control-socket timeout.
+
+**And the rule the structural report added: build a collaborator through the constructor that
+matches its shape, not through the widest one with `null`s.** They produce the same object, so it
+reads as equivalent — but a production type that publishes one overload per embedding loses a
+reference for every overload the harness stops calling, and `never_referenced_methods` only ratchets
+down. `PeerTestHarness` selects between `WorkerControlHandler`'s three constructors for that reason;
+`./gradlew :peer:structureReport` is what enforces it.
 
 Artefacts:
 

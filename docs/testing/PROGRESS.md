@@ -22,6 +22,48 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Twenty-five integration tests stopped building their own mesh (Plan 11 phase 3)
+
+`dev.nodera.testkit.peer` is now the one in-JVM mesh an integration test stands up:
+`PeerTestHarness` owns a `LoopbackNetwork` and the teardown of everything on it, and hands out three
+node shapes — `ValidationNode` (a committee member over the real engine), `WorkerNode` (an always-on
+worker behind its real control endpoint) and `MeshNode` (a peer carrying one gossip service).
+`RegionFixtures` holds the snapshot and action values every committee test starts from, and `Await`
+is the one place waiting is written. This is the `ControlSocketHarness` / `LoopbackMeshHarness` pair
+that [`../peer/REFACTORING.md`](../peer/REFACTORING.md) §2 sequences first; the control half reuses
+the existing `dev.nodera.testkit.harness.ControlClient` rather than adding a fourth implementation of
+the control wire.
+
+**Evidence.** `scripts/test-totals.sh --java` reports `2423 passed · 0 failed · 12 skipped` before
+and after — the same numbers, which is the phase's stated gate, and the skip count is flat too.
+`scripts/loc-metrics.py --diff` reports `java.test.code −768` net (1,484 lines of duplicated setup
+removed from the twenty-five ITs, against 716 for the harness that replaced it) and
+`java.main.code ±0` — this phase changed no production code. `./gradlew :peer:structureReport` is
+within budget on every counter.
+
+**What was deliberately NOT flattened.** Three per-suite differences became named parameters rather
+than defaults, because a shared fixture that settles one of them leaves both tests green and one of
+them meaningless: the committee vote timeout (700 ms for the collapse suite, whose central assertion
+is that a proposal *fails* to reach quorum; 2 s for the Byzantine suite; 5 s elsewhere), the world
+seed (the halo suite runs on its own, so the fluid automaton floods what it floods), and the control
+timeout (60 s for the re-key verb, which derives an Argon2id key on the request thread).
+
+**Two defects found by the extraction.** `library/rust/nodera-codec/tests/mutation.rs` read its wire
+tag as `u16::from_be_bytes([golden[0], golden[1]])` — the first two bytes of the `NDR2` magic, which
+is no tag — so every fixture fell through to the discovery decoder and the rendezvous and service
+frames were decode-failed and silently skipped. Pulling `tag_of` into `tests/common/mod.rs` put the
+two files' readings side by side; the correct read passes.
+
+And the structural report caught the consolidation itself. `WorkerControlHandler` publishes one
+constructor per embedding — no config plane, a config plane, a config plane plus a key store — and
+each declines the verbs it has no seam for. Building every harness worker through the widest
+overload with `null`s produces the same object, so it looks equivalent; it is not, because it left
+the eleven-argument constructor (whose only caller in the tree was the configuration suite)
+referenced by nothing at all, and `never_referenced_methods` rose 136 → 137 against a
+ratchet-down-only budget. The harness now selects the constructor by the SHAPE of the worker it is
+building, which is what each suite did before it moved here. A shared fixture erases an API's only
+exercise as easily as it erases duplication.
+
 ### 2026-08-05 — The gate can now say how big the tree is
 
 `scripts/loc-metrics.py --selftest && --check` joined the gate, in `scripts/dev.sh --test` and in the
