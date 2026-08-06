@@ -24,6 +24,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const read = (name) => readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
 
@@ -178,7 +179,12 @@ test("a custom theme is a patch on a base scheme, and it says where it does not 
 
 // --------------------------------------------------------------------------------- the measurements
 
-const UI = new URL("..", import.meta.url).pathname;
+// `fileURLToPath`, never `.pathname`: on Windows the latter is `/D:/a/NoderaMC/app/ui/` — a leading
+// slash and forward slashes — so `join()` builds `\D:\a\…\dist\assets`, which cannot exist. The
+// whole release then falls over behind it, because a Windows installer that does not build leaves
+// the release short of an asset, `fetch-release.mjs` fails closed on the incomplete manifest, and
+// the site and its container image die on a path separator.
+const UI = fileURLToPath(new URL("..", import.meta.url));
 const CANDIDATES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
 
 /** The browser to measure in, or "" — an environment with none still runs every test below. */
@@ -231,7 +237,10 @@ function measure(name, html) {
       "--window-size=1200,800",
       "--virtual-time-budget=5000",
       "--dump-dom",
-      `file://${file}`,
+      // Same reason as `UI` above, read the other way: `file://D:\temp\x.html` is not a URL. The
+      // browser is only reached where one is installed, so this line would have gone on being wrong
+      // in silence until somebody put Chrome on a Windows runner.
+      pathToFileURL(file).href,
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 },
   );
