@@ -396,6 +396,9 @@ public final class PeerTestHarness implements AutoCloseable {
         private boolean configSeams;
         private java.util.function.Supplier<List<PeerEntry>> deletionMembers;
 
+        /** Set during {@link #build()}, so the handler factory can read what it created. */
+        private TrackerClient sharedTrackerClient;
+
         private WorkerNodeBuilder(String label) {
             this.label = label;
         }
@@ -516,6 +519,7 @@ public final class PeerTestHarness implements AutoCloseable {
             onClose(runtime::stop);
 
             TrackerClient tracker = sharedTracker ? new TrackerClient(List.of(), identity) : null;
+            sharedTrackerClient = tracker;
             if (tracker != null) {
                 onClose(tracker::close);
             }
@@ -545,11 +549,8 @@ public final class PeerTestHarness implements AutoCloseable {
                 onClose(replication::close);
             }
 
-            WorkerControlHandler handler = new WorkerControlHandler(label, identity, capabilities,
-                    runtime, new TrafficMeter(), hosting, null, archive, null, null,
-                    configSeams ? new WorkerControlHandler.ConfigSeams(archive.content(),
-                            replication, null, tracker, diskStore()) : null,
-                    null, keys);
+            WorkerControlHandler handler = handler(capabilities, runtime, hosting, archive,
+                    replication, keys);
 
             WorldDeletionService deletions = null;
             if (deletionMembers != null) {
@@ -567,6 +568,45 @@ public final class PeerTestHarness implements AutoCloseable {
             return new WorkerNode(identity, capabilities, transport, runtime, tracker, archive,
                     hosting, replication, deletions, keys, registry, handler, control,
                     controlTimeout);
+        }
+
+        /**
+         * The control handler, built through the constructor that matches this worker's SHAPE.
+         *
+         * <p>{@link WorkerControlHandler} publishes one overload per embedding — no config plane,
+         * a config plane, a config plane plus a key store — and each declines the verbs it has no
+         * seam for rather than reporting a success it did not perform. Passing {@code null} through
+         * the widest overload for every worker produces the same object, so it looks equivalent;
+         * it is not. It makes the narrower overloads unreachable, and the structural report caught
+         * exactly that: collapsing every worker here onto the thirteen-argument constructor left
+         * the eleven-argument one — whose only caller in the tree was the configuration suite —
+         * referenced by nothing at all.
+         *
+         * <p>So the shape decides, which is also what each suite did before it moved here.
+         */
+        private WorkerControlHandler handler(NodeCapabilities capabilities, PeerRuntime runtime,
+                                             WorldHostingService hosting,
+                                             WorldArchiveService archive,
+                                             WorldReplicationService replication,
+                                             WorldKeyStore keys) {
+            TrafficMeter meter = new TrafficMeter();
+            if (keys != null) {
+                return new WorkerControlHandler(label, identity, capabilities, runtime, meter,
+                        hosting, null, archive, null, null, null, null, keys);
+            }
+            if (configSeams) {
+                return new WorkerControlHandler(label, identity, capabilities, runtime, meter,
+                        hosting, null, archive, null, null,
+                        new WorkerControlHandler.ConfigSeams(archive.content(), replication, null,
+                                tracker(), diskStore()));
+            }
+            return new WorkerControlHandler(label, identity, capabilities, runtime, meter, hosting,
+                    null, archive);
+        }
+
+        /** The shared tracker this worker announces through, or {@code null} if it has none. */
+        private TrackerClient tracker() {
+            return sharedTrackerClient;
         }
 
         /**

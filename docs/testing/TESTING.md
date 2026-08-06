@@ -79,6 +79,13 @@ default that quietly settles a disagreement leaves both tests green and one of t
 parameters that exist today because of exactly that are the committee vote timeout, the world seed
 and the control-socket timeout.
 
+**And the rule the structural report added: build a collaborator through the constructor that
+matches its shape, not through the widest one with `null`s.** They produce the same object, so it
+reads as equivalent — but a production type that publishes one overload per embedding loses a
+reference for every overload the harness stops calling, and `never_referenced_methods` only ratchets
+down. `PeerTestHarness` selects between `WorkerControlHandler`'s three constructors for that reason;
+`./gradlew :peer:structureReport` is what enforces it.
+
 Artefacts:
 
 | Path | What it is |
