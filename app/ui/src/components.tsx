@@ -6,7 +6,7 @@
 // former CSS classes, kept as module constants so "the row layout" is still one edit, but they are
 // now inert text a component opts into rather than a selector reaching across the app.
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { FiChevronDown, FiChevronLeft, FiChevronRight, FiInfo, FiSearch } from "react-icons/fi";
+import { FiChevronDown, FiChevronLeft, FiChevronRight, FiInfo, FiSearch, FiX } from "react-icons/fi";
 
 /** Joins class names, dropping the falsy branches of a conditional. */
 export function cx(...parts: (string | false | null | undefined)[]): string {
@@ -139,29 +139,50 @@ export function Card(props: { title?: string; hint?: string; right?: ReactNode; 
 const ROW =
   "flex items-center justify-between gap-5 border-b border-line-soft py-[11px] last:border-b-0 " +
   "max-narrow:flex-col max-narrow:items-start max-narrow:gap-2";
-const ROW_TEXT = "flex min-w-0 flex-col";
-const ROW_LABEL = "flex flex-wrap items-center gap-2";
-const ROW_HINT = "max-w-[68ch] text-xs text-faint";
 const FIELD =
   "min-w-0 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-1 focus:outline-none";
 
-export function Toggle(props: {
+/**
+ * What every settings row is, before it is any particular control.
+ *
+ * All five controls below asked for exactly these three and then rendered them identically, so the
+ * shape is written once. `note` is the badge beside the label — `StatusBadge`, normally — and lives
+ * here rather than in each control because "this setting is stored but nothing applies it" is a
+ * property of the setting, not of the widget that edits it.
+ */
+interface RowProps {
   label: string;
   hint?: string;
+  note?: ReactNode;
+}
+
+/**
+ * The left half of a settings row: the label, whatever badge sits beside it, the hint under it.
+ *
+ * Six lines, retyped in five controls. `min-w-0` is the load-bearing one — a flex child sizes to
+ * its content until it is told it may not, and without it a long hint pushes the control it labels
+ * off the right of the row.
+ */
+function RowText(props: RowProps) {
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span className="flex flex-wrap items-center gap-2">
+        {props.label}
+        {props.note}
+      </span>
+      {props.hint && <span className="max-w-[68ch] text-xs text-faint">{props.hint}</span>}
+    </span>
+  );
+}
+
+export function Toggle(props: RowProps & {
   checked: boolean;
   disabled?: boolean;
-  note?: ReactNode;
   onChange: (v: boolean) => void;
 }) {
   return (
     <label className={cx(ROW, props.disabled && "opacity-50")}>
-      <span className={ROW_TEXT}>
-        <span className={ROW_LABEL}>
-          {props.label}
-          {props.note}
-        </span>
-        {props.hint && <span className={ROW_HINT}>{props.hint}</span>}
-      </span>
+      <RowText {...props} />
       {/* A real checkbox under a transparent overlay, not a div pretending: it keeps the tab stop,
           space-to-toggle, and — the part no onFocus handler can honestly reproduce — the browser's
           own :focus-visible heuristic, which drives the ring below via peer-focus-visible. */}
@@ -193,19 +214,14 @@ export function Toggle(props: {
   );
 }
 
-export function Segmented<T extends string>(props: {
-  label: string;
-  hint?: string;
+export function Segmented<T extends string>(props: RowProps & {
   value: T;
   options: { value: T; label: string; icon?: ReactNode }[];
   onChange: (v: T) => void;
 }) {
   return (
     <div className={ROW}>
-      <span className={ROW_TEXT}>
-        <span className={ROW_LABEL}>{props.label}</span>
-        {props.hint && <span className={ROW_HINT}>{props.hint}</span>}
-      </span>
+      <RowText {...props} />
       <div
         className="flex flex-none gap-0.5 rounded-sm border border-line bg-surface-2 p-[3px]"
         role="radiogroup"
@@ -233,26 +249,17 @@ export function Segmented<T extends string>(props: {
   );
 }
 
-export function NumberField(props: {
-  label: string;
-  hint?: string;
+export function NumberField(props: RowProps & {
   value: number;
   min?: number;
   max?: number;
   suffix?: string;
-  note?: ReactNode;
   disabled?: boolean;
   onChange: (v: number) => void;
 }) {
   return (
     <label className={cx(ROW, props.disabled && "opacity-50")}>
-      <span className={ROW_TEXT}>
-        <span className={ROW_LABEL}>
-          {props.label}
-          {props.note}
-        </span>
-        {props.hint && <span className={ROW_HINT}>{props.hint}</span>}
-      </span>
+      <RowText {...props} />
       <span className="inline-flex flex-none items-center gap-1.5">
         <input
           className={cx(FIELD, "w-[110px] text-right font-mono")}
@@ -269,23 +276,14 @@ export function NumberField(props: {
   );
 }
 
-export function TextField(props: {
-  label: string;
-  hint?: string;
+export function TextField(props: RowProps & {
   value: string;
   placeholder?: string;
-  note?: ReactNode;
   onChange: (v: string) => void;
 }) {
   return (
     <label className={ROW}>
-      <span className={ROW_TEXT}>
-        <span className={ROW_LABEL}>
-          {props.label}
-          {props.note}
-        </span>
-        {props.hint && <span className={ROW_HINT}>{props.hint}</span>}
-      </span>
+      <RowText {...props} />
       <input
         className={FIELD}
         type="text"
@@ -297,26 +295,17 @@ export function TextField(props: {
   );
 }
 
-export function Slider(props: {
-  label: string;
-  hint?: string;
+export function Slider(props: RowProps & {
   value: number;
   min: number;
   max: number;
   suffix?: string;
-  note?: ReactNode;
   disabled?: boolean;
   onChange: (v: number) => void;
 }) {
   return (
     <label className={cx(ROW, props.disabled && "opacity-50")}>
-      <span className={ROW_TEXT}>
-        <span className={ROW_LABEL}>
-          {props.label}
-          {props.note}
-        </span>
-        {props.hint && <span className={ROW_HINT}>{props.hint}</span>}
-      </span>
+      <RowText {...props} />
       <span className="flex flex-none items-center gap-2.5">
         <input
           type="range"
@@ -828,33 +817,82 @@ export function Select<T extends string>(props: {
 /* -------------------------------------------------------------------------------------- banner */
 
 /**
+ * The launcher's banner palette.
+ *
+ * The last two entries are the tracker-store screen's, and they are here rather than in that file
+ * for the reason this table exists at all: the SHAPE of a banner is shared and the palette is the
+ * only thing that is not. That screen keeps its own colour vocabulary — seventeen `--tracker-store-*`
+ * roles, whose resolution through to the built stylesheet `tracker-stores-style.test.mjs` asserts
+ * declaration by declaration — and this is where those two roles are now painted from.
+ */
+const BANNER_TONE = {
+  warn: "border-warn/35 bg-warn/10 text-warn",
+  danger: "border-danger/35 bg-danger/10 text-danger",
+  info: "border-brand-3/35 bg-brand-3/10 text-brand-3",
+  /** Neither wrong nor pending: the thing already happened and this is the receipt. */
+  muted: "border-line bg-surface-2 text-dim",
+  "store-error":
+    "border-[var(--tracker-store-error)] bg-[var(--tracker-store-error-container)] " +
+    "text-[var(--tracker-store-on-error-container)]",
+  "store-hint":
+    "border-[var(--tracker-store-outline)] text-[var(--tracker-store-on-surface-variant)]",
+} as const;
+
+/**
+ * The tones that mean something went wrong, and therefore take `role="alert"`.
+ *
+ * Derived from the tone rather than asked for, because it was asked for exactly once: the store
+ * screen's local banner set it and the shared one never did, so eleven of the thirteen banners in
+ * this launcher announced a failure to a screen reader as ordinary text that had appeared somewhere.
+ * A caller who has already said "this is the danger tone" should not have to say it twice.
+ */
+const ALARMING: ReadonlySet<string> = new Set(["danger", "store-error"]);
+
+/**
  * A line of state above a screen: something is wrong, or something is pending.
  *
  * `StaleDataNotice` is this with one tone and one sentence, and stays a named export because the
  * honesty test asserts on it by name — the notice is a rule, not a style.
+ *
+ * `action` and `onDismiss` are both trailing slots and both optional, because the two things a
+ * banner is ever followed by are "do the thing it is about" and "stop telling me". A banner with
+ * neither is a statement, which is the common case.
  */
 export function Banner(props: {
-  tone: "warn" | "danger" | "info";
+  tone: keyof typeof BANNER_TONE;
   children: ReactNode;
+  /** Overrides the default info glyph — an alarming banner usually wants its own. */
+  icon?: ReactNode;
   action?: ReactNode;
+  onDismiss?: () => void;
 }) {
   return (
     <div
+      role={ALARMING.has(props.tone) ? "alert" : undefined}
       className={cx(
         "flex items-center justify-between gap-3 rounded-md border px-3.5 py-2 text-xs",
-        props.tone === "warn" && "border-warn/35 bg-warn/10 text-warn",
-        props.tone === "danger" && "border-danger/35 bg-danger/10 text-danger",
-        props.tone === "info" && "border-brand-3/35 bg-brand-3/10 text-brand-3",
+        BANNER_TONE[props.tone],
       )}
     >
       {/* `min-w-0` on the sentence, `flex-none` on the action: the restart banner's "Restart worker"
           button is what fell off the right edge of the 1600px and 1000px screenshots, because the
-          sentence beside it would not agree to be narrower than itself. */}
-      <span className="flex min-w-0 items-center gap-2">
-        <FiInfo aria-hidden className="flex-none" />
+          sentence beside it would not agree to be narrower than itself. `flex-wrap` because a
+          sentence that carries an inline control has to be allowed to put it on the next line. */}
+      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words">
+        {props.icon ?? <FiInfo aria-hidden className="flex-none" />}
         {props.children}
       </span>
       {props.action && <span className="flex flex-none items-center gap-2">{props.action}</span>}
+      {props.onDismiss && (
+        <button
+          type="button"
+          onClick={props.onDismiss}
+          aria-label="Dismiss"
+          className="flex-none rounded-sm p-0.5 opacity-70 hover:opacity-100"
+        >
+          <FiX aria-hidden />
+        </button>
+      )}
     </div>
   );
 }

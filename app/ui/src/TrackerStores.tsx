@@ -40,7 +40,6 @@ import {
   FiSearch,
   FiShield,
   FiTrash2,
-  FiX,
 } from "react-icons/fi";
 import {
   addTrackerStore,
@@ -56,7 +55,7 @@ import {
   type TrackerStore,
 } from "./ipc";
 import { linkNote, useExternalLink } from "./links";
-import { CARD_GRID, Modal, Pagination } from "./components";
+import { Banner, CARD_GRID, Modal, Pagination } from "./components";
 
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
@@ -340,7 +339,11 @@ export default function TrackerStores() {
       )}
 
       {error && (
-        <Banner tone="error" onDismiss={() => setError("")}>
+        <Banner
+          tone="store-error"
+          icon={<FiAlertTriangle aria-hidden className="flex-none" />}
+          onDismiss={() => setError("")}
+        >
           {error}
         </Banner>
       )}
@@ -402,18 +405,20 @@ export default function TrackerStores() {
           reinstated: a user who removed it did so on purpose, and a screen that quietly put it back
           would make the project the authority this design does not want it to be. */}
       {stores.length > 0 && official && !officialPresent && (
-        <Banner tone="hint">
-          <span>
-            The project's own list is not among these. It is one store like any other, and can be
-            added back.
-          </span>
-          <button
-            type="button"
-            onClick={() => setImporter({ step: "checking", url: official, source: "official" })}
-            className="shrink-0 font-medium text-[var(--tracker-store-primary)] underline underline-offset-2"
-          >
-            Add it
-          </button>
+        <Banner
+          tone="store-hint"
+          action={
+            <button
+              type="button"
+              onClick={() => setImporter({ step: "checking", url: official, source: "official" })}
+              className="shrink-0 font-medium text-[var(--tracker-store-primary)] underline underline-offset-2"
+            >
+              Add it
+            </button>
+          }
+        >
+          The project's own list is not among these. It is one store like any other, and can be
+          added back.
         </Banner>
       )}
 
@@ -963,39 +968,6 @@ function Address(props: { url: string }) {
     <p className="mt-3 rounded-lg border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface-container)] p-3 font-[family-name:var(--tracker-store-mono)] text-xs break-all text-[var(--tracker-store-on-surface)]">
       {props.url}
     </p>
-  );
-}
-
-function Banner(props: {
-  tone: "error" | "hint";
-  onDismiss?: () => void;
-  children: React.ReactNode;
-}) {
-  const error = props.tone === "error";
-  return (
-    <div
-      role={error ? "alert" : undefined}
-      className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
-        error
-          ? "border-[var(--tracker-store-error)] bg-[var(--tracker-store-error-container)] text-[var(--tracker-store-on-error-container)]"
-          : "border-[var(--tracker-store-outline)] text-[var(--tracker-store-on-surface-variant)]"
-      }`}
-    >
-      {error && <FiAlertTriangle className="mt-0.5 shrink-0" aria-hidden />}
-      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words">
-        {props.children}
-      </span>
-      {props.onDismiss && (
-        <button
-          type="button"
-          onClick={props.onDismiss}
-          aria-label="Dismiss"
-          className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100"
-        >
-          <FiX />
-        </button>
-      )}
-    </div>
   );
 }
 
