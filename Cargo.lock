@@ -468,6 +468,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nodera-build"
+version = "0.2.0"
+
+[[package]]
 name = "nodera-codec"
 version = "0.2.0"
 dependencies = [
@@ -503,6 +507,7 @@ version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "hmac",
+ "nodera-build",
  "nodera-codec",
  "nodera-service",
  "nodera-telemetry",
@@ -523,6 +528,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "toml",
  "ureq",
 ]
 
@@ -531,6 +537,7 @@ name = "nodera-telemetry"
 version = "0.2.0"
 dependencies = [
  "hmac",
+ "nodera-build",
  "nodera-codec",
  "nodera-service",
  "serde",
@@ -546,6 +553,7 @@ name = "nodera-tracker"
 version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
+ "nodera-build",
  "nodera-codec",
  "nodera-service",
  "nodera-telemetry",

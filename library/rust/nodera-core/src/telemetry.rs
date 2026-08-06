@@ -288,50 +288,46 @@ async fn framed_request(address: &str, body: &[u8]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&reply).into_owned())
 }
 
+/// The worker's `NODERA-TELEMETRY … GET` reply, exactly as `WorkerTelemetryService.stateJson`
+/// writes it. Every field defaults, so a worker that adds one — or predates one — still parses.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct WorkerStatus {
+    consent: String,
+    endpoint: String,
+    queued: u64,
+    sent: u64,
+    last_error: String,
+}
+
 /// Parse the worker's status line.
+///
+/// A real JSON parse, and it has to be. The three functions this replaced searched the raw line for
+/// `"key":` and took whatever followed — so `number(line, "sent")` returned the first digits after
+/// the first occurrence *anywhere in the line*, and `last_error` carries network-sourced text. A
+/// worker whose last error contained the literal `"sent":9999` made this app report a fabricated
+/// event count on the privacy screen, which is the one screen that must not be able to lie.
+///
+/// An unparseable reply reads as unsupported rather than as a zeroed status: "I could not
+/// understand this worker" and "this worker has sent nothing" are different answers, and the UI
+/// renders them differently.
 fn parse_status(line: &str) -> TelemetryStatus {
-    if line.starts_with("NODERA-ERR") {
-        // The worker answered, and what it said was "I cannot". Distinct from unreachable, and the
-        // UI renders it differently: one is a worker to upgrade, the other is a worker to start.
+    // The worker answered, and what it said was "I cannot". Distinct from unreachable, and the UI
+    // renders it differently: one is a worker to upgrade, the other is a worker to start.
+    let Ok(status) = serde_json::from_str::<WorkerStatus>(line) else {
         return TelemetryStatus {
             supported: false,
             ..TelemetryStatus::default()
         };
-    }
+    };
     TelemetryStatus {
-        consent: Consent::parse(&text(line, "consent")),
+        consent: Consent::parse(&status.consent),
         supported: true,
-        endpoint: text(line, "endpoint"),
-        queued: number(line, "queued"),
-        sent: number(line, "sent"),
-        last_error: text(line, "last_error"),
+        endpoint: status.endpoint,
+        queued: status.queued,
+        sent: status.sent,
+        last_error: status.last_error,
         ..TelemetryStatus::default()
-    }
-}
-
-fn text(json: &str, key: &str) -> String {
-    let needle = format!("\"{key}\":\"");
-    match json.find(&needle) {
-        None => String::new(),
-        Some(at) => {
-            let start = at + needle.len();
-            match json[start..].find('"') {
-                None => String::new(),
-                Some(end) => json[start..start + end].to_owned(),
-            }
-        }
-    }
-}
-
-fn number(json: &str, key: &str) -> u64 {
-    let needle = format!("\"{key}\":");
-    match json.find(&needle) {
-        None => 0,
-        Some(at) => {
-            let rest = &json[at + needle.len()..];
-            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            digits.parse().unwrap_or(0)
-        }
     }
 }
 
@@ -409,6 +405,33 @@ mod tests {
         );
         assert_eq!(status.last_error, "connect: refused");
         assert_eq!(status.queued, 3);
+    }
+
+    /// Network-sourced text inside the reply cannot invent a number on the privacy screen.
+    ///
+    /// `last_error` is whatever the collector said, relayed by the worker. The parser this replaced
+    /// searched the whole line for `"sent":` and took the digits after the first hit, so an error
+    /// message containing that string made the app report an event count nobody ever sent — on the
+    /// one screen whose entire purpose is to tell the truth about what left this machine.
+    #[test]
+    fn a_number_quoted_inside_an_error_message_is_not_read_as_a_count() {
+        let status = parse_status(
+            r#"{"consent":"granted","endpoint":"tcp://c:1","queued":0,"sent":0,"last_error":"rejected: {\"sent\":9999} is not a batch"}"#,
+        );
+        assert_eq!(status.sent, 0, "the count must come from the count field");
+        assert_eq!(status.queued, 0);
+        assert!(status.last_error.contains("9999"));
+    }
+
+    /// A reply this build cannot read is "I could not understand this worker", never "this worker
+    /// has sent nothing" — the second is a claim, and it would be made up.
+    #[test]
+    fn an_unparseable_reply_is_unsupported_rather_than_a_zeroed_status() {
+        for reply in ["", "not json at all", r#"{"consent":"granted""#] {
+            let status = parse_status(reply);
+            assert!(!status.supported, "{reply:?}");
+            assert_eq!(status.consent, Consent::Unanswered);
+        }
     }
 
     /// A node with no collector configured is a different case from a collector that will not

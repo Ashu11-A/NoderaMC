@@ -515,8 +515,8 @@ pub async fn supervise(
             return;
         }
     };
-    let mut backoff = Duration::from_secs(1);
-    let max_backoff = Duration::from_secs(30);
+    // Slower than the link's, on purpose: a reconnect costs a socket and a respawn costs a JVM.
+    let mut backoff = crate::backoff::Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
 
     loop {
         let env = worker_env(&settings.snapshot());
@@ -528,30 +528,18 @@ pub async fn supervise(
             .spawn();
         match spawn {
             Ok(mut child) => {
-                backoff = Duration::from_secs(1); // healthy start resets backoff
-                                                  // What this child holds, so a later settings edit
-                                                  // can be compared against it rather than guessed
-                                                  // at. Recorded here — beside the one spawn — so
-                                                  // there is no second place to keep in step.
+                backoff.reset(); // healthy start resets backoff
+                                 // What this child holds, so a later settings edit
+                                 // can be compared against it rather than guessed
+                                 // at. Recorded here — beside the one spawn — so
+                                 // there is no second place to keep in step.
                 launched.record(&env);
                 // Stream the worker's output into the dashboard's log ring.
                 if let Some(out) = child.stdout.take() {
-                    let sink = Arc::clone(&logs);
-                    tokio::spawn(async move {
-                        let mut lines = BufReader::new(out).lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            sink.push(line);
-                        }
-                    });
+                    tokio::spawn(pump_lines(out, Arc::clone(&logs)));
                 }
                 if let Some(err) = child.stderr.take() {
-                    let sink = Arc::clone(&logs);
-                    tokio::spawn(async move {
-                        let mut lines = BufReader::new(err).lines();
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            sink.push(line);
-                        }
-                    });
+                    tokio::spawn(pump_lines(err, Arc::clone(&logs)));
                 }
                 // Whichever happens first wins. The `child.wait()` borrow ends with the select, so
                 // the kill below is free to take its own mutable borrow.
@@ -574,7 +562,7 @@ pub async fn supervise(
                         // A requested restart is not a crash, so it must not inherit crash backoff:
                         // a user who just pressed Restart should not wait 30 seconds because the
                         // worker happened to be flapping beforehand.
-                        backoff = RESTART_SETTLE;
+                        backoff.restart_at(RESTART_SETTLE);
                         logs.push(
                             "nodera-app: restarting the peer worker to apply new settings"
                                 .to_owned(),
@@ -595,8 +583,38 @@ pub async fn supervise(
         // The link reports its own state, but it can take a moment to notice; saying it here means
         // the screen reflects a worker we KNOW is gone the instant we stop it.
         store.mark_offline("the peer worker is not running");
-        tokio::time::sleep(backoff).await;
-        backoff = (backoff * 2).min(max_backoff);
+        backoff.wait().await;
+    }
+}
+
+/// Stream one of the worker's output pipes into the dashboard's log ring until the pipe closes.
+///
+/// The read error is handled rather than treated as end of stream. `while let Ok(Some(line))` reads
+/// an `Err` — which is what a single non-UTF-8 byte in the worker's output produces — the same way
+/// it reads a clean EOF, so one such line used to kill the pump permanently: the log panel went
+/// empty and stayed empty for the life of the app, with the worker still running and still talking.
+/// A malformed line is skipped, and only a closed pipe ends the loop.
+async fn pump_lines<R>(pipe: R, sink: Arc<LogBuffer>)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut lines = BufReader::new(pipe).lines();
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => sink.push(line),
+            Ok(None) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                // Not fatal, and not silent: a worker printing a stack trace with a stray byte in
+                // it must not cost the user every line after it.
+                sink.push(format!(
+                    "nodera-app: skipped an unreadable worker log line: {e}"
+                ));
+            }
+            Err(e) => {
+                sink.push(format!("nodera-app: worker log stream ended: {e}"));
+                return;
+            }
+        }
     }
 }
 

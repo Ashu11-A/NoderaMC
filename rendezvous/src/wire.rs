@@ -10,26 +10,18 @@
 use crate::circuit::{CircuitLimits, CircuitMeter, TeardownReason};
 use crate::registry::Namespace;
 use crate::service::{Decision, Rendezvous};
-use nodera_codec::framing;
 use nodera_codec::rendezvous::{RelayConnect, RelayIncoming, RelayReservation, RendezvousMessage};
 use nodera_codec::types::NodeId;
+pub use nodera_service::frame::now_millis;
+use nodera_service::frame::{read_frame, write_frame};
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
-
-/// Wall-clock milliseconds. Used only for reservation freshness and circuit metering — never for
-/// anything a peer's correctness depends on.
-pub fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 /// Something delivered to a reserved peer's control channel.
 pub enum ControlEvent {
@@ -94,37 +86,6 @@ pub fn broadcast_frame(channels: &ControlChannels, frame: &[u8]) -> usize {
         .into_iter()
         .filter(|tx| tx.try_send(ControlEvent::Frame(frame.to_vec())).is_ok())
         .count()
-}
-
-/// Read one length-prefixed frame; `Ok(None)` at a clean end of stream.
-pub async fn read_frame(
-    stream: &mut TcpStream,
-    max_frame_bytes: usize,
-) -> io::Result<Option<Vec<u8>>> {
-    let mut header = [0u8; 4];
-    match stream.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = framing::decode_length(header)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    if len > max_frame_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("frame of {len} bytes exceeds the configured limit {max_frame_bytes}"),
-        ));
-    }
-    let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
-    Ok(Some(body))
-}
-
-/// Write one length-prefixed frame.
-pub async fn write_frame(stream: &mut TcpStream, payload: &[u8]) -> io::Result<()> {
-    let framed = framing::frame(payload)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    stream.write_all(&framed).await
 }
 
 /// Serve one connection: control request/reply until the peer reserves, connects, or hangs up.
@@ -252,7 +213,11 @@ async fn run_reserved(
     let key = (namespace.clone(), peer);
     insert_channel(&channels, key.clone(), tx);
 
-    let max_frame_bytes = { rendezvous.lock().await.config().max_frame_bytes };
+    let (max_frame_bytes, idle_timeout_millis) = {
+        let config = rendezvous.lock().await;
+        let config = config.config();
+        (config.max_frame_bytes, config.circuit_idle_timeout_millis())
+    };
 
     loop {
         tokio::select! {
@@ -294,7 +259,13 @@ async fn run_reserved(
                             service.note_circuit();
                             service.drain().enter()
                         };
-                        bridge(stream, source_stream, limits_of(&reservation), remote).await;
+                        bridge(
+                            stream,
+                            source_stream,
+                            limits_of(&reservation, idle_timeout_millis),
+                            remote,
+                        )
+                        .await;
                         drop(guard);
                         // The circuit is gone; drop any punch coordination it accrued.
                         rendezvous
@@ -357,13 +328,21 @@ async fn run_reserved(
     }
 }
 
-fn limits_of(reservation: &RelayReservation) -> CircuitLimits {
+/// The limits one circuit is metered against.
+///
+/// `idle_timeout_millis` is the operator's `circuit_idle_timeout_seconds`. It used to be a constant
+/// clamp here while the configuration key was loaded, env-overridable and validated as
+/// must-be-positive — so an operator could set it, see it accepted, and change nothing at all.
+fn limits_of(reservation: &RelayReservation, idle_timeout_millis: u64) -> CircuitLimits {
     CircuitLimits {
         max_bytes: reservation.max_bytes,
         max_duration_millis: reservation.max_duration_millis,
-        // The reservation does not carry the idle timeout on the wire; the relay applies its own,
-        // never longer than the circuit's own lifetime.
-        idle_timeout_millis: reservation.max_duration_millis.clamp(1_000, 60_000),
+        // The reservation does not carry the idle timeout on the wire, so the relay applies its
+        // own — never longer than the circuit's own lifetime, and never zero, which would tear a
+        // circuit down on the tick it opened.
+        idle_timeout_millis: idle_timeout_millis
+            .min(reservation.max_duration_millis)
+            .max(1),
     }
 }
 
@@ -468,31 +447,23 @@ pub async fn run(
         }
     });
 
-    tokio::pin!(shutdown);
-    loop {
-        tokio::select! {
-            accepted = listener.accept() => {
-                match accepted {
-                    Ok((stream, remote)) => {
-                        let rendezvous = Arc::clone(&rendezvous);
-                        let channels = Arc::clone(&channels);
-                        tokio::spawn(async move {
-                            serve_connection(rendezvous, channels, stream, remote, max_frame_bytes)
-                                .await;
-                        });
-                    }
-                    Err(e) => eprintln!("nodera-rendezvous: accept error: {e}"),
-                }
-            }
-            _ = &mut shutdown => {
-                // The drain already ran: this is the point at which the listener closes, after the
-                // peers have been told and the circuits have finished. The old code printed
-                // "draining" here and then dropped the runtime, which cut them instead.
-                println!("nodera-rendezvous: closing the listener");
-                break;
-            }
-        }
-    }
+    nodera_service::serve::accept_loop(
+        "nodera-rendezvous",
+        listener,
+        shutdown,
+        |stream, remote| {
+            let rendezvous = Arc::clone(&rendezvous);
+            let channels = Arc::clone(&channels);
+            tokio::spawn(async move {
+                serve_connection(rendezvous, channels, stream, remote, max_frame_bytes).await;
+            });
+        },
+    )
+    .await;
+    // The drain already ran: this is the point at which the listener closes, after the peers have
+    // been told and the circuits have finished. The old code printed "draining" here and then
+    // dropped the runtime, which cut them instead.
+    println!("nodera-rendezvous: closing the listener");
     sweeper.abort();
     Ok(())
 }
@@ -507,6 +478,41 @@ mod tests {
     use nodera_codec::types::{NetworkId, RegistrationEvent};
 
     const NET: NetworkId = NetworkId { msb: 1, lsb: 2 };
+
+    /// The configured idle timeout reaches the meter.
+    ///
+    /// It did not: the key was loaded, env-overridable and validated, and the bridge applied a
+    /// constant. An operator raising it for a slow transfer saw the setting accepted and the
+    /// circuit torn down at the old timeout anyway.
+    #[test]
+    fn the_configured_idle_timeout_is_what_a_circuit_is_metered_against() {
+        let reservation = RelayReservation {
+            accepted: true,
+            relay_route: String::new(),
+            expires_at_epoch_millis: 0,
+            max_bytes: 1 << 20,
+            max_duration_millis: 600_000,
+            proof: Vec::new(),
+            reason: String::new(),
+        };
+        let config = Config {
+            circuit_idle_timeout_seconds: 300,
+            ..Config::default()
+        };
+        assert_eq!(
+            limits_of(&reservation, config.circuit_idle_timeout_millis()).idle_timeout_millis,
+            300_000
+        );
+        // Never longer than the circuit itself, and never zero.
+        let brief = RelayReservation {
+            max_duration_millis: 5_000,
+            ..reservation
+        };
+        assert_eq!(
+            limits_of(&brief, config.circuit_idle_timeout_millis()).idle_timeout_millis,
+            5_000
+        );
+    }
 
     async fn spawn_service() -> (SocketAddr, Arc<Mutex<Rendezvous>>) {
         let (addr, service, _channels) = spawn_service_with_channels().await;

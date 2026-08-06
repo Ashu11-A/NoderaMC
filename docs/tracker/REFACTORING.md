@@ -12,15 +12,15 @@ jscpd duplicate set.
 
 | File | Lines | % duplicated | Duplicated-with | Refactor plan |
 |---|---|---|---|---|
-| `tracker/build.rs` | 38 | 100.0 | `nodera-rendezvous/build.rs` (identical), `nodera-telemetry` sibling | Promote to a shared `nodera-service::build_support` (or a workspace `build-version` helper) so the three service crates stop carrying byte-identical 38-line `build.rs` files. One `VERSION` reader, one `cargo:rustc-env=NODERA_VERSION`. |
-| `tracker/src/main.rs` | 426 | 55.2 | `nodera-rendezvous/src/main.rs` (arg parse, lifecycle wiring, `fresh_seed`, `shutdown_signal`, `TrackerHost`) | Extract the shared CLI/lifecycle scaffolding into `nodera-service::cli` (parse_args → Command, fresh_seed, random_node_id, shutdown_signal, the `ServiceHost` capacity wiring). The ~60-line `parse_args` block and the 25-line `fresh_seed`/`random_node_id` are the largest clones. Per-service code shrinks to the config + host glue. |
-| `tracker/src/limits.rs` | 120 | 53.3 | `nodera-rendezvous/src/limits.rs` (`AnnounceQuota`, ~identical incl. tests) | `AnnounceQuota` is a generic fixed-window counter; move it to `nodera-service::quota` and re-export. Both services then share one tested implementation; the per-service crate keeps only the window/limit wiring. |
-| `tracker/src/telemetry.rs` | 155 | 40.6 | `nodera-rendezvous/src/telemetry.rs` (reporter loop, label helpers, `Counters` deltas) | Pull the windowed-report loop skeleton into `nodera-service::telemetry_loop` (start-event, window-delta, flush), parametrised by a `WindowMetrics` closure each service fills in. The `os_label`/`arch_label` enums already belong in the shared reporter. |
-| `tracker/src/config.rs` | 541 | 22.4 | `nodera-rendezvous/src/config.rs` (env-overlay boilerplate, `validate` shape, `ConfigError`), `nodera-telemetry/src/config.rs` (the `every_config_key_has_an_environment_override` test) | The `EnvOverlay` call sequence and `ConfigError` enum are the repeated core; `EnvOverlay` already lives in `nodera-service::env` — finish the move by sharing `ConfigError` and a `validate_bounds` helper. Keep each crate's own `Config` struct (the keys genuinely differ). |
-| `tracker/src/wire.rs` | 443 | 22.3 | `nodera-rendezvous/src/wire.rs` (`read_frame`/`write_frame`/`serve_udp`/`serve_connection`), self (test spawn helpers) | `read_frame`/`write_frame`/`serve_udp`/`serve_connection` belong in `nodera-service::wire` (they already wrap `nodera_codec::framing`). Both services then keep only their `run`/`sweep` glue and tests. |
-| `tracker/src/bin/nodera-query.rs` | 181 | 22.1 | self (`query` ↔ `ask_services` framing loop, lines 120–167) | Extract one `fn framed_exchange(endpoint) -> Result<Vec<u8>>` used by both the world query and the services query; the two call sites then differ only in the request/response decode. |
+| ~~`tracker/build.rs`~~ | ~~38~~ | ~~100.0~~ | ~~`nodera-rendezvous/build.rs`, `nodera-telemetry` sibling~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): all three are now two lines calling `nodera_build::stamp_version()`. The reader lives in `library/rust/nodera-service/build-version` — its own package, not a module of `nodera-service`, because a build script may only use `[build-dependencies]` and depending on the service crate would compile tokio/ureq/ed25519-dalek **for the host** on every cross-compiled release build. |
+| ~~`tracker/src/main.rs`~~ | ~~426~~ | ~~55.2~~ | ~~`nodera-rendezvous/src/main.rs`~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): `Command`/`parse_args`/usage/dispatch → `nodera_service::cli`, `shutdown_signal` → `nodera_service::serve`, `fresh_seed`/`random_node_id` → `nodera_service::identity::load_or_generate`, the six-step serve preamble → `nodera_service::config::{configure, bind}`. What is left is this service's own: its `Config`, its `ServiceHost`, its healthcheck. `TrackerHost::capacity` is **not** shared — it reports tracker-specific counters and only looks alike. |
+| ~~`tracker/src/limits.rs`~~ | ~~120~~ | ~~53.3~~ | ~~`nodera-rendezvous/src/limits.rs`~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): deleted; `nodera_service::limits::Quota` is the one implementation, with telemetry's two-counter variant beside it as `PairQuota`. The five tests were identical too and are now written once. |
+| `tracker/src/telemetry.rs` | 132 | ~18 | `nodera-rendezvous/src/telemetry.rs` (reporter loop skeleton, `Counters` deltas) | **Partly done 2026-08-06:** `os_label`/`arch_label` moved to `nodera_telemetry::reporter`, beside the registry whose declared enums they have to stay inside. What remains is the start-event → window-delta → flush skeleton; it is worth ~25 lines and needs a `WindowMetrics` closure per service, which is close to the size of what it removes. Re-measure before doing it. |
+| `tracker/src/config.rs` | 486 | ~6 | `nodera-rendezvous/src/config.rs` (`validate` shape) | **Completed 2026-08-06** (Plan 11 round 2, item 6): `ConfigError` and `load` now come from `nodera_service::config`, and the 28 `overlay.set(...)` calls are a `nodera_service::env_overlay!` table. Each crate keeps its own `Config` struct — the keys genuinely differ — and keeps `deny_unknown_fields`, which is **not** to be aligned with the app's settings loader: an operator's typo must be loud, a user's config must never be reset. What remains is the `validate` bound-check shape, which is per-service values rather than per-service logic. |
+| `tracker/src/wire.rs` | 385 | ~8 | self (test spawn helpers) | **Completed 2026-08-06** (Plan 11 round 2, item 6): `now_millis`/`read_frame`/`write_frame` and the accept `select!` are `nodera_service::{frame, serve}`, and the **UDP amplification cap** is now a named, tested `frame::udp_reply_permitted` rather than an inline comparison inside a datagram loop — it is a security property and it had no home. The shared reader is generic over the stream, so the frame-size bound is asserted against an in-memory pipe for all three services; before, only telemetry's copy could be. What remains is `serve_connection`, which differs per service in what it does with a decoded frame. |
+| `tracker/src/bin/nodera-query.rs` | 187 | 22.1 | self (`query` ↔ `ask_services` framing loop) | Extract one `fn framed_exchange(endpoint) -> Result<Vec<u8>>` used by both the world query and the services query; the two call sites then differ only in the request/response decode. **Unrelated fix landed 2026-08-06:** both call sites now go through `nodera_service::endpoint::socket_target`, so the documented `tcp://host:port` form — the one in the compose file — no longer fails with "Name does not resolve". |
 | ~~`java/.../discovery/PersistentIdentityStore.java`~~ | ~~167~~ | ~~16.8~~ | ~~`worker/.../headless/LocalFiles.java`~~ | **Completed 2026-07-28:** both wrappers call `storage.io.AtomicFileWriter.writeOwnerOnly`; `AtomicFileWriterTest` pins permissions and cleanup. |
-| `tracker/src/announce.rs` | 255 | 16.5 | `nodera-rendezvous/src/register.rs` (`IdentityBindings` TOFU table + `within_window`), self | `IdentityBindings` and `within_window` are shared discovery primitives — both already imported by `services.rs`; promote them to `nodera-service::identity` so the tracker and rendezvous share one TOFU implementation. |
+| ~~`tracker/src/announce.rs`~~ | ~~255~~ | ~~16.5~~ | ~~`nodera-rendezvous/src/register.rs`~~ | **Completed 2026-08-06** (Plan 11 round 2, item 6): `IdentityBindings` and `within_window` are `nodera_service::admission`. The rendezvous copy of the freshness check was an inline `abs_diff` rather than a call, which is exactly how the two would have drifted. `Rejection` stays per-service: the variant sets are different answers to different questions. |
 | `tracker/src/test_support.rs` | 143 | 15.4 | `nodera-rendezvous/src/test_support.rs` (`TestSigner`, `caps`, `sign`) | `TestSigner` (Ed25519 sign/verify for tests) is duplicated crate-to-crate; move to a shared `nodera-service::test_support` (test-only, gated by `#[cfg(any(test, feature = "test-support"))]`). |
 | `java/.../discovery/CachedPeerStore.java` | 249 | 10.8 | `InvitationCodec.java` (record compact-ctor/import block), `peer/.../validation/DurableActionJournal.java` | Minor: the duplicated `Encodable` record encode/decode + `Objects.requireNonNull` boilerplate is the canonical-record pattern; a codegen or base helper would help but is low-value vs. the Rust clones above. |
 | `tracker/src/service.rs` | 1433 | 8.3 | self (test helpers: `service_ack`/`response`/`ack`, the announce+query test scaffolding), `nodera-codec/tombstone.rs` | **God-class candidate (manual):** `Tracker` holds registry + bindings + deleted + 2 quotas + directory + 3 counters and dispatches discovery, service-directory, and deletion frames. Split: keep `Tracker` as the state owner; extract `service_directory.rs` dispatch (already partly in `services.rs`) and a `deletion` dispatch wrapper. The 1433 lines also include ~400 lines of tests — those should move to an inline `#[cfg(test)] mod service_tests` separation or a dedicated test module to shrink the reviewable surface. |
@@ -42,29 +42,28 @@ jscpd duplicate set.
 
 ## Sequencing
 
-The top five, ordered by leverage (clone size × number of services that benefit × blast radius):
+Re-ranked 2026-08-06, after Plan 11 round 2 item 6 landed the whole cross-crate extraction wave.
+`jscpd --format rust --min-lines 5 --min-tokens 50` over `tracker/`, `rendezvous/`, `telemetry/` and
+`library/rust/` went from **109 clones / 1,373 duplicated lines / 3.10%** to **81 clones / 777 lines
+/ 1.80%**, and what is left is almost entirely *inside* single files rather than between crates.
 
-1. **`build.rs` → shared version stamp (100% dup, 3 crates).** Smallest, purest win: one byte-identical
-   38-line file lives in `nodera-tracker`, `nodera-rendezvous`, and the telemetry build. Promote to a
-   workspace helper; all three services inherit `NODERA_VERSION` from one reader.
-2. **`limits.rs` `AnnounceQuota` → `nodera-service::quota` (53% dup).** A generic fixed-window counter
-   with its 5 tests copied verbatim between tracker and rendezvous. One shared, fully-tested type; each
-   service keeps only its window/limit values.
-3. **`main.rs` CLI/lifecycle scaffolding → `nodera-service::cli` (55% dup).** `parse_args`,
-   `fresh_seed`, `random_node_id`, `shutdown_signal`, and the `ServiceHost` capacity wiring are
-   duplicated service-to-service. Extracting them shrinks each `main.rs` to its config + host glue and
-   removes the largest single clone block (60 lines of arg parsing).
-4. **`wire.rs` frame/UDP helpers → `nodera-service::wire` (22% dup).** `read_frame`/`write_frame`/
-   `serve_udp`/`serve_connection` already wrap `nodera_codec::framing`; finish the move so the UDP
-   amplification-cap logic lives in exactly one place (it is a security property, not an
-   implementation detail).
-5. **`telemetry.rs` windowed-report loop → `nodera-service::telemetry_loop` (41% dup).** The
-   start-event + window-delta + flush skeleton and the `os_label`/`arch_label` enums are duplicated
-   between tracker and rendezvous telemetry. Parametrise by a per-service `WindowMetrics` closure.
+What remains, in order:
 
-Rationale for the ordering: items 1–2 are mechanical and remove the highest-percentage clones with the
-lowest design risk; items 3–5 are the same shape (shared `nodera-service` extraction) but touch more
-load-bearing code, so they follow once the extraction home is established. The Java god-classes
-(`TrackerClient`, `service.rs`) are real structural debt but are *not* cross-crate clones — they are
-queued behind the Rust extraction wave because their refactor is single-file surgery with no leverage
-on the other services.
+1. **`service.rs` test scaffolding (self-duplication).** The largest remaining clone runs in the
+   category are four ~15-line blocks inside `tracker/src/service.rs`'s own test module. The file is
+   417 lines of service and ~1,050 of tests; a shared announce+query fixture would remove most of
+   them. This is the *only* remaining row with real line count behind it.
+2. **`nodera-query`'s two framing loops.** ~40 lines, self-contained, and the binary is a diagnostic
+   — low blast radius.
+3. **The windowed-report skeleton** (`telemetry.rs` ×2). Measure first: the parametrisation may cost
+   as much as it removes.
+4. **`serve_connection` ×3.** Deliberately *not* done: the three bodies differ in what they do with a
+   decoded frame (the tracker hangs up on an unsupported family, telemetry admits by source address
+   first, the rendezvous hands the socket away on reserve), and an async handler callback would cost
+   about what the extraction saves.
+5. **The Java god-classes** (`TrackerClient`, and `Tracker` itself). Real structural debt, no
+   cross-service leverage, single-file surgery — still last, for the same reason as before.
+
+**Not to be done:** splitting the "Rust monoliths" this register used to rank by `wc -l`. Round 2's
+measurement showed `tracker/src/service.rs` is 417 lines of service and 811 of its own tests, and
+three of the four named files are ordinary. Splitting them yields approximately zero.

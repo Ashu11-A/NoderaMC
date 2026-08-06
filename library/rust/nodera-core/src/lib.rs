@@ -31,6 +31,7 @@
 
 pub mod android;
 pub mod api;
+pub mod backoff;
 pub mod browser;
 pub mod config;
 pub mod control;

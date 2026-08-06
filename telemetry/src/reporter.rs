@@ -264,9 +264,39 @@ pub fn install_id(seed: &str) -> String {
     digest[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// This host's operating system, as one of the four values the registry declares.
+///
+/// A closed enum on purpose: the schema has no free-text value anywhere in it, and an unrecognised
+/// platform reports as `other` rather than as its own name. Both reporting services had written
+/// this out identically, which is two chances to widen a declared enum by accident.
+pub fn os_label() -> &'static str {
+    match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "macos",
+        "windows" => "windows",
+        _ => "other",
+    }
+}
+
+/// This host's CPU architecture, as one of the three values the registry declares.
+pub fn arch_label() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        _ => "other",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The labels are members of the enums the registry declares, on whatever host runs this.
+    #[test]
+    fn platform_labels_are_members_of_the_declared_enums() {
+        assert!(["linux", "macos", "windows", "other"].contains(&os_label()));
+        assert!(["x86_64", "aarch64", "other"].contains(&arch_label()));
+    }
 
     fn reporter(endpoint: &str) -> Reporter {
         Reporter::new(
