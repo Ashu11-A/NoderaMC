@@ -38,7 +38,7 @@ public record ServiceDirectoryEntry(ServiceRecord record, Bytes signature, Servi
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SERVICE_DIRECTORY_ENTRY).writeU16(Encodable.ENCODING_VERSION);
+        w.writeFrame(TypeTags.SERVICE_DIRECTORY_ENTRY, Encodable.ENCODING_VERSION);
         record.encode(w);
         w.writeBytes(signature);
         score.encode(w);
@@ -53,10 +53,7 @@ public record ServiceDirectoryEntry(ServiceRecord record, Bytes signature, Servi
      * @Thread-context one reader per decode call.
      */
     public static ServiceDirectoryEntry decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SERVICE_DIRECTORY_ENTRY) {
-            throw new IllegalStateException("expected ServiceDirectoryEntry tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SERVICE_DIRECTORY_ENTRY, "ServiceDirectoryEntry");
         int version = r.readU16();
         if (version != Encodable.ENCODING_VERSION) {
             throw new IllegalStateException("unsupported ServiceDirectoryEntry version " + version);

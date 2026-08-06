@@ -75,7 +75,7 @@ public record SignedPeerRecord(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SIGNED_PEER_RECORD).writeU16(Encodable.ENCODING_VERSION);
+        w.writeFrame(TypeTags.SIGNED_PEER_RECORD, Encodable.ENCODING_VERSION);
         w.writeU64(networkId.getMostSignificantBits());
         w.writeU64(networkId.getLeastSignificantBits());
         w.writeBytes(genesisHash);
@@ -109,10 +109,7 @@ public record SignedPeerRecord(
      * @Thread-context one reader per decode call.
      */
     public static SignedPeerRecord decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SIGNED_PEER_RECORD) {
-            throw new IllegalStateException("expected SignedPeerRecord tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SIGNED_PEER_RECORD, "SignedPeerRecord");
         int version = r.readU16();
         if (version != Encodable.ENCODING_VERSION) {
             throw new IllegalStateException("unsupported SignedPeerRecord version " + version);
