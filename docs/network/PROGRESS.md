@@ -49,6 +49,52 @@ as confirmation of, not an addition to, the existing `SealedRecord` duplication 
 detector does not strip comments, so those lines are already inside the reported `%`. No code
 changed; `:core:compileJava`/`:endpoint:compileJava` verified green (the settled call site is in
 `library/java/endpoint`).
+### 2026-08-05 — Retiring v1 orphaned a constructor, and the structural ratchet caught it
+
+`SessionKeepAlive(NodeId, long)` — the two-argument form, documented as the "legacy convenience
+constructor" — had exactly one production caller: the v1 decode arm, which built its result there.
+Retiring v1 removed that caller and the constructor fell to test-only, taking
+`fixtures/structure/budget.json`'s `test_only_methods` from 415 to 416. The budget only ratchets
+down, so the build was correctly red.
+
+It is not leftover, though, and deleting it would have been the wrong reading. "A keep-alive with no
+regional view" is a live production concept: it is what `PeerSession.shapeForEmit` emits for a peer
+that did not negotiate `KEEP_ALIVE_REGION_PROGRESS`. That method was open-coding
+`new SessionKeepAlive(from, seq, List.of())` three lines under a comment saying "identity and
+sequence only" — a second spelling of a constructor that already names the shape. It now calls the
+constructor, and the constructor's Javadoc no longer calls itself legacy: the shape outlived the
+body version that introduced it. `test_only_methods` is back to 415 with `unreachable_methods`,
+`never_referenced_methods` and every other counter unmoved. The budget was not raised.
+
+Evidence: `./gradlew :peer:structureReport` — `test_only_methods = 415`, and the diff of
+`structure.json` against the red run is exactly one method gone and none added.
+
+### 2026-08-05 — One codec dispatch, one keep-alive version, and the 0.2.0 bump
+
+`MessageCodec` dispatched twice: a chain of 76 `instanceof` arms for encoding and a 76-case
+`switch` for decoding, seven hundred lines apart in one 1,585-line file. That distance was the
+defect — a message could gain a field on one side and not the other, or an encode arm and no decode
+arm, and nothing in the language said so. The pair is now one row in `CodecRegistry`, the same shape
+`InfrastructureCodec`'s `shape(...)` rows already used for the TLV plane, and a kind the schema
+declares but the registry cannot encode fails at class initialisation rather than at the first send.
+The per-tag version chain in `decode` went with it: each row states the closed range of body
+versions it accepts.
+
+**No byte changed.** `fixtures/wire/*.bin` is unchanged in this commit and `WireFixtureTest` passed
+without `-Dnodera.fixtures.regenerate`; `WireSchemaGeneratorTest` passed without
+`-Dnodera.wire.regenerate`, so the generated Rust kind table needed no regeneration either — the
+schema this refactor dispatches through was never touched.
+
+`SessionKeepAlive` body version 1 is retired, which is the one thing in this change a version bump
+had to authorise (`AGENTS.md` §"Frozen contracts"). It is verifiable without a mixed-release run:
+kind 23 is on the **infrastructure** plane, so on the `NDR2` wire a keep-alive travels as a TLV body
+and never reaches this codec; nothing in the tree has emitted a v1 body since that flag day — the
+negotiated demotion in `PeerSession.shapeForEmit` empties the progress list rather than downgrading
+the version — and `nodera-codec` does not list tag 23 in `SUPPORTED_MESSAGE_TAGS` at all, so there is
+no second implementation to keep in step. A v1 frame is now refused at the version, before a byte of
+body is read. Evidence: `SessionKeepAliveCodecTest.refusesTheRetiredV1FrameRatherThanReadingItAsEmptyProgress`
+and `rejectsVersionsEitherSideOfTwoAndTrailingData`, `MessageCodecTypeTagTest` (76/76 dispatch and
+round-trip), `WireFixtureTest` (5), `cargo test -p nodera-codec` (79 tests) — all green.
 
 ### 2026-08-01 — Android storage inspection and commons catalog entries are handled explicitly
 

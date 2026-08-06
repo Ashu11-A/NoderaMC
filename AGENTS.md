@@ -243,9 +243,11 @@ answer must be unchanged apart from the telemetry block and the clock.
   and fails on any drift, and `tests/fixtures.rs` re-encodes every `fixtures/wire/*.bin`
   byte-exactly. Appending a tag means appending it on BOTH sides in the same commit.
 - `core/Bytes` is the single byte[] value type (use everywhere, never raw byte[] in records).
-- Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber). `SessionKeepAlive` keeps tag
-  23 but emits body version 2 for canonical per-region progress; its decoder must continue accepting
-  v1 as empty progress while all unchanged tags remain on global version 1.
+- Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber) is the front door;
+  `protocol/codec/CodecRegistry` is the table it dispatches through, one row per tag with the encoder
+  beside its decoder. `SessionKeepAlive` keeps tag 23 and, **since 0.2.0**, emits and accepts body
+  version 2 only — v1 was retired in the same version bump that allowed a frozen contract to change
+  (issue #214). All unchanged tags remain on global version 1.
 - Hash/sign: `core/crypto/HashService` (SHA-256 over canonical encoding) + `SignatureService`
   (Ed25519 verify; signing lives on `core/identity/NodeIdentity`).
 

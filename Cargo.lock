@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "nodera-codec"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "thiserror",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "nodera-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "android_logger",
  "base64",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "nodera-rendezvous"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "hmac",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "nodera-service"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "nodera-codec",
@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "nodera-telemetry"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hmac",
  "nodera-codec",
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "nodera-tracker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "nodera-codec",
