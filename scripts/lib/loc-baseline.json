@@ -1,15 +1,15 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 on `refactor/decompose-god-classes-#213` (Plan 11 phase 4, issue #213). java.main.code RISES 60,815 -> 60,841 (+26) and that rise is the phase's finding rather than a regression: extracting a reusable primitive costs more lines than the short duplicated loops it absorbs. HexKeyedStore is ~95 lines replacing ~72 across two stores; SignedGossipRelay ~35 replacing four copies of an 11-line flood; WorldIds ~12 replacing seven copies of a 3-line helper; Json ~95 replacing ten hand-concatenated replies that were already one line per field. Reuse extraction here improved the Java without shrinking it \u2014 it deleted three divergent JSON escapes (one of which emitted invalid output), unified a path-traversal guard that existed in two versions, and removed two dead accessors the structural report named, which is why fixtures/structure/budget.json tightened 136 -> 134 in the same branch. Nothing was cut to reach this number: java.main.comment RISES 200 in the same measurement. The other two languages fall, because their duplication was one idea written several ways rather than a primitive waiting to be named: rust.main.code -42 (the ENFORCEMENT table behind three const fn constructors) and ts.code -23 (four identical button components behind one variant). The ratchet is a whole-tree measurement and does not compose across parallel branches, so this branch reads red in isolation and green in the tree it is going into; re-stamped downward at integration, where it merges with #210, #211, #212 and #214 to java.main.code 60,234.",
+  "measured": "2026-08-06 on the full tree, after the Plan 11 phase branches merged (#210 #211 #212 #213 #214). Re-measured on the combined tree rather than merged from the branches: #213 stamped a deliberate rise to 60,841 that only holds in isolation, and taking any one branch's stamp discards the others. Total code 164,552 -> 163,156 -- the whole programme's result, -1,396 lines, -0.85% against a 30% target.",
   "limits": {
-    "java.main.code": 60841,
-    "java.main.comment": 35951,
-    "java.test.code": 60440,
-    "java.test.comment": 10943,
+    "java.main.code": 60260,
+    "java.main.comment": 35646,
+    "java.test.code": 59672,
+    "java.test.comment": 11457,
     "rust.main.code": 31406,
     "rust.main.comment": 8354,
-    "rust.test.code": 444,
-    "rust.test.comment": 91,
+    "rust.test.code": 436,
+    "rust.test.comment": 115,
     "ts.code": 11382,
     "ts.comment": 3248
   }
