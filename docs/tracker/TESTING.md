@@ -80,9 +80,23 @@ Driven from Java against the real binary:
   bound.
 - `ServiceScoreBoardTest` (18) — peer-local scoring, percentile windows, selection ordering.
 - `RendezvousDirectoryTest` (11) — sweep/probe/select, drain-notice migration, seeds-preferred.
-- `CachedPeerStoreTest`, `PersistentIdentityStoreTest`, `InvitationCodecTest`, `BootstrapClientTest`,
-  `MultiBootstrapIT`, `PeerDirectoryTest`, `ArchiveInventoryTest`, `CommonsPresenceTest` — the
-  bootstrap/cache/directory surfaces.
+- `PersistentIdentityStoreTest`, `PinnedTrackerEndpointsTest`, `CommonsPresenceTest` — the identity
+  and endpoint-configuration surfaces.
+
+> **The Java-side bootstrap and directory caches are gone (2026-08-06, issue #210).** This list used
+> to name `CachedPeerStoreTest`, `InvitationCodecTest`, `BootstrapClientTest`, `MultiBootstrapIT`,
+> `PeerDirectoryTest` and `ArchiveInventoryTest`. Commit `0b02aa5` deleted all six with the classes
+> they covered: `BootstrapClient` was a second discovery resolver — cached-peer redial plus a pasted
+> invitation blob — superseded by `PeerDiscoveryService` + `TrackerClient`, and `ArchiveInventory`
+> was a tracker cache that only the deleted repair lane consulted. The seeder index those tests
+> described now lives in the **Rust** tracker (`tracker/src/registry.rs`), fed by the
+> `ManifestHolding` list on each `TrackerAnnounce` and read back as `ManifestSeeders`; its coverage
+> is `cargo test -p nodera-tracker`, not the Java gate.
+>
+> One property left with them and has not been rewritten: `MultiBootstrapIT` proved a new client
+> still joins when its original bootstrap is **offline**, by each of three independent routes.
+> Nothing in the tree asserts that today. Recorded in
+> [`../network/TESTING.md`](../network/TESTING.md) §2.1 and against L-34.
 - Merge behaviour: results from several endpoints combine without arbitration; an unreachable endpoint
   backs off without failing the query.
 

@@ -6,16 +6,18 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-07-28 · **785 `@Test`/XML-reported · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-08-06 · **797 XML-reported · 0 failing · 0 skipped**
 
-> Counts above are reconciled after the 2026-07-28 L-51 + L-52 merges: core 263 (260 `@Test` + 3
-> jqwik `@Property`), engine 508, testing 14; 785 total, 0 failed/skipped.
+> Counts above are measured from `:core:test`, `:engine:test` and `:testing:test` XML reports on
+> 2026-08-06, after the Plan 11 round 2 reduction (issue #210) deleted the shadow-validation and
+> central-coordinator clusters and 21 of their dedicated test files. The whole Java tree measures
+> **2,238 passed / 0 failed / 0 skipped** on the same date (`scripts/test-totals.sh --java`).
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 260 + 3 `@Property` | ✅ |
-| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 508 | ✅ |
-| `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | ✅ |
+| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 314 | ✅ |
+| `engine` | Deterministic engine + consensus/committee/fallback, and the surviving `shadow` delta applier | 444 | ✅ |
+| `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 39 | ✅ |
 
 Run with:
 
@@ -58,8 +60,8 @@ question is never "does this look right?" but "do three replicas agree, byte for
 | Golden fixtures | Canonical encodings are byte-stable across languages and versions | `fixtures/wire/*.bin`, `MessageCodecTypeTagTest` |
 | Negative determinism | Dropping state from the hash **must** be detectable | `ScheduledStateRootTest`, `CombatStateRootTest`, `ContainerStateRootTest` |
 | ArchUnit | The determinism ban is mechanical, not cultural | `simulation/ForbiddenApiTest` |
-| Headless ITs | The consensus lanes work end to end without Minecraft | `ShadowValidationIT`, `CoordinatorIT`, `CommitteeMvpIT`, `FallbackRoutingIT` |
-| Adversarial | Honest members survive a real liar **on the wire** | `ByzantineMeshIT`, `ByzantineWorkerTest` |
+| Headless ITs | The consensus lanes work end to end without Minecraft | `FallbackRoutingIT`, and in `:peer` over the real transport, `WorkerQuorumValidationIT` / `DivergenceCountedIT` |
+| Adversarial | Honest members survive a real liar **on the wire** | `ByzantineMeshIT` |
 | Soak | Behaviour holds over thousands of ticks with the lane active | `RandomTickRulesTest` (200 ticks), `MobAiRulesTest` (2400), `SpawnRulesTest` (2000) |
 
 `simulation/ForbiddenApiTest` is **enabled, not skipped**: the repository compiles to Java 21
@@ -70,14 +72,12 @@ bytecode via `--release 21`, so ArchUnit's bundled ASM parses the classes and th
 
 | Test | What it proves |
 |---|---|
-| `ShadowValidationIT` | 3 workers × 250 random place/break batches with **zero divergence**; a lying worker is caught and re-snapshotted |
-| `VanillaCaptureSoakIT` | The same soak driven from **vanilla block states**: every action is built from a `(block key, properties)` pair through `VanillaPalette`, so the run proves the *binding* as well as the engine — modded blocks and vertical piston states ride the same stream and never reach the lane |
 | `VanillaPaletteTest` | Every palette id round-trips through the vanilla state it projects to — the test that fails the day the palette grows past the live capture lane |
-| `CoordinatorIT` | Commit-on-match; forced mismatch rejected with the world uncorrupted; stale-epoch drop; primary-death reassignment under a bumped epoch |
-| `CommitteeMvpIT` | 2-of-3 quorum commit, then primary failover under epoch+1 with continuation |
+| `BlockCaptureRulesTest` (8) | The capture decision without a running game: unsupported blocks refused with their own reason, engine outputs never re-placed, edits outside the height envelope refused, ownership checked first |
 | `ByzantineMeshIT` (3) | A real adversarial peer on the mesh: a fabricated root never reaches a certificate; a vote forged in an absent member's name buys no seat (the round times out); an equivocator gets one seat, not two |
 | `FallbackRoutingIT` | A spread-out session clears the **> 90% committee-commit** exit criterion |
-| `SpotCheckPolicyTest` | 120k committed versions hold proven committees at ≤ 2% re-execution; unproven committees keep the ~25% floor |
+| `WorkerQuorumValidationIT` (`:peer`) | Three companion-only workers form a committee over the real `PeerTransport` and commit a batch out-of-game — the quorum-commit and failover path that actually ships |
+| `DivergenceCountedIT` (`:peer`) | Two nodes disagreeing on the same base is *counted* from both chairs, and agreement leaves the counter alone |
 | `PackRuleExecutionTest` (5) | A pack's block reaches consensus state through the pack's own code, replica-identical across independently-built registries; base blocks behave byte-identically with a pack installed |
 | `AsyncMutationApiTest` (2) | 4-thread × 50-action per-submitter FIFO drain; an off-thread direct write gets the documented error while applier-scope and undelegated writes stay legal |
 | `PlayerInventoryTest` (3) | Root-inventory pickup; the stopgap credit path; `portalHandOffCarriesTheInventoryExactlyOnce` — the dupe-proof cross-region clause |
@@ -89,6 +89,23 @@ bytecode via `--release 21`, so ArchUnit's bundled ASM parses the classes and th
 | `SpawnRulesTest` | 2000-tick dark-shelter soak: population ≤ cap, every spawn inside the shelter, replica-identical roots; a lit platform spawns zero |
 | `PressurePlateStickyPistonTest` (7) | The full engine path for both components, including the order-independence root property |
 | `FixedPointTest` / `ChunkKeyTest` / `EntityLaneTypesTest` | L-52: full-range signed Q32.32 arithmetic matches `BigInteger`; packed signed chunk coordinates round-trip; entity motion copies remain byte-identical to direct canonical construction |
+
+### 2.1 What the Plan 11 round-2 reduction took out of this table
+
+Six landmark suites were removed from this file on 2026-08-06 because they no longer exist (issue
+#210, commits `24e6f0e` and `0b02aa5`). Four of them drove designs that also went, so their loss is
+not a coverage gap; **two are real reductions in what is proven and are recorded here rather than
+quietly dropped.**
+
+| Removed suite | Verdict |
+|---|---|
+| `CoordinatorIT`, `CommitteeMvpIT`, `CrashRecoveryIT`, `LagHandoffIT` | **Not a gap.** They drove the central-coordinator/committee-session design that Task 30 retired and round 2 deleted; no node constructed it. The batch loop that ships, `WorkerValidationService`, is covered by `WorkerQuorumValidationIT`, `ByzantineMeshIT` and `LiveLagHandoffIT` over the real transport. |
+| `SpotCheckPolicyTest` | **Not a gap — the feature is gone.** `SpotCheckPolicy` and the whole server-side audit lane were deleted. Custody claims are not spot-checked at a sampled rate; they are checked in full, by the receiver hashing every piece against the manifest. There is no adaptive re-execution rate left to test. |
+| `ShadowValidationIT` | **Reduced.** It ran 3 workers × 250 random place/break batches with zero divergence. The surviving headless proof of the same property, `WorkerQuorumValidationIT`, runs the production path over the real transport but only **50** batches, and `DivergenceCountedIT` pins the counter rather than a soak. The property is still proven; the *volume* behind it dropped by 5×. |
+| `VanillaCaptureSoakIT` | **Partly lost.** Its two halves separate cleanly. The binding half — every action built from a real `(block key, properties)` pair, modded blocks and inexpressible states refused rather than mis-mapped — is fully held by `VanillaPaletteTest` and `BlockCaptureRulesTest`. The soak half — **a vanilla-shaped edit stream over the whole palette producing zero divergence across three independent workers** — has no replacement in the tree. Nothing today drives multi-replica divergence from the vanilla state space. |
+
+The `VanillaCaptureSoakIT` row is the one to act on if this table is ever short a suite again: it is
+the only behaviour in this category with no current owner.
 
 ## 3. Conventions
 

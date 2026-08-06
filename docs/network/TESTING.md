@@ -6,19 +6,26 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-08-06 (`transport` + `nodera-codec`; `storage` and `peer`
-from the 2026-08-01 gate) · **1,228 Java test cases + 79 Rust (`nodera-codec`) `#[test]` · 0 failing**
-— Java counts come from Gradle XML reports and sum the module table below (189 + 158 + 881). Worker
-cases are also described under the worker category.
+**Category:** network · **Last run:** 2026-08-06 · **1,179 Java test cases + 79 Rust
+(`nodera-codec`) `#[test]` · 0 failing** — Java counts come from Gradle XML reports and sum the
+module table below (186 + 158 + 835). Worker cases are also described under the worker category.
+
+> Re-measured on 2026-08-06 after the Plan 11 round 2 reduction (issue #210), which deleted the
+> archival audit triangle and the second discovery resolver from `:peer` along with their dedicated
+> suites. The whole Java tree is **2,238 passed / 0 failed / 0 skipped**
+> (`scripts/test-totals.sh --java`); the Rust count is unchanged by round 2, which touched no
+> `nodera-codec` source. Module figures are total XML-reported cases — running a module task alone
+> leaves 12 tree-wide skips whose artefacts only the full `check` builds, and those pass under the
+> gate.
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard. Cross-language fixture coverage is **derived from `nodera-codec`'s own `SUPPORTED_MESSAGE_TAGS`** rather than a hand-written tag list | 189 | ✅ |
+| `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard. Cross-language fixture coverage is **derived from `nodera-codec`'s own `SUPPORTED_MESSAGE_TAGS`** rather than a hand-written tag list | 186 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes including Android-denied store inspection | 158 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 881 | 🚧 |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 835 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 79 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything
@@ -42,9 +49,9 @@ cargo test -p nodera-codec
 
 | Layer | What it proves | Examples |
 |---|---|---|
-| Headless ITs over `LoopbackTransport` **and real TCP** | The lanes work end to end with no Minecraft | `SessionContinuityIT`, `DistributionIT`, `ArchiveRepairIT` |
+| Headless ITs over `LoopbackTransport` **and real TCP** | The lanes work end to end with no Minecraft | `SessionContinuityIT`, `DistributionIT`, `DepartureIsRepairedByPlacementTest` |
 | Property tests | Every deterministic policy is order-independent and pure-integer | placement, selection, election, scoring |
-| Forced-kill crash proofs | Durability survives a process that never ran a hook | `RocksCrashRecoveryIT`, `CrashRecoveryIT`, `CompanionCrashSurvivalIT` |
+| Forced-kill crash proofs | Durability survives a process that never ran a hook | `RocksCrashRecoveryIT`, `EntityTransferCrashRecoveryIT`, `CompanionCrashSurvivalIT` |
 | Adversarial / bounds | Corrupt blobs, tampered payloads, byte-budget exhaustion, flood input | corrupt-blob rejection, oversize refusal, LRU bounds |
 | Cross-language conformance | The two canonical-encoding implementations cannot drift | `fixtures/wire/*.bin` + `nodera-codec` `fixtures`/`tag_mirror` |
 | Real-binary ITs | The Rust services behave as the Java client expects | `TrackerServiceIT`, `RendezvousRelayIT`, `WorldContinuityIT` |
@@ -56,12 +63,11 @@ cargo test -p nodera-codec
 | `SessionContinuityIT` | Real-TCP base-peer-disconnection continuity with gateway re-election |
 | `RocksCrashRecoveryIT` | A forcibly killed writer JVM reopens with contiguous ids, an unbroken `prevRoot → resultingRoot` chain, and a live head |
 | `DistributionIT` | A region reassembled from 3 seeders each holding < 40%, hashing to the **engine's own** root; a partial download resumes after a seeder disconnects |
-| `MultiBootstrapIT` | Join succeeds via each of three independent mechanisms with the original bootstrap **offline** |
-| `ArchiveRepairIT` | A killed ×5 manifest is re-replicated to factor with no data loss |
+| `DepartureIsRepairedByPlacementTest` | A holder's departure re-ranks every world it held and promotes a peer that was not holding it, so the replication factor is restored by the sweep with nothing pushed on the way out |
 | `EncryptedDistributionIT` | Three keyless seeders serve ciphertext that only a password joiner decrypts back to the engine root |
 | `EncryptedArchiveTest` | Wrong password fails the GCM tag and yields *empty*, never garbage |
-| `CrashRecoveryIT` | A destroyed JVM (no hooks ran), primary dropped, snapshot ×5 restored into real stores, certified replay to the committed root |
-| `LagHandoffIT` / `LiveLagHandoffIT` | A laggard primary is replaced under epoch+1 with the neighbour untouched; the live lane is driven by real forwarded-action latency |
+| `EntityTransferCrashRecoveryIT` | A destroyed JVM (no hooks ran) reopens with the transfer journal intact and the entity neither duplicated nor lost |
+| `LiveLagHandoffIT` | A laggard primary is replaced under epoch+1 with the neighbour untouched, driven by real forwarded-action latency |
 | `EventSyncOverTransportIT` | A fresh peer replays a certified chain to the certified root; an uncertified tail never syncs |
 | `WorldContinuityIT` | Share → listed → P2P fetch byte-exact → host game closed → host worker killed → a second peer still reproduces the world, over the **real** tracker and rendezvous binaries |
 | `ResidentQuorumIT` | A committee holds full strength through a player's logout thanks to standing workers, with the no-resident counterfactual asserted |
@@ -86,6 +92,22 @@ cargo test -p nodera-codec
 | `WireFixtureTest.everyRetiredV1FrameIsRefusedRatherThanMisparsed` | Every pre-`NDR2` frame this project used to emit is refused at the magic, in both languages. The flag day, asserted rather than assumed |
 | `tag_mirror.rs` (5) | The **generated** Rust kind table is compared against a fresh parse of `WireRegistry.java`, totally and in both directions — which is what makes "generated" mean something: a stale file fails, and so does a kind that exists on one side only |
 | `fixtures.rs` (3) | Rust re-encodes every shared fixture byte-exactly; truncation is asserted to be rejected, and appending is routed to the family that owns the tag |
+
+### 2.1 What the Plan 11 round-2 reduction took out of this table
+
+Four landmark suites were removed from this file on 2026-08-06 (issue #210, commits `0b02aa5` and
+`24e6f0e`) because they no longer exist. Three go with the design they covered; **one is a real
+gap.**
+
+| Removed suite | Verdict |
+|---|---|
+| `ArchiveRepairIT` | **Not a gap, and the replacement is stronger.** It proved a killed ×5 manifest was re-replicated by the push-side audit→repair triangle. That triangle had no production entry point and was deleted; the durability property is now held by placement, which `DepartureIsRepairedByPlacementTest` pins. Evacuating on the way out needed the departing node to still be alive — a crash and a closed laptop both break that, and the sweep does not care. |
+| `CrashRecoveryIT`, `LagHandoffIT` | **Not a gap.** Both drove the retired central-coordinator committee session. `EntityTransferCrashRecoveryIT` and `RocksCrashRecoveryIT` still prove forced-kill durability with real `destroyForcibly()` kills, and `LiveLagHandoffIT` still proves epoch+1 replacement of a laggard primary — over the transport that ships. |
+| `MultiBootstrapIT` | **Real gap.** It proved Task 20 acceptance #2: with the original bootstrap **offline**, a new client still reaches the mesh by each of three independent routes — a configured alternate, a cached address, and a pasted invitation — so no single host is a gatekeeper. Round 2 deleted `BootstrapClient`, `CachedPeerStore` and `InvitationCodec` as a second discovery resolver superseded by `PeerDiscoveryService` + `TrackerClient`. That is a defensible deletion, but **the gatekeeper property lost its only test with them.** `PinnedTrackerEndpointsTest` proves a config push cannot remove the operator's tracker and `ServiceScoreBoardTest` proves a draining service is not chosen; neither asserts that a *new* client can still join when its first tracker is down. Nothing in the tree does. |
+
+The `MultiBootstrapIT` row is a live gap in the discovery lane, not a bookkeeping artefact: it is
+tracked against L-34 in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) and needs a multi-tracker
+join test written against `PeerDiscoveryService` before that row's evidence means anything again.
 
 ## 3. Conventions
 
