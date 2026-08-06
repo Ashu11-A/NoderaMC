@@ -20,7 +20,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/bun.sh"
 layout_export
 
 UI="$NODERA_ROOT/$(layout_get package.nodera-app-ui)"
+TAP="$NODERA_RUN_DIR/tap/nodera-app-ui.log"
 
 nodera_bun_install "$UI"
 
-bun run --cwd "$UI" build
+# `tee`, and then a count. The package's `build` script ends in `node --test "tests/*.test.mjs"`,
+# which answers a glob that matches no file with `# pass 0` and exit status 0 — so for the life of
+# this script a suite that stopped running was indistinguishable from one that passed. `pipefail`
+# keeps a red suite red through the pipe; the two commands after it are what make an EMPTY one red.
+mkdir -p "$(dirname "$TAP")"
+bun run --cwd "$UI" build 2>&1 | tee "$TAP"
+
+# The measured number, for the badge the `companion` job publishes.
+mkdir -p "$NODERA_RUN_DIR/totals"
+"$NODERA_ROOT/scripts/test-totals.sh" --tap "$TAP" --source app-ui \
+    > "$NODERA_RUN_DIR/totals/app-ui.json"
+cat "$NODERA_RUN_DIR/totals/app-ui.json"
+
+# …and the same number against README's stamped one, so a suite that quietly shrinks is a failure
+# rather than a smaller badge nobody reads.
+"$NODERA_ROOT/scripts/test-counts.sh" --check nodera-app-ui

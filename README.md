@@ -280,7 +280,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 <!-- AI-AGENT-INSTRUCTION: Mirrors docs/<category>/TESTING.md — update both together. Status:
      ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. Keep the responsibility
      column to ONE short line; the full architecture of a module is in java/<module>/README.md or
-     <crate>/README.md. The Rust crate rows are parsed by scripts/test-counts.sh (keyed on the crate directory from layout.properties) — do not change
+     <crate>/README.md. The Rust crate rows AND the two frontend package rows are parsed by scripts/test-counts.sh (keyed on the crate or package directory from layout.properties) — do not change
      their shape (backticked path, count as the second-to-last cell). -->
 
 | Module | Responsibility | Tests | Status |
@@ -301,6 +301,9 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
 | `app` | The desktop shell: window, tray, autostart, command registration. Everything it *is* lives in `nodera-core`; the Android front end is native Compose (separate workspace) | 2 | 🚧 |
+| `app/ui` | The companion app's frontend — screens, the design system, the token audit | 70 | 🚧 |
+| `web` | noderamc.org: the generated site, its mirrors, the `/add-store` deep-link page | 140 | 🚧 |
+| `library/ts/nodera-ui` | The shared frontend kit: the platform seam, the store link, the token audit both applications run | — | ✅ |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap

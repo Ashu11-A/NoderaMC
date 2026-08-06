@@ -220,23 +220,12 @@ export interface NetworkState {
   error: string;
 }
 
-export const EMPTY_NETWORK_STATE: NetworkState = {
-  supported: false,
-  transport: "unknown",
-  metered: false,
-  vpn: false,
-  error: "",
-};
-
-export const TRANSPORT_LABEL: Record<Transport, string> = {
-  unknown: "Unknown",
-  offline: "Offline",
-  wifi: "Wi-Fi",
-  cellular: "Mobile data",
-  ethernet: "Ethernet",
-  other: "Other",
-};
-
+// An `EMPTY_NETWORK_STATE` placeholder and a `TRANSPORT_LABEL` table used to sit here, and nothing
+// read either: the only front end that asks this question is the Android one, which is Compose and
+// spells its own labels in Kotlin. The BINDING below stays — `ux-honesty.test.mjs` requires every
+// registered command to have a TypeScript caller — but a default value and a display table are not
+// a caller of anything, and a label table nobody renders is a second vocabulary waiting to disagree
+// with the one that ships.
 export async function fetchNetworkState(): Promise<NetworkState> {
   return invoke<NetworkState>("network_state");
 }
@@ -474,14 +463,9 @@ export type PeerSelfTest = {
   error: string;
 };
 
-export const EMPTY_PEER: PeerStatus = {
-  node_id: "",
-  public_key: "",
-  trackers: [],
-  announced: false,
-  last_announce_ms: 0,
-  known_peers: 0,
-};
+// `EMPTY_PEER` stood here as the "nobody has answered yet" placeholder for a peer screen this
+// front end does not have. Same reasoning as the network placeholder above: the two bindings below
+// stay because the commands are registered, a zero-valued default is not a caller of either.
 
 // Announce to every configured tracker and report each one's answer.
 export async function fetchPeerStatus(): Promise<PeerStatus> {

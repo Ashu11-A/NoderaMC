@@ -28,7 +28,22 @@
 #   java job       --java                       reads build/test-results/**/TEST-*.xml
 #   rust job       --cargo <log>                reads `test result:` lines from a saved cargo run
 #   companion job  --cargo <log>                the same, for the app's separate workspace
+#   companion job  --tap <log>                  reads node:test's `# pass N` from a saved frontend run
 #   badges job     --merge *.json --badges DIR  sums them and writes the shields endpoints
+#
+# ---------------------------------------------------------------------------
+# WHY --tap EXISTS, AND WHY IT REFUSES A ZERO
+# ---------------------------------------------------------------------------
+#
+# `node --test "tests/*.test.mjs"` on a glob that matches nothing prints `# pass 0`, `# fail 0` and
+# **exits 0**. Both frontend packages end their gate with exactly that line, and neither
+# `build-app-ui.sh` nor `build-site.sh` asserted a count — so 209 frontend tests could have been
+# deleted, or their directory renamed, without one thing in this repository turning red. That is the
+# same failure the header above describes, in the one toolchain the script could not read.
+#
+# So `--tap` refuses a run that passed nothing AND failed nothing: that is not a green suite, it is
+# an empty one. Everything else about the shape is `--cargo`'s, deliberately — one summary block per
+# runner invocation, summed, with a red suite contributing its failures rather than vanishing.
 #
 # ---------------------------------------------------------------------------
 # USAGE
@@ -36,10 +51,11 @@
 #
 #   scripts/test-totals.sh --java                       # {"source":"java","passed":…}
 #   scripts/test-totals.sh --cargo run/cargo.log        # the same shape, from cargo output
+#   scripts/test-totals.sh --tap run/tap/app-ui.log     # the same shape, from node:test output
 #   scripts/test-totals.sh --merge a.json b.json        # summed totals, one JSON
 #   scripts/test-totals.sh --merge *.json --badges out  # …and write out/tests-{passed,failed}.json
 #
-# `--java` and `--cargo` print JSON on stdout; redirect it to a file. `--badges` writes
+# `--java`, `--cargo` and `--tap` print JSON on stdout; redirect it to a file. `--badges` writes
 # shields.io **endpoint** documents, which is what lets the badge say "2275" instead of "passing".
 # ===========================================================================
 set -euo pipefail
@@ -125,6 +141,54 @@ def cargo_totals(log_path, source):
     failed = sum(int(m[1]) for m in matches)
     skipped = sum(int(m[2]) for m in matches)
     return {"source": source, "passed": passed, "failed": failed, "skipped": skipped}
+
+
+# node:test's epilogue, one block per runner invocation:
+#   # tests 69 / # pass 69 / # fail 0 / # cancelled 0 / # skipped 0 / # todo 0
+# Anchored to the start of the line so a test NAME containing one of these words cannot be counted;
+# the epilogue is the only place node writes them unindented.
+#
+# Both markers, because node picks its reporter from whether stdout is a terminal: `# ` is the `tap`
+# reporter, which is what a pipe into `tee` gets and therefore what CI records, and `ℹ ` is the
+# `spec` reporter somebody gets running the same command by hand. Reading only one of them would
+# make this script's answer depend on how the log was captured.
+TAP_COUNTER = re.compile(r"^(?:# |ℹ )(pass|fail|cancelled|skipped|todo) (\d+)$", re.M)
+
+
+def tap_totals(log_path, source):
+    """Passed / failed / skipped from a saved `node --test` run.
+
+    `cancelled` counts as FAILED. A cancelled test produced no result — it is the run being cut off
+    partway, which is exactly the thing this script exists to stop rendering as green.
+
+    The zero refusal below is the whole reason the mode exists: node's runner answers a glob that
+    matched no file with `# pass 0`, `# fail 0` and exit status 0, which is indistinguishable from a
+    suite that ran and was perfect.
+    """
+    text = pathlib.Path(log_path).read_text(errors="replace")
+    counts = {}
+    for name, value in TAP_COUNTER.findall(text):
+        counts[name] = counts.get(name, 0) + int(value)
+    if "pass" not in counts:
+        die(
+            f"{log_path} contains no `# pass` line — that is a node --test run that produced no"
+            " summary at all, so there is nothing real to count. Check the log rather than"
+            " publishing a zero."
+        )
+    passed = counts.get("pass", 0)
+    failed = counts.get("fail", 0) + counts.get("cancelled", 0)
+    if passed == 0 and failed == 0:
+        die(
+            f"{log_path} reports zero passed and zero failed tests. `node --test` on a glob that"
+            " matches no file prints exactly that and exits 0 — so this is an empty suite, not a"
+            " green one. Check the glob and the test directory."
+        )
+    return {
+        "source": source,
+        "passed": passed,
+        "failed": failed,
+        "skipped": counts.get("skipped", 0) + counts.get("todo", 0),
+    }
 
 
 def merge(paths):
@@ -223,6 +287,14 @@ elif "--cargo" in args:
     if "--source" in args:
         label = args[args.index("--source") + 1]
     print(json.dumps(cargo_totals(args[index + 1], label)))
+elif "--tap" in args:
+    index = args.index("--tap")
+    if index + 1 >= len(args):
+        die("--tap needs the path to a saved `node --test` log")
+    label = "tap"
+    if "--source" in args:
+        label = args[args.index("--source") + 1]
+    print(json.dumps(tap_totals(args[index + 1], label)))
 elif "--merge" in args:
     index = args.index("--merge")
     files = []
@@ -239,5 +311,8 @@ elif "--merge" in args:
         for path in write_badges(total, args[badge_index + 1]):
             print(f"wrote {path}", file=sys.stderr)
 else:
-    die("usage: test-totals.sh --java | --cargo <log> [--source NAME] | --merge <json>... [--badges DIR]")
+    die(
+        "usage: test-totals.sh --java | --cargo <log> [--source NAME] | --tap <log> [--source NAME]"
+        " | --merge <json>... [--badges DIR]"
+    )
 PY
