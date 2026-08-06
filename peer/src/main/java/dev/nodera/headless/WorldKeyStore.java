@@ -11,13 +11,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Stream;
 import static dev.nodera.headless.WorldIds.shortId;
 
 /**
@@ -43,13 +39,12 @@ import static dev.nodera.headless.WorldIds.shortId;
  * @Thread-context safe from any thread; blocking IO on the caller's thread. The in-memory cache is
  *                 concurrent and is only ever populated from disk or from a fresh generation.
  */
-public final class WorldKeyStore {
+public final class WorldKeyStore extends HexKeyedStore {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
     private static final String SUFFIX = ".worldkey";
 
-    private final Path directory;
     private final ConcurrentHashMap<String, PersistedWorldKey> cache = new ConcurrentHashMap<>();
 
     /**
@@ -57,12 +52,7 @@ public final class WorldKeyStore {
      * @throws NullPointerException if {@code directory} is null.
      */
     public WorldKeyStore(Path directory) {
-        this.directory = Objects.requireNonNull(directory, "directory").normalize();
-    }
-
-    /** @return the directory this store reads and writes. */
-    public Path directory() {
-        return directory;
+        super(directory);
     }
 
     /**
@@ -81,7 +71,7 @@ public final class WorldKeyStore {
         if (cached != null) {
             return Optional.of(cached);
         }
-        Path file = fileFor(key);
+        Path file = fileFor(key, SUFFIX);
         if (!Files.exists(file)) {
             return Optional.empty();
         }
@@ -145,63 +135,12 @@ public final class WorldKeyStore {
 
     /** @return every world this node administers, hex-encoded. */
     public List<String> administeredWorlds() {
-        List<String> out = new ArrayList<>();
-        if (!Files.isDirectory(directory)) {
-            return out;
-        }
-        try (Stream<Path> files = Files.list(directory)) {
-            files.map(path -> path.getFileName().toString())
-                    .filter(name -> name.endsWith(SUFFIX))
-                    .map(name -> name.substring(0, name.length() - SUFFIX.length()))
-                    .forEach(out::add);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to list world keys in " + directory, e);
-        }
-        return out;
+        return idsWith(SUFFIX);
     }
 
     private void save(PersistedWorldKey key) {
         CanonicalWriter w = new CanonicalWriter(256);
         key.encode(w);
-        LocalFiles.writeAtomically(fileFor(normalise(key.worldId().toHex())), w.toByteArray());
+        LocalFiles.writeAtomically(fileFor(key.worldId().toHex(), SUFFIX), w.toByteArray());
     }
-
-    /**
-     * The key file for an ALREADY-{@link #normalise(String) normalised} id.
-     *
-     * <p>Hex validation is what makes traversal impossible, but this resolves and re-checks
-     * containment anyway: the guard and the file access then sit in the same method, so no future
-     * caller can reach the resolve without it, and a reader does not have to trace the id back to
-     * its validation to see that the store cannot write outside its own directory.
-     */
-    private Path fileFor(String worldIdHex) {
-        Path resolved = directory.resolve(worldIdHex + SUFFIX).normalize();
-        if (!resolved.startsWith(directory)) {
-            throw new IllegalArgumentException("world key path escapes " + directory);
-        }
-        return resolved;
-    }
-
-    /**
-     * Lower-case the world id and refuse anything that is not hex.
-     *
-     * <p>The id becomes a filename, so this is also the path-traversal guard: a caller-supplied
-     * {@code ../../} can never reach {@link #fileFor} because it is not hex.
-     *
-     * @return the normalised id, or {@code null} when it is not a usable world id.
-     */
-    private static String normalise(String worldIdHex) {
-        if (worldIdHex == null || worldIdHex.isBlank()) {
-            return null;
-        }
-        String trimmed = worldIdHex.trim().toLowerCase(Locale.ROOT);
-        for (int i = 0; i < trimmed.length(); i++) {
-            char c = trimmed.charAt(i);
-            if ((c < '0' || c > '9') && (c < 'a' || c > 'f')) {
-                return null;
-            }
-        }
-        return trimmed.length() % 2 == 0 ? trimmed : null;
-    }
-
 }

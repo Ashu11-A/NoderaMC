@@ -1,21 +1,12 @@
 package dev.nodera.headless;
 
-import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.storage.WorldTombstone;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
-import java.util.stream.Stream;
 
 /**
  * The deletions this peer has accepted, kept on disk so a restart cannot undo one.
@@ -41,9 +32,7 @@ import java.util.stream.Stream;
  *
  * @Thread-context safe from any thread; blocking IO on the caller's thread.
  */
-public final class WorldTombstoneStore {
-
-    private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
+public final class WorldTombstoneStore extends HexKeyedStore {
 
     private static final String SUFFIX = ".tombstone";
 
@@ -53,16 +42,9 @@ public final class WorldTombstoneStore {
     /** How long a deletion is remembered — the same window the trackers cache. */
     public static final Duration RETENTION = Duration.ofDays(120);
 
-    private final Path directory;
-
     /** @param directory where accepted tombstones live; created on the first save. */
     public WorldTombstoneStore(Path directory) {
-        this.directory = Objects.requireNonNull(directory, "directory");
-    }
-
-    /** @return the directory this store reads and writes. */
-    public Path directory() {
-        return directory;
+        super(directory);
     }
 
     /**
@@ -76,27 +58,8 @@ public final class WorldTombstoneStore {
      * @return the surviving tombstones.
      */
     public List<WorldTombstone> load(long nowEpochMillis) {
-        if (!Files.isDirectory(directory)) {
-            return List.of();
-        }
-        long floor = nowEpochMillis - RETENTION.toMillis();
-        List<WorldTombstone> loaded = new ArrayList<>();
-        try (Stream<Path> files = Files.list(directory)) {
-            for (Path file : files.filter(p -> p.getFileName().toString().endsWith(SUFFIX)).toList()) {
-                WorldTombstone tombstone = read(file);
-                if (tombstone == null) {
-                    continue;
-                }
-                if (tombstone.issuedAtEpoch() < floor) {
-                    delete(file);
-                    continue;
-                }
-                loaded.add(tombstone);
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to list " + directory, e);
-        }
-        return List.copyOf(loaded);
+        return loadAll(SUFFIX, WorldTombstone::decode, WorldTombstone::verify, "deletion",
+                WorldTombstone::issuedAtEpoch, nowEpochMillis - RETENTION.toMillis());
     }
 
     /**
@@ -114,7 +77,7 @@ public final class WorldTombstoneStore {
         }
         CanonicalWriter w = new CanonicalWriter(256);
         tombstone.encode(w);
-        LocalFiles.writeAtomically(fileFor(tombstone.worldIdHex()), w.toByteArray());
+        LocalFiles.writeAtomically(fileFor(tombstone.worldIdHex(), SUFFIX), w.toByteArray());
     }
 
     /**
@@ -134,8 +97,8 @@ public final class WorldTombstoneStore {
         }
         CanonicalWriter w = new CanonicalWriter(256);
         revival.encode(w);
-        LocalFiles.writeAtomically(revivalFileFor(revival.worldIdHex()), w.toByteArray());
-        delete(fileFor(revival.worldIdHex()));
+        LocalFiles.writeAtomically(fileFor(revival.worldIdHex(), REVIVAL_SUFFIX), w.toByteArray());
+        delete(fileFor(revival.worldIdHex(), SUFFIX));
     }
 
     /**
@@ -145,87 +108,9 @@ public final class WorldTombstoneStore {
      * @return the surviving revivals, each re-verified on the way in.
      */
     public List<dev.nodera.storage.WorldRevival> loadRevivals(long nowEpochMillis) {
-        if (!Files.isDirectory(directory)) {
-            return List.of();
-        }
-        long floor = nowEpochMillis - RETENTION.toMillis();
-        List<dev.nodera.storage.WorldRevival> loaded = new ArrayList<>();
-        try (Stream<Path> files = Files.list(directory)) {
-            for (Path file : files
-                    .filter(p -> p.getFileName().toString().endsWith(REVIVAL_SUFFIX)).toList()) {
-                dev.nodera.storage.WorldRevival revival = readRevival(file);
-                if (revival == null) {
-                    continue;
-                }
-                if (revival.issuedAtEpoch() < floor) {
-                    delete(file);
-                    continue;
-                }
-                loaded.add(revival);
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to list " + directory, e);
-        }
-        return List.copyOf(loaded);
-    }
-
-    private dev.nodera.storage.WorldRevival readRevival(Path file) {
-        try {
-            dev.nodera.storage.WorldRevival revival = dev.nodera.storage.WorldRevival.decode(
-                    new CanonicalReader(Files.readAllBytes(file)));
-            if (!revival.verify()) {
-                LOG.warn("Ignoring {}: the stored restore does not verify", file);
-                return null;
-            }
-            return revival;
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        } catch (RuntimeException malformed) {
-            LOG.warn("Ignoring {}: unreadable ({})", file, malformed.getMessage());
-            return null;
-        }
-    }
-
-    private Path revivalFileFor(String worldIdHex) {
-        Path tombstone = fileFor(worldIdHex);
-        return tombstone.resolveSibling(
-                tombstone.getFileName().toString().replace(SUFFIX, REVIVAL_SUFFIX));
-    }
-
-    private WorldTombstone read(Path file) {
-        try {
-            WorldTombstone tombstone =
-                    WorldTombstone.decode(new CanonicalReader(Files.readAllBytes(file)));
-            if (!tombstone.verify()) {
-                LOG.warn("Ignoring {}: the stored deletion does not verify", file);
-                return null;
-            }
-            return tombstone;
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        } catch (RuntimeException malformed) {
-            LOG.warn("Ignoring {}: unreadable ({})", file, malformed.getMessage());
-            return null;
-        }
-    }
-
-    private void delete(Path file) {
-        try {
-            Files.deleteIfExists(file);
-        } catch (IOException e) {
-            LOG.debug("could not remove expired tombstone {}: {}", file, e.getMessage());
-        }
-    }
-
-    private Path fileFor(String worldIdHex) {
-        String name = worldIdHex.trim().toLowerCase(Locale.ROOT);
-        if (name.isEmpty() || !name.chars().allMatch(c -> (c >= '0' && c <= '9')
-                || (c >= 'a' && c <= 'f'))) {
-            // The world id becomes a path component, and it arrives from the network. Hex-only is
-            // the whole check: it makes "..", separators and absolute paths unrepresentable rather
-            // than filtered.
-            throw new IllegalArgumentException("worldId must be hex: " + worldIdHex);
-        }
-        return directory.resolve(name + SUFFIX);
+        return loadAll(REVIVAL_SUFFIX, dev.nodera.storage.WorldRevival::decode,
+                dev.nodera.storage.WorldRevival::verify, "restore",
+                dev.nodera.storage.WorldRevival::issuedAtEpoch,
+                nowEpochMillis - RETENTION.toMillis());
     }
 }
