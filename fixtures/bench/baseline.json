@@ -195,54 +195,6 @@
       "micros": 9.725632,
       "error": 2.702876
     },
-    "dev.nodera.bench.DiscoveryBenchmark.cacheLoad[peers=1024]": {
-      "micros": 757.102942,
-      "error": 612.500674
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.cacheLoad[peers=16]": {
-      "micros": 14.736344,
-      "error": 3.5442
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.cacheLoad[peers=256]": {
-      "micros": 184.940224,
-      "error": 93.650071
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.cacheSave[peers=1024]": {
-      "micros": 793.662032,
-      "error": 270.621423
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.cacheSave[peers=16]": {
-      "micros": 128.762733,
-      "error": 174.046742
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.cacheSave[peers=256]": {
-      "micros": 285.013384,
-      "error": 285.965426
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.directoryIngest[peers=1024]": {
-      "micros": 56.623807,
-      "error": 22.012247
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.directoryIngest[peers=16]": {
-      "micros": 0.833422,
-      "error": 0.755423
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.directoryIngest[peers=256]": {
-      "micros": 13.89349,
-      "error": 7.243435
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.directoryOnline[peers=1024]": {
-      "micros": 65.358725,
-      "error": 81.31725
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.directoryOnline[peers=16]": {
-      "micros": 0.888035,
-      "error": 2.238396
-    },
-    "dev.nodera.bench.DiscoveryBenchmark.directoryOnline[peers=256]": {
-      "micros": 14.828824,
-      "error": 35.695176
-    },
     "dev.nodera.bench.DiscoveryBenchmark.electGateway[peers=1024]": {
       "micros": 15.549941,
       "error": 11.56685

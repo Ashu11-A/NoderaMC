@@ -31,9 +31,11 @@
  *
  * <h2>Bounded, always</h2>
  *
- * <p>{@link dev.nodera.peer.discovery.PeerDirectory} is LRU-bounded. Everything it holds
- * arrives from remote peers, so an unbounded index is a memory-exhaustion vector reachable by any
- * peer that gossips enthusiastically enough (Plan §3.13).
+ * <p>Everything these services hold arrives from remote peers, so every index is bounded: an
+ * unbounded one is a memory-exhaustion vector reachable by any peer that gossips enthusiastically
+ * enough (Plan §3.13). A separate LRU peer directory was written for Task 20 and consulted by
+ * nothing that ships; it was deleted on 2026-08-06 (Plan 11 round 2, issue #210) along with the two
+ * `DiscoveryBenchmark` lanes that were measuring it.
  *
  * <p>Thread-context: the services are thread-safe; see per-class Javadoc.
  */
