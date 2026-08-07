@@ -50,10 +50,30 @@ import sys; sys.path.insert(0, '$NODERA_ROOT/scripts/lib'); import layout
 print('\n'.join(sorted(layout.workspace_crates())))"
 )
 
-# The frontend packages that ship a `node --test` suite, by their `package.*` name in
-# layout.properties. `nodera-ui` is not one: it is the kit both of these depend on and has no suite
-# of its own — its rules are asserted from the two applications that consume it.
-FRONTEND_PACKAGES=(nodera-app-ui nodera-site)
+# The frontend packages that ship a `node --test` suite: every `package.*` in layout.properties
+# whose directory actually holds a `tests/*.test.mjs`. Derived rather than listed, for the reason
+# stated three lines above about crates — this list used to be the literal `(nodera-app-ui
+# nodera-site)`, which is the same hand-kept table the crate list had already stopped being, and it
+# had the same hole: a frontend package added to layout.properties with a real suite in it was never
+# measured, never needed a README row, and left this gate green. `nodera-ui` is excluded by the rule
+# rather than by name — it is the kit both applications depend on, its `tests/` directory holds only
+# the audits they import, and it declares no `*.test.mjs` of its own.
+mapfile -t FRONTEND_PACKAGES < <(
+    python3 -c "
+import sys; sys.path.insert(0, '$NODERA_ROOT/scripts/lib'); import layout
+print('\n'.join(sorted(
+    name for name, directory in layout.packages().items()
+    if any((directory / 'tests').glob('*.test.mjs'))
+)))"
+)
+
+# A derived list that silently became empty is the failure this whole file exists for: every
+# frontend suite would stop being measured and `--check` would still report agreement, because the
+# crates alone keep the `measured` counter off zero.
+if [[ ${#FRONTEND_PACKAGES[@]} -eq 0 ]]; then
+    echo "test-counts: no frontend package declares a suite — that is not this repository" >&2
+    exit 1
+fi
 
 # Enumerate, do not run: `--list` prints one `name: test` line per test.
 count_crate() {
@@ -165,6 +185,15 @@ while read -r suite count; do
                 # there is then the very outage this gate is for, not an absent build artifact.
                 if [[ -n $only ]]; then
                     echo "test-counts: $suite reported no results — the suite did not run" >&2
+                    status=1
+                    continue
+                fi
+                # Not named, so there is nothing to compare — but a suite this script has heard of
+                # and README has not is a suite no run of this gate will ever measure, and saying
+                # "skipped" about it forever is how a whole package stays invisible. The row is the
+                # cheap half of the claim and it holds even when the count cannot be taken.
+                if [[ -z $(readme_count "$suite") ]]; then
+                    echo "test-counts: README.md has no row for $suite" >&2
                     status=1
                 else
                     echo "$suite: skipped (nothing to measure it from)"
