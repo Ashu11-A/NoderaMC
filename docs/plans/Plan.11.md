@@ -215,9 +215,11 @@ all, 415 test-only methods and 29 test-only classes. `./gradlew :peer:structureR
 its debugger-profiled run of the real `nodera-headless` worker confirms none of them execute. A
 method no entry point can reach is not a feature.
 
-The trap here is `docs/LIMITATIONS.md`: a limitation row can be staged on a green test that drives a
-class production never calls. Check `structureReport` §2.2 before deleting anything a row depends
-on, and never close an issue that `docs/LIMITATIONS.md` tracks.
+The trap here is the limitation registers, which live one per category at
+`docs/<category>/LIMITATIONS.md` — there is no `docs/LIMITATIONS.md` to open. A limitation row can be
+staged on a green test that drives a class production never calls. Check `structureReport` §2.2
+before deleting anything a row depends on, and never close an issue that any of those registers
+tracks.
 
 ### Phase 2 keeps more than it moves
 

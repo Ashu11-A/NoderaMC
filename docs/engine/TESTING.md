@@ -6,18 +6,22 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-08-06 · **797 XML-reported · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-08-06 · **802 XML-reported · 0 failing · 0 skipped**
 
-> Counts above are measured from `:core:test`, `:engine:test` and `:testing:test` XML reports on
+> Counts above are `:core:test` + `:engine:test` + `:testing:test` from the nine-module run recorded
+> in commit `44069df` — the JUnit XML of that run is where README's module table was re-measured, and
+> this register carries the same three cells rather than a second measurement. The run is dated
 > 2026-08-06, after the Plan 11 round 2 reduction (issue #210) deleted the shadow-validation and
-> central-coordinator clusters and 21 of their dedicated test files. The whole Java tree measures
-> **2,238 passed / 0 failed / 0 skipped** on the same date (`scripts/test-totals.sh --java`).
+> central-coordinator clusters and 21 of their dedicated test files. The whole Java tree comes to
+> **2,267 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
+> measure it rather than add it up, run `scripts/test-totals.sh --java`. The **2,238** this file used
+> to carry predates that re-measurement and never agreed with README.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
 | `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 314 | ✅ |
 | `engine` | Deterministic engine + consensus/committee/fallback, and the surviving `shadow` delta applier | 444 | ✅ |
-| `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 39 | ✅ |
+| `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 44 | ✅ |
 
 Run with:
 
