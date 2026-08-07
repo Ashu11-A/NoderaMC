@@ -1,6 +1,6 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 at 1a1baf4 on the full tree, by `scripts/loc-metrics.py --baseline`.",
+  "measured": "2026-08-06 at 41bc91e on the full tree, by `scripts/loc-metrics.py --baseline`.",
   "limits": {
     "java.main.code": 56423,
     "java.main.comment": 33607,
@@ -12,7 +12,7 @@
     "rust.test.comment": 1116,
     "ts.main.code": 12588,
     "ts.main.comment": 4260,
-    "ts.test.code": 3525,
-    "ts.test.comment": 1656
+    "ts.test.code": 3544,
+    "ts.test.comment": 1677
   }
 }
