@@ -8,7 +8,7 @@
      headless tests before the plugin consumes it. Keep this header accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** server · **Owns:** — (L-62 RETIRED 2026-07-28, L-63 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
+**Category:** server · **Owns:** L-62 (retired 2026-07-28, REOPENED 2026-08-06 — its exit test was deleted; L-63 RETIRED 2026-07-26) · **Last audit:** 2026-08-06
 **Depends on:** [server 2](Task.2.md), [engine 5](../engine/Task.5.md), [network 6](../network/Task.6.md)
 **Consumed by:** [server 4](Task.4.md), [server 5](Task.5.md), [server 6](Task.6.md)
 
@@ -180,9 +180,10 @@ region split across two threads is corruption with a delay fuse.
   endpoint planned identically by two independent peers; the custody tiebreak fires **only** on an
   exact distance tie and never ahead of a nearer player.
 - ~~`CustodyDigestTest`~~ / ~~`CustodyAuditIT`~~ — **deleted 2026-08-06 with the classes they
-  covered.** `CustodyAuditIT` was L-62's exit test; that row is retired and stays retired, but its
-  evidence is no longer in the tree. See L-62 in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) for
-  what the retirement now rests on.
+  covered.** `CustodyAuditIT` was L-62's exit test, and with it gone the row is open again: see L-62
+  in [`LIMITATIONS.md`](LIMITATIONS.md) §B for what would have to exist before it can be checked, and
+  the withdrawn-retirement section of [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) for the evidence
+  as it stood.
 - `NoderaFoliaRegionMapTest` — mapping arithmetic; ALIGN-1 across the coordinate origin and both
   negative axes.
 - Live (`e2e-folia.sh` F2): `/nodera regions --folia` shows every Nodera region mapped to exactly one
@@ -200,5 +201,5 @@ region split across two threads is corruption with a delay fuse.
 
 ## Limitations
 
-- **L-62** — RETIRED 2026-07-28 and **stays retired**, but its exit test is no longer in the tree: `CustodyDigest`, `CustodyAudit`, `CustodyAuditIT` and `CustodyDigestTest` were all deleted on 2026-08-06 (`0b02aa5`, issue #210) as unreachable from production. The retirement was earned — the suite ran green and the work was real — but nothing in the tree can re-prove it. What holds the row today is a different and weaker mechanism, recorded in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+- **L-62** — retired 2026-07-28, **REOPENED 2026-08-06**. `CustodyDigest`, `CustodyAudit`, `CustodyAuditIT` and `CustodyDigestTest` were all deleted on that date (`0b02aa5`, issue #210) as unreachable from production. The retirement was earned — the suite ran green and the work was real — but nothing in the tree can re-prove it, and a row whose exit test does not exist is not a retired row. The current row and the exit test it now waits on are in [`LIMITATIONS.md`](LIMITATIONS.md) §B; the original evidence is preserved under "Withdrawn retirement" in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). The deletion was correct and this reopening does not ask for it to be undone — see the decision note above.
 - **L-63** — RETIRED 2026-07-26: `ViewOwnershipPlanner.planMultiView` plans from a node's whole view set with the min-distance rule; two peers holding the same facts in different orders derive identical plans for a 20-tenant endpoint (`ViewOwnershipPlannerTest`). Evidence in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

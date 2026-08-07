@@ -40,8 +40,9 @@ The **headline stages** (P2–P8, F2–F6, the WorldEdit certification) still re
 open row that blocks each — the in-process peer ([server 2](Task.2.md) deliverables 1/2/4), the
 tenant lane ([server 6](Task.6.md)), the capture lane ([server 5](Task.5.md)) — and the suite exits 0
 so a nightly run reads "not built yet", never "broken". L-61 (no plugin jar) is retired; the remaining
-skips name L-64, L-65, L-66, L-67, L-68, L-69, L-70 (L-62 retired 2026-07-28 on a headless
-integration test, so it never was a live-suite skip).
+skips name L-64, L-65, L-66, L-67, L-68, L-69, L-70. L-62 is open again as of 2026-08-06 but is still
+not a live-suite skip: it retired on a headless integration test, and the exit test it now waits on is
+headless too.
 
 ## Dependencies
 
