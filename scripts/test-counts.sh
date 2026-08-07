@@ -11,6 +11,7 @@
 #   scripts/test-counts.sh --check      # fail if README.md disagrees (CI gate)
 #   scripts/test-counts.sh --check NAME # …only that one suite, measuring nothing else
 #   scripts/test-counts.sh --write      # rewrite README.md's column in place
+#   scripts/test-counts.sh --runners    # name the script that runs each frontend suite
 #
 # Counting a crate uses `cargo test -- --list`, which enumerates every test binary's
 # tests without running them: the number is the same one `cargo test` reports,
@@ -35,6 +36,27 @@
 # then call this script on their own package. A package with no log is reported `skipped` exactly
 # like `nodera-app` without its dist — unless it was NAMED on the command line, which is a caller
 # saying it just ran the suite, and a missing log there is the failure itself.
+#
+# ---------------------------------------------------------------------------
+# AND WHY EACH OF THEM MUST HAVE A RUNNER
+# ---------------------------------------------------------------------------
+#
+# That is the whole mechanism, and read carefully it has a hole in it. Those two build scripts each
+# hardcode their own package, so a THIRD package holding a real suite is run by nothing, has no TAP
+# log, and is reported `skipped` — for ever. The `skipped` branch below asked only for a README row,
+# and a row whose count cell is an em dash satisfies that, so a failing assertion could sit in the
+# tree for the life of the project with this gate reporting agreement every time it ran.
+#
+# So the runner is asserted rather than assumed, by `suite_runner` below: a package declaring a
+# suite must be named by a script that both RUNS it (writes its TAP log) and COUNTS the result
+# (hands that log back to this file). The two halves are exactly the promise the section above
+# makes, and they are grepped for literally, in one script, so that neither half can be provided by
+# something the other half never reaches.
+#
+# The check is a property of the tree rather than of a run, so it needs neither bun nor cargo and
+# fires in both `--check` jobs. `--runners` is the same check on its own, which is what
+# `app/ui/tests/layout-workspace.test.mjs` drives — beside the other rule about a layout row that
+# nothing else in the repository is obliged to read.
 # ===========================================================================
 set -euo pipefail
 
@@ -85,6 +107,41 @@ count_crate() {
 # Where a frontend package's build leaves the output of its `node --test` run.
 tap_log() {
     printf '%s/tap/%s.log\n' "$NODERA_RUN_DIR" "$1"
+}
+
+# The script that runs a frontend package's suite and counts what it produced, or nothing.
+#
+# Both halves, in the same file: `tap/<package>.log` is where the run is captured, and
+# `test-counts.sh --check <package>` is where the capture becomes a number held to README. A script
+# with only the first writes a log nobody reads; a script with only the second checks a log nobody
+# writes. The `--check` half is matched with an optional quote before the flag because these calls
+# are written `"$NODERA_ROOT/scripts/test-counts.sh" --check <package>`.
+suite_runner() {
+    local package=$1 script
+    for script in "$NODERA_ROOT"/scripts/*.sh; do
+        grep -qF "tap/$package.log" "$script" || continue
+        grep -qE "test-counts\.sh\"? --check $package([[:space:]]|\$)" "$script" || continue
+        printf 'scripts/%s\n' "${script##*/}"
+        return 0
+    done
+    return 1
+}
+
+# Every frontend package in scope, and what runs it. The rows go to stdout; a package nothing runs
+# is the outage this file exists for, reported on stderr, and the return status carries it.
+check_runners() {
+    local package runner rc=0
+    for package in "${FRONTEND_PACKAGES[@]}"; do
+        wanted "$package" || continue
+        if runner=$(suite_runner "$package"); then
+            printf '%s\t%s\n' "$package" "$runner"
+        else
+            echo "test-counts: $package declares tests/*.test.mjs and no script in scripts/ both" \
+                 "runs it and checks the count — it can only ever be reported skipped" >&2
+            rc=1
+        fi
+    done
+    return $rc
 }
 
 # How many of that package's tests PASSED. `test-totals.sh --tap` is the one parser of node's
@@ -162,14 +219,34 @@ only=${2:-}
 status=0
 
 case $mode in
-    print|--check|--write) ;;
-    *) echo "usage: scripts/test-counts.sh [--check|--write] [SUITE]" >&2; exit 2 ;;
+    print|--check|--write|--runners) ;;
+    *) echo "usage: scripts/test-counts.sh [--check|--write|--runners] [SUITE]" >&2; exit 2 ;;
 esac
 
 if [[ -n $only ]]; then
     printf '%s\n' "${WORKSPACE_CRATES[@]}" nodera-app "${FRONTEND_PACKAGES[@]}" \
         | grep -qxF "$only" \
         || { echo "test-counts: no suite called '$only'" >&2; exit 2; }
+fi
+
+# `--runners` on a crate would examine nothing and report success about it, which is the shape of
+# green this file exists to refuse.
+if [[ $mode == --runners && -n $only ]]; then
+    printf '%s\n' "${FRONTEND_PACKAGES[@]}" | grep -qxF "$only" \
+        || { echo "test-counts: '$only' is not a frontend package; --runners has nothing to say about it" >&2; exit 2; }
+fi
+
+if [[ $mode == --runners ]]; then
+    check_runners || exit 1
+    exit 0
+fi
+
+# Asserted before anything is measured, and in every mode that gates. A package whose suite nothing
+# runs has no TAP log to disagree with README, so the count loop below can only ever call it
+# `skipped` — and saying "skipped" about it for ever is precisely how a whole package, and the
+# failing assertion in it, stays invisible.
+if [[ $mode == --check ]]; then
+    check_runners > /dev/null || status=1
 fi
 
 measured=0
@@ -189,9 +266,11 @@ while read -r suite count; do
                     continue
                 fi
                 # Not named, so there is nothing to compare — but a suite this script has heard of
-                # and README has not is a suite no run of this gate will ever measure, and saying
-                # "skipped" about it forever is how a whole package stays invisible. The row is the
-                # cheap half of the claim and it holds even when the count cannot be taken.
+                # and README has not is a suite no run of this gate will ever measure. The row is
+                # the cheap half of the claim and it holds even when the count cannot be taken; the
+                # other half — that something in this tree runs the suite at all, without which
+                # "skipped" is the only answer this branch could ever give — was asserted by
+                # `check_runners` before the first measurement was taken.
                 if [[ -z $(readme_count "$suite") ]]; then
                     echo "test-counts: README.md has no row for $suite" >&2
                     status=1

@@ -15,7 +15,7 @@
 
 | Surface | Last run | Result |
 |---|---|---|
-| Desktop launcher + shared core | 2026-08-06 | **344 tests** (270 shared core + 2 shell, one intentionally ignored + 72 frontend): 343 passed, 1 ignored |
+| Desktop launcher + shared core | 2026-08-06 | **345 tests** (270 shared core + 2 shell, one intentionally ignored + 73 frontend): 344 passed, 1 ignored |
 | Android | last build 2026-08-01 · last physical run 2026-08-01 | `scripts/android-e2e.sh` **5 passed, 0 failed** on a Xiaomi 2210129SG (Android 15 / API 35) |
 | Website | 2026-08-06 | **144 passed, 0 failed** — `scripts/build-site.sh` runs the suite and now counts it |
 
@@ -36,6 +36,14 @@ build scripts now pipe the suite through `tee`, read the count with `scripts/tes
 and hold it to README's module-status table with `scripts/test-counts.sh --check <package>`. Both
 totals also reach the test badges. Re-stamp with `scripts/test-counts.sh --write <package>` in the
 same commit as the test that moved the number.
+
+Counting a suite still assumes something ran it, and the two build scripts above each name the one
+package they build — so a third package with a real suite in it was executed by nothing, produced no
+count, and was reported `skipped` for ever while `--check` asked it only for a README row. That is
+now a failure: `scripts/test-counts.sh --runners` names the script that both runs and counts each
+package declaring a `tests/*.test.mjs`, `--check` refuses a package no script does that for, and
+`app/ui/tests/layout-workspace.test.mjs` holds the answer to `layout.properties`. Adding a fourth
+frontend package therefore means adding the build script that runs its suite, in the same commit.
 
 ---
 
@@ -82,9 +90,9 @@ count typed into a document behaves — and why nothing but a measurement belong
 |---|---:|
 | `library/rust/nodera-core` | 270 |
 | `app` Tauri shell | 2 (1 ignored: opens a real browser) |
-| `app/ui/tests` | 72 |
+| `app/ui/tests` | 73 |
 | `web/tests` | 144 |
-| **Total** | **488** |
+| **Total** | **489** |
 
 ### A3. Manual smoke, per increment
 
