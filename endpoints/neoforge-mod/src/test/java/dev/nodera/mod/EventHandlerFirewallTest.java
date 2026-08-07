@@ -184,6 +184,106 @@ final class EventHandlerFirewallTest {
                 .isEqualTo(UNGUARDED);
     }
 
+    /**
+     * A guard that spans a whole teardown sequence is not a firewall, it is a skip.
+     *
+     * <p>Catching keeps the process alive; it does nothing for the state the handler was in the
+     * middle of tearing down. When several teardown steps share one {@code try}, the first throw
+     * jumps past every later step, and the handler reports a warning while leaving exactly the
+     * corruption it was written to prevent — a departed player still in the ownership plan, a
+     * client peer runtime still serving a world its player has left. Nothing runs those steps
+     * again: {@code PlayerNodeRegistry#forget} has one call site in the whole tree.
+     *
+     * <p>So each pair below names a step that can plausibly throw and a step after it that has to
+     * run anyway, and asserts that <b>no single try block holds both</b>. Try ranges live in the
+     * exception table, which is why this is bytecode and not a source scan: two statements written
+     * one under the other look identical in source whether they share a guard or not.
+     *
+     * <p>This is a granularity rule, not a coverage rule — {@link
+     * #everyGameBusHandlerCatchesWhatItThrows} already asserts that every one of these calls is
+     * guarded by <i>something</i>.
+     */
+    @Test
+    void aFailingTeardownStepDoesNotSkipTheOnesAfterIt() {
+        List<String> shared = new ArrayList<>();
+        for (String[] pair : TEARDOWN_STEPS_THAT_MUST_NOT_SHARE_A_GUARD) {
+            JavaMethod handler = gameBusHandler(pair[0]);
+            assertThat(callTargets(handler))
+                    .as("the pair for %s names calls that must exist for the rule to mean "
+                            + "anything; %s and %s are what it checks", pair[0], pair[1], pair[2])
+                    .contains(pair[1], pair[2]);
+            for (TryCatchBlock block : handler.getTryCatchBlocks()) {
+                Set<String> guarded = new TreeSet<>();
+                for (JavaAccess<?> access : block.getAccessesContainedInTryBlock()) {
+                    guarded.add(access.getTarget().getFullName());
+                }
+                if (guarded.contains(pair[1]) && guarded.contains(pair[2])) {
+                    shared.add(pair[0] + ": a throw from " + pair[1] + " skips " + pair[2]
+                            + " — " + pair[3] + " (shared try at "
+                            + block.getSourceCodeLocation() + ")");
+                }
+            }
+        }
+        assertThat(shared)
+                .as("these steps share a guard, so the first one to throw silently cancels the "
+                        + "rest of the teardown. Give each its own try/catch — the order between "
+                        + "them is contract and must not change.%n%s", String.join("\n", shared))
+                .isEmpty();
+    }
+
+    /**
+     * {@code {handler, may-throw, must-still-run, what-is-left-broken}}.
+     *
+     * <p>Fully-qualified target names, matched against {@code JavaAccess.getTarget().getFullName()}
+     * so a rename fails the test rather than quietly stopping it from checking anything.
+     */
+    private static final List<String[]> TEARDOWN_STEPS_THAT_MUST_NOT_SHARE_A_GUARD = List.of(
+            new String[] {
+                "dev.nodera.mod.server.ServerBootstrap.onPlayerLoggedOut",
+                "dev.nodera.mod.common.NoderaHost.refreshWorkerPresence("
+                        + "net.minecraft.server.MinecraftServer, net.minecraft.server.level.ServerPlayer)",
+                "dev.nodera.endpoint.world.PlayerNodeRegistry.forget(java.util.UUID)",
+                "the departed player's node stays in the ownership plan for good"},
+            new String[] {
+                "dev.nodera.mod.server.ServerBootstrap.onPlayerLoggedOut",
+                "dev.nodera.mod.server.shadow.RegionDepartureHandoff.handOff("
+                        + "net.minecraft.server.MinecraftServer, net.minecraft.server.level.ServerPlayer)",
+                "dev.nodera.endpoint.world.PlayerNodeRegistry.forget(java.util.UUID)",
+                "the archive-and-seed step is the most failure-prone thing this handler does, and "
+                        + "losing one region's edits must not also cost the forget"},
+            new String[] {
+                "dev.nodera.mod.server.ServerBootstrap.onPlayerLoggedOut",
+                "dev.nodera.mod.server.shadow.RegionDepartureHandoff.handOff("
+                        + "net.minecraft.server.MinecraftServer, net.minecraft.server.level.ServerPlayer)",
+                "dev.nodera.mod.common.NoderaHost.replanEntityLane("
+                        + "net.minecraft.server.MinecraftServer)",
+                "the committee keeps seats for a player who has gone"},
+            new String[] {
+                "dev.nodera.mod.client.ClientBootstrap.onLoggingOut",
+                "dev.nodera.mod.client.entity.ClientValidationLane.stop()",
+                "dev.nodera.mod.common.NoderaPeerService.stopClient()",
+                "the client peer runtime keeps serving and validating a world its player has left"});
+
+    /** The registered game-bus handler with this fully-qualified {@code Owner.method} name. */
+    private static JavaMethod gameBusHandler(String qualifiedName) {
+        for (JavaMethod handler : gameBusHandlers()) {
+            if (name(handler).equals(qualifiedName)) {
+                return handler;
+            }
+        }
+        throw new AssertionError("no registered game-bus handler named " + qualifiedName
+                + "; the rule below would check nothing");
+    }
+
+    /** Every call target of a handler, including the ones inside lambdas. */
+    private static Set<String> callTargets(JavaMethod handler) {
+        Set<String> targets = new TreeSet<>();
+        for (JavaAccess<?> access : handler.getAccessesFromSelf()) {
+            targets.add(access.getTarget().getFullName());
+        }
+        return targets;
+    }
+
     @Test
     void everyRegisteredEventTypeIsClassified() {
         Set<String> unclassified = new TreeSet<>();

@@ -206,12 +206,25 @@ public final class ClientBootstrap {
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        // Three teardown steps, three guards. Under one guard a throw from the lane stop took the
+        // peer runtime down with it — not by crashing it, but by never reaching the line that
+        // stops it, leaving a client peer serving and validating for a world its player has left.
         try {
             dev.nodera.mod.common.NoderaHost.setClientPlayerReady(false);
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: clearing the client-ready flag on logout failed: {}", e.toString());
+        }
+        try {
             dev.nodera.mod.client.entity.ClientValidationLane.stop();
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: stopping the client validation lane on logout failed: {}",
+                    e.toString());
+        }
+        try {
             NoderaPeerService.get().stopClient();
         } catch (RuntimeException | LinkageError e) {
-            LOG.warn("Nodera: client teardown on logout failed: {}", e.toString());
+            LOG.warn("Nodera: stopping the client peer runtime on logout failed — it stays alive "
+                    + "after the player has left the world: {}", e.toString());
         }
     }
 
