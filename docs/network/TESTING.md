@@ -6,26 +6,33 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-08-06 · **1,179 Java test cases + 79 Rust
-(`nodera-codec`) `#[test]` · 0 failing** — Java counts come from Gradle XML reports and sum the
-module table below (186 + 158 + 835). Worker cases are also described under the worker category.
+**Category:** network · **Last run:** 2026-08-06 · **1,198 Java test cases + 79 Rust
+(`nodera-codec`) `#[test]` · 0 failing** — the Java figure sums the module table below
+(188 + 158 + 852), whose cells are README's, re-measured from the JUnit XML of the nine-module run
+recorded in commit `44069df`. Worker cases are also described under the worker category.
 
 > Re-measured on 2026-08-06 after the Plan 11 round 2 reduction (issue #210), which deleted the
 > archival audit triangle and the second discovery resolver from `:peer` along with their dedicated
-> suites. The whole Java tree is **2,238 passed / 0 failed / 0 skipped**
-> (`scripts/test-totals.sh --java`); the Rust count is unchanged by round 2, which touched no
-> `nodera-codec` source. Module figures are total XML-reported cases — running a module task alone
-> leaves 12 tree-wide skips whose artefacts only the full `check` builds, and those pass under the
-> gate.
+> suites. The whole Java tree comes to **2,267 tests / 0 failed / 0 skipped** as the sum of README's
+> nine measured module cells; to measure it rather than add it up, run `scripts/test-totals.sh
+> --java`. The **2,238** this file used to carry predates that re-measurement, as did `transport`
+> 186 and `peer` 835. The Rust count is unchanged by round 2, which touched no `nodera-codec` source.
+>
+> Module figures are total XML-reported cases. **Twelve skips is no longer a state the gate
+> tolerates:** the `java` job in [`build.yml`](../../.github/workflows/build.yml) now builds the
+> real-binary artefacts those suites wait for *before* `./gradlew check`, and a step named `Nothing
+> skipped into green` fails the job on any non-zero skip count. Running a single module task by hand
+> still leaves those suites without their artefacts; that is a property of the shortcut, not a
+> tolerated state of the gate.
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard. Cross-language fixture coverage is **derived from `nodera-codec`'s own `SUPPORTED_MESSAGE_TAGS`** rather than a hand-written tag list | 186 | ✅ |
+| `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard. Cross-language fixture coverage is **derived from `nodera-codec`'s own `SUPPORTED_MESSAGE_TAGS`** rather than a hand-written tag list | 188 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes including Android-denied store inspection | 158 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 835 | 🚧 |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 852 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 79 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything

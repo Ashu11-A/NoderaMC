@@ -15,7 +15,7 @@
 
 | Surface | Last run | Result |
 |---|---|---|
-| Desktop launcher + shared core | 2026-08-06 | **344 tests** (270 shared core + 2 shell, one intentionally ignored + 72 frontend): 343 passed, 1 ignored |
+| Desktop launcher + shared core | 2026-08-06 | **370 tests** (296 shared core + 2 shell, one intentionally ignored + 72 frontend): 369 passed, 1 ignored |
 | Android | last build 2026-08-01 · last physical run 2026-08-01 | `scripts/android-e2e.sh` **5 passed, 0 failed** on a Xiaomi 2210129SG (Android 15 / API 35) |
 | Website | 2026-08-06 | **144 passed, 0 failed** — `scripts/build-site.sh` runs the suite and now counts it |
 
@@ -78,13 +78,19 @@ The two frontend rows are the ones a build script re-measures and a gate holds t
 not to be hand-edited here. `app/ui/tests` read 31 for months against a suite of 70, which is how a
 count typed into a document behaves — and why nothing but a measurement belongs in this column.
 
+The `nodera-core` row is measured too, by the same gate: `scripts/test-counts.sh --check` enumerates
+every workspace crate with `cargo test -- --list` and holds it to README's module table. This copy
+of that cell is what drifted — it read 270 against a measured 296 until 2026-08-06 — because the
+sentence above was written about the two rows nobody had gated yet, and the row that did have a gate
+was left to be typed by hand. Take README's cell as the value; this table is a convenience.
+
 | Suite | Tests |
 |---|---:|
-| `library/rust/nodera-core` | 270 |
+| `library/rust/nodera-core` | 296 |
 | `app` Tauri shell | 2 (1 ignored: opens a real browser) |
 | `app/ui/tests` | 72 |
 | `web/tests` | 144 |
-| **Total** | **488** |
+| **Total** | **514** |
 
 ### A3. Manual smoke, per increment
 

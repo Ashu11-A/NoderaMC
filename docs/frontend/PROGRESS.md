@@ -82,8 +82,9 @@ key it belongs to; `const fn live/local/never` put it back on one line and took 
 `tests/tracker-stores-style.test.mjs` asserts every `--tracker-store-*` declaration reaches the built
 CSS, which is also why the screen still cannot simply adopt `components.tsx`'s `Button`.
 
-Evidence: `cargo test -p nodera-core` (287 passed), `cargo clippy -p nodera-core --all-targets -D
-warnings` clean, `tsc --noEmit` clean over `TrackerStores.tsx`. `REFACTORING.md` gains two Completed
+Evidence: `cargo test -p nodera-core` (287 passed **on 2026-08-05**; the crate has grown since, and
+the current figure is README's gated cell, not this one), `cargo clippy -p nodera-core --all-targets
+-D warnings` clean, `tsc --noEmit` clean over `TrackerStores.tsx`. `REFACTORING.md` gains two Completed
 rows and two new candidates, including the three-times-written "a launch failure closes its tunnel"
 in `NoderaCore::start_play`.
 

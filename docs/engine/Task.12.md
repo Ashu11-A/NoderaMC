@@ -49,9 +49,13 @@ Landed sub-lanes:
 - **Rule-pack SDK (L-21, RETIRED).** `PackRules` is the executable half of a pack (validate / apply /
   tick, opt-in through a default-empty `rules()`), and `PackDelegatingRuleSet` dispatches by
   **declared palette ownership**. Public contract: [`SDK.md`](SDK.md).
-- **Committee rotation + admission.** `CommitteeManager.draftRotation` is deterministic
-  rendezvous-hash rotation; every replica derives the identical next committee, the epoch input
-  reshuffles seats so tenure is bounded, and installing runs through the certified-change quorum.
+- **Committee rotation + admission.** Deterministic rendezvous-hash rotation shipped as
+  `CommitteeManager.draftRotation`, which was **deleted on 2026-08-06** (`0b02aa5`, issue #210)
+  together with the certified-change machinery around it. Committees are re-derived deterministically
+  by `EntityLaneBootstrap.plan` from inputs every member already holds, so there is no rotation event
+  left to certify, and `MajorityQuorumPolicy` refuses on construction any threshold that is not a
+  strict majority of the actual committee. Why that is a supersession rather than a lost property:
+  **L-19** in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
 - **Multi-party genesis (L-20, RETIRED).** `GenesisApprovalFlow` plus the wire pair
   `GenesisApprovalRequest`/`GenesisApprovalGrant` assemble a self-verifying strict-majority
   `GenesisRecertification`.
@@ -128,8 +132,10 @@ applied commit) — what remains is the renderer bind and the capture-point pred
 
 - `library/java/engine/src/main/java/dev/nodera/simulation/rules/{PlayerRules,MovementRules,ContainerRules,PortalRules,CommandRules,MobCombatRules}.java`
 - `library/java/engine/src/main/java/dev/nodera/simulation/pack/{PackRules,PackDelegatingRuleSet,RulePackRegistry}.java`
-- `peer/src/main/java/dev/nodera/peer/committee/CommitteeManager.java`
-- `peer/src/main/java/dev/nodera/peer/genesis/GenesisApprovalFlow.java`
+- ~~`peer/src/main/java/dev/nodera/peer/committee/CommitteeManager.java`~~ — deleted 2026-08-06
+  (`0b02aa5`); see **L-19** in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) for what holds the
+  quorum property now and why that is a supersession rather than a regression
+- `peer/src/main/java/dev/nodera/peer/validation/GenesisApprovalFlow.java`
 
 ## Testing
 
@@ -137,7 +143,10 @@ applied commit) — what remains is the renderer bind and the capture-point pred
 - `ContainerStateRootTest` (5) + `ContainerRulesTest` (7).
 - `MovementRulesTest` (3) — speed envelope, passability, border transfer.
 - `CommandSubsetTest` (8), `CombatStateRootTest` (4), `PackRuleExecutionTest` (5).
-- `CommitteeRotationTest` (3), `GenesisApprovalFlowIT`, `ByzantineMeshIT` (3).
+- `GenesisApprovalFlowIT`, `ByzantineMeshIT` (3).
+- ~~`CommitteeRotationTest`~~ (3) — deleted 2026-08-06 with `CommitteeManager` (`0b02aa5`). Quorum
+  sizing is now held by `MajorityQuorumPolicyTest`; see **L-19** in
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
 
 ## Acceptance criteria
 

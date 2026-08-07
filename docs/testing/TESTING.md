@@ -5,13 +5,25 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-08-06 · **39 unit tests · 0 failing** (module `testing`,
-from the per-module JUnit XML) — the live scenarios themselves run in the `e2e-live` workflow
-nightly, and `scripts/nodera-test.sh list` is the smoke test that all twenty resolve.
+**Category:** testing · **Last run:** 2026-08-06, the nine-module run recorded in commit `44069df` ·
+**44 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
+scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
+the smoke test that all twenty resolve.
 
-Whole-tree Java totals from the same run, via `scripts/test-totals.sh --java`:
-**2,423 passed · 0 failed · 12 skipped**. That command reads JUnit XML rather than a job's exit
-code, so a suite that skipped into green cannot contribute to the number.
+Whole-tree Java total for that same run: **2,267 tests · 0 failed · 0 skipped**. That figure is the
+sum of the nine per-module counts README's module table carries — core 314, engine 444, transport
+188, storage 158, testing 44, peer 852, endpoint 114, neoforge-mod 133, paper-plugin 20 — which is
+where a reader should go for the per-module breakdown. To measure it rather than add it up, run
+`scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
+suite that skipped into green cannot contribute to the number.
+
+The **2,423 passed · 12 skipped** figure this file used to carry is the state the Plan 11 round
+*found and fixed*, not the state the tree is in. All twelve skips were real-binary suites waiting on
+something the `java` job had never built. The job builds them now, and a step named `Nothing skipped
+into green` in [`build.yml`](../../.github/workflows/build.yml) fails that job on any non-zero skip
+count. Zero is stamped there rather than derived, so a new skip is a decision somebody has to sign
+off on: build what the suite waits for, disable it with a reason, or move the number in the same
+commit.
 
 ```bash
 scripts/nodera-test.sh list                    # every scenario, its tags, what a pass proves
