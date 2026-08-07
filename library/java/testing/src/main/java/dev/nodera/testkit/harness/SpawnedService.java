@@ -9,7 +9,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * One Rust service binary, spawned from Java on an ephemeral port, with its bound address read back
@@ -57,6 +62,12 @@ public final class SpawnedService implements AutoCloseable {
 
     private static final Duration READY_TIMEOUT = Duration.ofSeconds(20);
     private static final Duration STOP_GRACE = Duration.ofSeconds(10);
+
+    /** The whole budget for a one-shot invocation: its output read and its exit, together. */
+    private static final Duration ONE_SHOT_TIMEOUT = Duration.ofSeconds(30);
+
+    /** Offered when the child's output ended before it announced an address. */
+    private static final Object EOF = new Object();
 
     private final String name;
     private final Process process;
@@ -131,12 +142,36 @@ public final class SpawnedService implements AutoCloseable {
      * returned is whatever the process printed after {@code "<name>: listening on "}, which is the
      * only party that knows it when the config binds port 0.
      *
+     * <p>The wait is on the daemon thread's queue, never on {@code readLine()} itself. A blocking
+     * read has no deadline: a child that starts, prints nothing and does not exit parks whoever
+     * reads it forever, and a deadline consulted only <i>between</i> lines is never consulted
+     * again. A CI job wedged with no output is worse than one that fails with the message below,
+     * so the only thing the calling thread waits on is a queue it can time out of.
+     *
      * @param binary the executable, from {@link #binary(String)}.
      * @param configToml the whole configuration file contents.
      * @return a running service, to be closed by the caller.
      * @throws IOException if the process cannot start or never reports an address.
      */
     public static SpawnedService start(Path binary, String configToml) throws IOException {
+        return start(binary, configToml, READY_TIMEOUT);
+    }
+
+    /**
+     * As {@link #start(Path, String)}, with the ready window supplied.
+     *
+     * <p>Package-private and for one caller: the test that proves a silent child is reported rather
+     * than waited on cannot spend the production twenty seconds proving it. The public entry point
+     * keeps {@link #READY_TIMEOUT}, so no service ever gets a window this overload chose.
+     *
+     * @param binary the executable.
+     * @param configToml the whole configuration file contents.
+     * @param readyTimeout how long the child has to announce its address.
+     * @return a running service, to be closed by the caller.
+     * @throws IOException if the process cannot start or never reports an address.
+     */
+    static SpawnedService start(Path binary, String configToml, Duration readyTimeout)
+            throws IOException {
         String name = binary.getFileName().toString();
         Path config = Files.createTempFile(name, ".toml");
         Files.writeString(config, configToml, StandardCharsets.UTF_8);
@@ -146,29 +181,27 @@ public final class SpawnedService implements AutoCloseable {
         builder.redirectErrorStream(true);
         Process process = builder.start();
 
-        BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
         String marker = name + ": listening on ";
-        long deadline = System.nanoTime() + READY_TIMEOUT.toNanos();
+        BlockingQueue<Object> ready = new ArrayBlockingQueue<>(1);
+        watchAndDrain(name, process, marker, ready);
+
+        Object outcome;
         try {
-            String line;
-            while (System.nanoTime() < deadline && (line = reader.readLine()) != null) {
-                if (!line.startsWith(marker)) {
-                    continue;
-                }
-                drainInBackground(name, reader);
-                return new SpawnedService(
-                        name, process, config, line.substring(marker.length()).trim());
-            }
-        } catch (IOException readFailed) {
-            destroy(process);
-            Files.deleteIfExists(config);
-            throw readFailed;
+            outcome = ready.poll(readyTimeout.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            outcome = null;
+        }
+        if (outcome instanceof String) {
+            return new SpawnedService(name, process, config, (String) outcome);
         }
         destroy(process);
         Files.deleteIfExists(config);
+        if (outcome instanceof IOException) {
+            throw (IOException) outcome;
+        }
         throw new IOException(name + " did not print \"" + marker + "<addr>\" within "
-                + READY_TIMEOUT.toSeconds() + "s");
+                + readyTimeout.toSeconds() + "s");
     }
 
     /**
@@ -217,15 +250,33 @@ public final class SpawnedService implements AutoCloseable {
         }
     }
 
-    private static void drainInBackground(String name, BufferedReader reader) {
+    /**
+     * The one thread that ever reads the child: it hands the ready line to {@code ready} the moment
+     * it sees it, then keeps reading so a full pipe can never block the child. Every outcome the
+     * caller can act on is offered exactly once — the address, the read failure, or {@link #EOF}
+     * when the child ended without announcing anything — and the queue's single slot makes the
+     * first one win.
+     */
+    private static void watchAndDrain(
+            String name, Process process, String marker, BlockingQueue<Object> ready) {
+        BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
         Thread drain = new Thread(() -> {
             try {
-                while (reader.readLine() != null) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.startsWith(marker)) {
+                        ready.offer(line.substring(marker.length()).trim());
+                    }
                     // The service's own logs are not this test's evidence; they are read only so a
                     // full pipe can never block the child.
                 }
-            } catch (IOException ignored) {
-                // The stream closes when the process exits, which is how a drain ends.
+            } catch (IOException readFailed) {
+                ready.offer(readFailed);
+            } finally {
+                // The stream closes when the process exits, which is how a drain ends. If that
+                // happened before the address appeared, the caller must not wait out its window.
+                ready.offer(EOF);
             }
         }, name + "-log-drain");
         drain.setDaemon(true);
@@ -234,6 +285,17 @@ public final class SpawnedService implements AutoCloseable {
 
     /**
      * Read a service's whole stdout from a one-shot invocation, e.g. {@code --print-schema}.
+     *
+     * <p>stderr goes to {@link ProcessBuilder.Redirect#DISCARD} rather than to a pipe. Left on a
+     * pipe nobody reads, a child that writes more than the operating system's buffer — 64 KiB on
+     * Linux — blocks writing and never exits, so stdout never reaches end of file, {@code
+     * readAllBytes()} never returns and the timeout below is never reached. Discarding is also what
+     * keeps the returned string stdout and nothing else: the callers of this method want the schema
+     * a service prints, not its logs.
+     *
+     * <p>The read runs on a daemon thread so that the thirty-second budget bounds the whole call,
+     * read and exit together, and "or empty when the process failed or timed out" is a promise the
+     * code can keep.
      *
      * @param binary the executable.
      * @param args arguments after the binary.
@@ -244,19 +306,52 @@ public final class SpawnedService implements AutoCloseable {
         command[0] = binary.toString();
         System.arraycopy(args, 0, command, 1, args.length);
         try {
-            Process process = new ProcessBuilder(command).redirectErrorStream(false).start();
-            String out = new String(
-                    process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            Process process = new ProcessBuilder(command)
+                    .redirectErrorStream(false)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            long deadline = System.nanoTime() + ONE_SHOT_TIMEOUT.toNanos();
+            CompletableFuture<byte[]> stdout = readInBackground(binary, process);
+            byte[] bytes;
+            try {
+                bytes = stdout.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (TimeoutException timedOut) {
+                process.destroyForcibly();
+                return Optional.empty();
+            } catch (ExecutionException readFailed) {
+                process.destroyForcibly();
+                Throwable cause = readFailed.getCause();
+                if (cause instanceof IOException) {
+                    throw new UncheckedIOException((IOException) cause);
+                }
+                throw new IllegalStateException("reading " + binary + " failed", cause);
+            }
+            if (!process.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
                 process.destroyForcibly();
                 return Optional.empty();
             }
-            return process.exitValue() == 0 ? Optional.of(out) : Optional.empty();
+            return process.exitValue() == 0
+                    ? Optional.of(new String(bytes, StandardCharsets.UTF_8))
+                    : Optional.empty();
         } catch (IOException failed) {
             throw new UncheckedIOException(failed);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return Optional.empty();
         }
+    }
+
+    private static CompletableFuture<byte[]> readInBackground(Path binary, Process process) {
+        CompletableFuture<byte[]> stdout = new CompletableFuture<>();
+        Thread reader = new Thread(() -> {
+            try {
+                stdout.complete(process.getInputStream().readAllBytes());
+            } catch (IOException readFailed) {
+                stdout.completeExceptionally(readFailed);
+            }
+        }, binary.getFileName() + "-stdout");
+        reader.setDaemon(true);
+        reader.start();
+        return stdout;
     }
 }
