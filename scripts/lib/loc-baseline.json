@@ -1,18 +1,18 @@
 {
-  "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 on the merged round-2 tree, after the review follow-ups. Total code 167,711 -> 158,551: -9,160, -5.46%. The rises since the pre-review stamp are regression tests the round-2 review found missing -- the tombstone persist failures that would otherwise resurrect a deleted world, the worker log pump surviving a non-UTF-8 line, and the SpawnedService requirement flag proving a missing binary fails rather than skips -- plus the try_persist seam those tests needed. A size gate that charges for a regression test is pointed at the wrong thing. Re-measured on the merge commit, never merged from a branch.",
+  "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
+  "measured": "2026-08-06 at f4ba384, on the MERGED round-3 tree, re-measured by `scripts/loc-metrics.py --baseline` rather than merged from any branch. Total code 158,551 -> 159,048: this stamp RAISES three buckets, which the note above says may only go down, so the reason is on the record. Round 3 was a correctness round, not a reduction round. java.main +46 is the path-containment guard that closed a live symlink traversal hole and the self-catch wrapping that keeps a throwing game-bus handler from crashing the integrated server; java.test +159 is the net of roughly 616 lines of new regression and rule tests against the 457 the fixture consolidation removed; ts.test +292 is the vacuity guard and the component audit -- checks whose entire purpose is to fail. Paying 497 lines to stop shipping four defects and to make three more classes of defect impossible to reintroduce is the trade Plan 11's error-rate objective exists to authorise. Programme total against the 167,711 starting line: -8,663, -5.17%.",
   "limits": {
-    "java.main.code": 56377,
-    "java.main.comment": 33287,
-    "java.test.code": 54580,
-    "java.test.comment": 11594,
+    "java.main.code": 56423,
+    "java.main.comment": 33607,
+    "java.test.code": 54739,
+    "java.test.comment": 12053,
     "rust.main.code": 19576,
     "rust.main.comment": 7736,
     "rust.test.code": 12197,
     "rust.test.comment": 1116,
     "ts.main.code": 12588,
     "ts.main.comment": 4260,
-    "ts.test.code": 3233,
-    "ts.test.comment": 1369
+    "ts.test.code": 3525,
+    "ts.test.comment": 1656
   }
 }

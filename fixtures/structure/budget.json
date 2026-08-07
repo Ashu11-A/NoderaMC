@@ -1,12 +1,12 @@
 {
   "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
-  "measured": "2026-08-06 on the MERGED round-2 tree (Plan 11 round 2: #210 dead clusters, #212 test consolidation, #213 rust services, #214 frontend+gates, plus the frame helper), re-measured by `./gradlew :peer:structureReport` on the merge commit rather than carried over from any one branch. never_referenced_methods 91 -> 4, unreachable_methods 264 -> 117, test_only_methods 415 -> 318, test_only_classes 29 -> 12, severe_cost_findings 4 -> 3. The merged figures are identical to the dead-cluster branch's own stamp -- the test consolidation that landed alongside it moved none of these counters -- but that had to be measured, not assumed: a ratchet file describes one tree, and two branches each describe a tree that stops existing at the merge. never_referenced_methods at 4 has no headroom; the four are documented in STRUCTURE.md and each is a filed defect kept fixable-by-wiring rather than deleted.",
+  "measured": "2026-08-06 on the MERGED round-3 tree (Plan 11 round 3: the EventBus and traversal fixes, the dead-lane wiring, the delegability decision, the named-file levers, and the error-rate checks), re-measured by `./gradlew :peer:structureReport` on the merge commit rather than carried over from any one branch. Against the round-2 stamp: never_referenced_methods 4 -> 2, test_only_methods 318 -> 314, unreachable_methods 117 -> 116; the other four counters did not move. Re-measuring rather than merging matters here for a reason round 3 made concrete: two of the five branches reported different values for never_referenced_methods (4 and 2) because each was cut before the other merged, and each was correct about the tree it described. A ratchet file describes exactly one tree, and neither branch's tree survives the merge. never_referenced_methods at 2 has no headroom; both are documented in STRUCTURE.md and each is a filed defect kept fixable-by-wiring rather than deleted.",
   "limits": {
     "dead_classes": 0,
     "test_only_classes": 12,
-    "never_referenced_methods": 4,
-    "test_only_methods": 318,
-    "unreachable_methods": 117,
+    "never_referenced_methods": 2,
+    "test_only_methods": 314,
+    "unreachable_methods": 116,
     "huge_methods": 0,
     "severe_cost_findings": 3
   }
