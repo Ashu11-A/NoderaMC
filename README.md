@@ -285,14 +285,14 @@ scripts/release.sh --verify               # hold build/release to the manifest
 
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
-| `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 267 | ✅ |
-| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 520 | ✅ |
-| `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 187 | ✅ |
+| `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 314 | ✅ |
+| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 444 | ✅ |
+| `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 188 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 158 | ✅ |
-| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 32 | ✅ |
-| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 881 | 🚧 |
-| `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 100 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
+| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 44 | ✅ |
+| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 852 | 🚧 |
+| `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 114 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 133 | 🚧 |
 | `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 79 | ✅ |
 | `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 296 | 🚧 |
