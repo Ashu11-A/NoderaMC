@@ -268,7 +268,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Category | Register | Open/retiring rows |
 |---|---|---|
 | Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50 (L-51 and L-52 both retired 2026-07-28) |
-| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | OPEN: L-30, L-85 · RETIRING: L-33, L-76, L-84, L-87, L-88, L-90, L-91 (L-86 + L-89 retired 2026-07-28, issue #97) |
+| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | OPEN: L-30, L-33, L-36, L-85 · RETIRING: L-76, L-84, L-87, L-88, L-90, L-91 (L-86 + L-89 retired 2026-07-28, issue #97; L-36's retirement withdrawn 2026-08-06 — the scorer it rested on was never reachable from production) |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | L-81 (RETIRING — release signing key outstanding, a credential step not code) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
