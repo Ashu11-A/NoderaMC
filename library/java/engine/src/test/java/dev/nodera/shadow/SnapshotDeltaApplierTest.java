@@ -30,10 +30,8 @@ class SnapshotDeltaApplierTest {
         RegionId region = base.region();
         ActionBatch batch = EngineFixtures.batch(
                 region, RegionEpoch.INITIAL, base.version(), 0, 1, List.of(actions));
-        // Deliberately NOT EngineFixtures.contextFor: byte-identical, but this suite is the one
-        // that proves SessionParams derives the context a shadow replica will derive.
         RegionExecutionRequest req = new RegionExecutionRequest(
-                SessionParams.flatWorld(EngineFixtures.WORLD_SEED).contextFor(batch), base, batch);
+                EngineFixtures.contextFor(batch), base, batch);
         return EngineFixtures.engine().execute(req);
     }
 
