@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-08-01 · Tasks completed: **12 / 15**
+**Category:** network · **Last audit:** 2026-08-06 · Tasks completed: **11 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -22,7 +22,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [4](Task.4.md) | Torrent data plane | ✅ COMPLETED | Production consumer live (world-continuity lane); L-33 render half remains |
 | [5](Task.5.md) | Discovery + multi-bootstrap + identity | ✅ COMPLETED | Serving role moved to the tracker service |
 | [6](Task.6.md) | Placement, replication, repair | ✅ COMPLETED | `WorldReplicationService` replicates real worlds and excludes synthetic commons presence |
-| [7](Task.7.md) | Reliability, quotas, retention | ✅ COMPLETED | Countdown network-visible on every announce |
+| [7](Task.7.md) | Reliability, quotas, retention | 🚧 IN PROGRESS — **the reliability half reopened** | Quotas and retention stand; the countdown is network-visible on every announce. **L-36 retired 2026-07-23 and REOPENED 2026-08-06**: `ReliabilityScorer`, `ReliabilityFactors`, `ReliabilityConfig` and `ReliabilityScorerTest` were deleted 2026-08-06 (`24e6f0e`, #210) as unreachable, and had never been reachable, so deliverables 1 and 2 are **withdrawn** — do not restore the deleted files before reading the decision note in [`Task.7.md`](Task.7.md) |
 | [8](Task.8.md) | Per-world content encryption | ✅ COMPLETED | Re-key now actually revokes (L-55) |
 | [9](Task.9.md) | Crash safety + active-player stream | ✅ COMPLETED | Continuous streaming + bounded final flush + freshness guard |
 | [10](Task.10.md) | Tick-lag + low-TPS handoff | ✅ COMPLETED | Gained a live call site 2026-07-25 |
@@ -35,6 +35,45 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-06 — L-36 REOPENED: the multi-factor score never ran in a shipped build
+
+A validation pass over PR #222 noticed that L-36 was filed as retired on `ReliabilityScorer` blending
+five factors, while the only reliability class left in the tree — `ReliabilityLedger` — computes
+`score ← (1-α)·score + α·outcome` over proposal outcomes, which is word for word the state the retired
+row described as the limitation. The scorer, its two supporting records and its test had been deleted
+in commit `24e6f0e` (issue #210).
+
+That shape has two very different explanations and the difference decides everything, so it was
+settled before anything was written. Either a feature was removed — in which case this programme's
+governing constraint says it must be restored — or the retirement was staged on code nothing ran, in
+which case the deletion was right and the row simply goes back to the open register. It is the second,
+and the check is on `24e6f0e^`, the commit immediately before the deletion, not on HEAD where the
+classes do not exist. A whole-tree search there for `ReliabilityScorer`, `ReliabilityFactors` and
+`ReliabilityConfig` returned nine paths: the three implementation files, the one test, and five
+documents. No other Java file in the repository named any of them. The indirect shapes were checked
+separately and none applies — the repository's only two `Class.forName` call sites are a Paper
+dependency probe and an Argon2 availability probe, its single `META-INF/services` file registers test
+scenarios, and no Gradle or NeoForge entry point constructed a scorer. The deleting commit's own
+transitive closure from the three real production entry points could not reach the classes, and the
+profiled run of the real `nodera-headless` worker never loaded them.
+
+So peers never scored each other on five factors in a shipped build, and deleting the code degraded
+nothing. **No code was restored and none should be.** What changed is the paperwork: L-36 is back in
+[`LIMITATIONS.md`](LIMITATIONS.md) §B with an exit test that names what has to exist first, its
+evidence is preserved verbatim under "Withdrawn retirement" in
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md), and [`Task.7.md`](Task.7.md) withdraws deliverables 1
+and 2 and unticks the two acceptance criteria that rested on them.
+
+One finding from the same pass, recorded rather than acted on: `ReliabilityLedger` is **not** the same
+shape one level down. Its write side is genuinely wired — `WorkerValidationService` folds every
+committed round's agreement into it through `CommitteeScoring.apply`, the lag path writes its penalty
+through `CommitteeFailover`, and `DurableCoordinatorState` persists it across restarts, attached by
+the mod's `LiveEntityLaneSession`. Its **read** side is not: `eligibleForAssignment` has no non-test
+caller and the only production read of `score` formats a log line, so the product maintains a
+reputation it never consults. `NodeCapabilities.reliability` is the other half of the same gap — a
+wire field `GatewayElection` weights, which no production code ever sets. Both are named in the
+reopened row's exit test, because they are what a real multi-factor score would have to be joined to.
 
 ### 2026-08-06 — One frame helper, and four codecs that were never checked against Java (Plan.11 round 2)
 
