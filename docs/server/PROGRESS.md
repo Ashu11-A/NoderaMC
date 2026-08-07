@@ -21,7 +21,7 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 |---|---|---|---|
 | [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains. `NoderaScheduler` seam + ArchUnit ban deferred to tasks 3–5 |
 | [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` parsed/validated/enforced (`EndpointConfig`, 9 tests); **external worker link shipped** (`EndpointPeerLink` + `ControlClient`, E4 green). **L-71 retired 2026-07-26**. The in-process `PeerRuntime` remains; `embedded` does nothing (follow-on scope) |
-| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS — **custody half blocked** | **L-63 retired 2026-07-26** (multi-view planning) still holds. **L-62 retired 2026-07-28 but its evidence is gone**: `CustodyDigest`, `CustodyAudit` and both their suites were deleted 2026-08-06 (`0b02aa5`, #210) as unreachable, so deliverables 2 and 4 are **withdrawn** and 3 ("the digest on the announce") is **blocked on a class that no longer exists** — do not pick it up before reading the decision note in [`Task.3.md`](Task.3.md). Actionable remainder: the custody tiebreak, `NoderaFoliaRegionMap` |
+| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS — **custody half blocked** | **L-63 retired 2026-07-26** (multi-view planning) still holds. **L-62 retired 2026-07-28 and REOPENED 2026-08-06**: `CustodyDigest`, `CustodyAudit` and both their suites were deleted 2026-08-06 (`0b02aa5`, #210) as unreachable, taking the row's exit test with them, so deliverables 2 and 4 are **withdrawn** and 3 ("the digest on the announce") is **blocked on a class that no longer exists** — do not pick it up before reading the decision note in [`Task.3.md`](Task.3.md). Actionable remainder: the custody tiebreak, `NoderaFoliaRegionMap` |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
@@ -34,7 +34,25 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 ## 2. Milestone notes (newest first)
 
-### 2026-07-28 — A custody claim can now be falsified — L-62 RETIRED
+### 2026-08-06 — L-62 REOPENED: the exit test that retired it no longer exists
+
+The reduction programme of issue #210 deleted `CustodyDigest`, `CustodyAudit`, `CustodyAuditIT` and
+`CustodyDigestTest` in commit `0b02aa5`, on the correct finding that no production entry point could
+reach any of them. That deletion also removed L-62's exit test, and this category's rule is that the
+exit test is what a retirement rests on — not how convincing the prose in the evidence cell reads. The
+row is therefore back in [`LIMITATIONS.md`](LIMITATIONS.md) §B as OPEN, with the retirement evidence
+preserved verbatim in the withdrawn-retirement section of
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+
+Nothing regressed on 2026-08-06; what changed is what can be demonstrated. A node advertising
+`custody: FULL` is not sampled and cannot be downgraded, and the only thing that catches a false claim
+is the fetcher hash-verifying pieces against the manifest and being told by `ContentAvailability` what
+a peer actually holds — detection after a replication decision rather than before it. The row becomes
+checkable again when task 3 deliverable 3 carries the digest on the tracker announce, because only
+then does an auditor receive a root it did not compute itself. Restoring the deleted suite alone would
+not do it.
+
+### 2026-07-28 — A custody claim can now be falsified — L-62 RETIRED (evidence withdrawn 2026-08-06)
 
 `custody: FULL` was believed by everyone and checked by no one, so an endpoint that had silently lost
 half its world still read as a complete replica. `CustodyDigest` makes the claim checkable — a Merkle

@@ -147,7 +147,8 @@ not ride any wire, it does not break ties in `ViewOwnershipPlanner`, and no node
 against the manifest, and a peer asked for pieces it lacks answers with a `ContentAvailability`
 saying what it actually holds, so the liar fails to answer and is passed over. Nothing detects a
 silently-degraded replica before somebody needs it — see the note in [`TESTING.md`](TESTING.md)
-§2.2 and L-62 in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+§2.2 and L-62 in [`LIMITATIONS.md`](LIMITATIONS.md), which reopened on 2026-08-06 when its exit test
+was deleted.
 
 ---
 

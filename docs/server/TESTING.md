@@ -231,8 +231,10 @@ of another module's.
 > passed over — discovered at fetch time, by the fetcher, rather than proactively by an auditor.
 > Nothing detects a silently-degraded replica *before* somebody needs it.
 >
-> The Merkle-digest design itself is not disproven; it was unreachable code. See L-62 in
-> [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) and the Task 3 status note in
+> The Merkle-digest design itself is not disproven; it was unreachable code. **L-62 reopened on
+> 2026-08-06** for exactly this reason — its exit test went with the classes — and now lives in
+> [`LIMITATIONS.md`](LIMITATIONS.md) §B, with the retirement evidence preserved under "Withdrawn
+> retirement" in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). See also the Task 3 status note in
 > [`Task.3.md`](Task.3.md).
 
 ## 2.3 Conventions
