@@ -62,6 +62,26 @@ USAGE
 The allowlist is `fixtures/structure/reference-allow.json`, and it is itself a ratchet: `--check`
 fails on an entry that no longer flags anything, so an exemption cannot outlive its reason, and it
 fails if the list is longer than its own stamped `limit`.
+
+===============================================================================================
+WHY THE ALLOWLIST IS NOT ITSELF SEARCHED
+===============================================================================================
+
+The allowlist is excluded from the reference index, and the first version of this check was not.
+That version could never be green, and its failure was worth writing down because it is the exact
+shape a self-referential ratchet fails in.
+
+An entry names its symbol — that is what an entry is. The entry lives in a `.json` file, `.json` is
+searchable, and the file sits under `fixtures/`, which `is_test_path` calls a test path. So the act
+of exempting a symbol wrote that symbol's name into the test-reference index, which moved the symbol
+out of `unreferenced` and into `test_only`. Both halves of `--check` then fired at once, and said
+opposite things about the same eighteen symbols: the staleness rule reported every entry as exempt
+from a rule it no longer breaks, because the symbol was no longer in `unreferenced`; and the
+`test_only` budget blew from 12 to 30, because all eighteen had landed there. A symbol cannot be
+both, and the contradiction in the output was the bug reporting itself.
+
+A ratchet file records a verdict about a symbol. It is not a use of one, and no reader of this check
+should be able to grant a symbol a call site by writing its name down here.
 """
 
 from __future__ import annotations
@@ -232,7 +252,13 @@ def audit() -> dict:
     because the honest fix is sometimes "this is about to have a second caller".
     """
     files = tracked_files()
-    searchable = [p for p in files if p.suffix.lower() in SEARCHABLE]
+    # The allowlist is the one file whose mention of a symbol is a verdict about it rather than a
+    # use of it. Searching it would let an exemption manufacture the reference that retires itself —
+    # see "WHY THE ALLOWLIST IS NOT ITSELF SEARCHED" in the header.
+    searchable = [
+        p for p in files
+        if p.suffix.lower() in SEARCHABLE and p.resolve() != ALLOWLIST.resolve()
+    ]
     # Two indexes, because "a test calls it" and "the product calls it" are different answers. The
     # Rust half of the split is the interesting one: a `pub fn` whose only caller is the
     # `#[cfg(test)] mod tests` two hundred lines below it looks referenced to any text search.
