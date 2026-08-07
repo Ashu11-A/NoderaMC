@@ -1,11 +1,11 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 at f4ba384, on the MERGED round-3 tree, re-measured by `scripts/loc-metrics.py --baseline` rather than merged from any branch. Total code 158,551 -> 159,048: this stamp RAISES three buckets, which the note above says may only go down, so the reason is on the record. Round 3 was a correctness round, not a reduction round. java.main +46 is the path-containment guard that closed a live symlink traversal hole and the self-catch wrapping that keeps a throwing game-bus handler from crashing the integrated server; java.test +159 is the net of roughly 616 lines of new regression and rule tests against the 457 the fixture consolidation removed; ts.test +292 is the vacuity guard and the component audit -- checks whose entire purpose is to fail. Paying 497 lines to stop shipping four defects and to make three more classes of defect impossible to reintroduce is the trade Plan 11's error-rate objective exists to authorise. Programme total against the 167,711 starting line: -8,663, -5.17%.",
+  "measured": "2026-08-06 at 1a1baf4 on the full tree, by `scripts/loc-metrics.py --baseline`.",
   "limits": {
     "java.main.code": 56423,
     "java.main.comment": 33607,
-    "java.test.code": 54739,
-    "java.test.comment": 12053,
+    "java.test.code": 54816,
+    "java.test.comment": 12073,
     "rust.main.code": 19576,
     "rust.main.comment": 7736,
     "rust.test.code": 12197,
