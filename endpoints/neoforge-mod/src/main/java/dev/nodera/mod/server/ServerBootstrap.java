@@ -282,35 +282,93 @@ public final class ServerBootstrap {
         // handoff writes region archives to disk AND seeds them to the network, and a re-plan
         // rebuilds the committee. Any of it throwing here reaches PlayerList.remove, which is
         // called from the network thread and from the server's own shutdown.
+        //
+        // Each step below gets its OWN guard, for the same reason onServerStopped has two rather
+        // than one: this is a teardown sequence, and under a single guard an early throw is not a
+        // survivable failure but a silent skip of everything after it. The steps are not
+        // interchangeable — the last three are what stops the world remembering a player who has
+        // gone — so they may not be made conditional on the ones before them succeeding. The ORDER
+        // is still contract: RegionDepartureHandoff documents "call this before
+        // PlayerNodeRegistry#forget", because after the forget the plan no longer holds the player
+        // and there is nothing left to hand over. Splitting the guards preserves that order; it
+        // only stops a failed handoff from cancelling the forget.
         try {
             DiagnosticsService d = NoderaPeerService.get().serverDiagnostics();
             if (d != null) {
                 d.onPlayerLoggedOut(event.getEntity());
             }
-            if (event.getEntity() instanceof ServerPlayer player) {
-                MinecraftServer server = player.serverLevel().getServer();
-                // `player` is passed because vanilla has not removed them yet: PlayerList.remove
-                // fires this event as its FIRST statement and calls players.remove sixteen lines
-                // later, so a naive count here is one too high — permanently, since nothing later
-                // corrects it.
-                NoderaHost.refreshWorkerPresence(server, player);
-                // Drop any op the bridge granted this player so it never lingers past their session.
-                OperatorBridge.get().onLogout(server, player);
-                // Before anything forgets them: hand their regions over. A re-plan decides who is
-                // RESPONSIBLE for a region; it does not move the region. For ground only this
-                // player could see, the chunks stop being held the moment they leave the plan, and
-                // everything built there since the last seed goes with them. This is the step that
-                // seeds it first.
-                dev.nodera.mod.server.shadow.RegionDepartureHandoff.handOff(server, player);
-                // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
-                // and absorb its regions (the FOV planner reassigns deterministically).
-                dev.nodera.endpoint.world.PlayerNodeRegistry.forget(player.getUUID());
-                dev.nodera.mod.common.ModNetworking.announceChallenges().forget(player.getUUID());
-                NoderaHost.replanEntityLane(server);
-            }
         } catch (RuntimeException | LinkageError e) {
             org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
-                    "Nodera: player departure handling failed: {}", e.toString());
+                    "Nodera: departure diagnostics failed: {}", e.toString());
+        }
+        ServerPlayer player;
+        MinecraftServer server;
+        try {
+            if (!(event.getEntity() instanceof ServerPlayer leaving)) {
+                return;
+            }
+            player = leaving;
+            server = leaving.serverLevel().getServer();
+        } catch (RuntimeException | LinkageError e) {
+            // Nothing below can run without these two, so this is the one guard that returns.
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
+                    "Nodera: the departing player could not be resolved, so their node is left in "
+                            + "the plan: {}", e.toString());
+            return;
+        }
+        try {
+            // `player` is passed because vanilla has not removed them yet: PlayerList.remove
+            // fires this event as its FIRST statement and calls players.remove sixteen lines
+            // later, so a naive count here is one too high — permanently, since nothing later
+            // corrects it. It reads the world identity off disk and talks to the worker, so it is
+            // a real throw site and used to be the first one: under the old single guard, a
+            // corrupt nodera-world.dat here cost the player their forget and the world its re-plan.
+            NoderaHost.refreshWorkerPresence(server, player);
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
+                    "Nodera: presence refresh on departure failed — the worker's player count "
+                            + "stays stale until the next cadence tick: {}", e.toString());
+        }
+        try {
+            // Drop any op the bridge granted this player so it never lingers past their session.
+            OperatorBridge.get().onLogout(server, player);
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
+                    "Nodera: dropping the departing player's granted op failed: {}", e.toString());
+        }
+        try {
+            // Before anything forgets them: hand their regions over. A re-plan decides who is
+            // RESPONSIBLE for a region; it does not move the region. For ground only this
+            // player could see, the chunks stop being held the moment they leave the plan, and
+            // everything built there since the last seed goes with them. This is the step that
+            // seeds it first — disk writes plus network seeding, the most failure-prone thing this
+            // handler does, and its own guard because losing one region's edits must not also
+            // leave a ghost node in the plan.
+            dev.nodera.mod.server.shadow.RegionDepartureHandoff.handOff(server, player);
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
+                    "Nodera: region handoff for the departing player failed — their regions keep "
+                            + "the copies they already had: {}", e.toString());
+        }
+        try {
+            // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
+            // and absorb its regions (the FOV planner reassigns deterministically). This line is
+            // the only caller of PlayerNodeRegistry#forget in the tree, so nothing else recovers a
+            // node it skips — the plan would keep assigning regions to a player who has left, and
+            // their single-use announce challenge would outlive the session that issued it.
+            dev.nodera.endpoint.world.PlayerNodeRegistry.forget(player.getUUID());
+            dev.nodera.mod.common.ModNetworking.announceChallenges().forget(player.getUUID());
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
+                    "Nodera: forgetting the departing player failed — a node that has left is "
+                            + "still in the ownership plan: {}", e.toString());
+        }
+        try {
+            NoderaHost.replanEntityLane(server);
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").warn(
+                    "Nodera: re-planning after a departure failed — the committee keeps the "
+                            + "departed player's seats until the next re-plan: {}", e.toString());
         }
     }
 
