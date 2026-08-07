@@ -2300,6 +2300,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nodera-build"
+version = "0.2.0"
+
+[[package]]
 name = "nodera-codec"
 version = "0.2.0"
 dependencies = [
@@ -2339,6 +2343,7 @@ dependencies = [
  "sha2",
  "thiserror 1.0.69",
  "tokio",
+ "toml 0.8.2",
  "ureq",
 ]
 
@@ -2347,6 +2352,7 @@ name = "nodera-telemetry"
 version = "0.2.0"
 dependencies = [
  "hmac",
+ "nodera-build",
  "nodera-codec",
  "nodera-service",
  "serde",
