@@ -28,9 +28,9 @@ import java.util.stream.Stream;
  * <p>The project's hard bet is that independent nodes re-executing the same batches agree, byte for
  * byte, forever. It is proven headlessly — {@code WorkerQuorumValidationIT} forms a three-worker
  * committee over the real {@code PeerTransport} and commits on agreement, and
- * {@code DivergenceCountedIT} pins that a disagreement is counted from both chairs rather than
- * passed over in silence — and never once against real Minecraft clients on real terrain. That is
- * what this scenario does.
+ * {@code ByzantineCommitteeTest.DivergenceCountedIT} pins that a disagreement is counted from both
+ * chairs rather than passed over in silence — and never once against real Minecraft clients on real
+ * terrain. That is what this scenario does.
  *
  * <p>(The headless proof used to be cited here as {@code ShadowValidationIT}: 3 workers x 250 random
  * batches. That suite drove a shadow-validation stack no production entry point reached, and was

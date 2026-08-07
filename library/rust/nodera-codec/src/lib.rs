@@ -36,7 +36,13 @@ pub use writer::CanonicalWriter;
 /// Mirrors `Encodable.ENCODING_VERSION` / `MessageCodec.ENCODING_VERSION` on the Java side.
 pub const ENCODING_VERSION: u16 = 1;
 
-/// Version emitted for tag 23 (`SessionKeepAlive`); its decoder also accepts legacy version 1.
+/// The only version tag 23 (`SessionKeepAlive`) is emitted or accepted at.
+///
+/// Version 1 ended after the sequence number and carried no per-region progress; nothing has
+/// emitted it since the NDR2 flag day, and Java's `CodecRegistry` now pins tag 23 to a minimum and
+/// maximum body version of 2, so version 1 is rejected there. This crate decodes no tag 23 frame of
+/// its own — a keep-alive travels as an infrastructure TLV body — so the constant exists to mirror
+/// `MessageCodec.SESSION_KEEP_ALIVE_ENCODING_VERSION`, which `tests/tag_mirror.rs` asserts.
 pub const SESSION_KEEP_ALIVE_ENCODING_VERSION: u16 = 2;
 
 /// Anything that can go wrong decoding canonical bytes.
