@@ -3,6 +3,7 @@ package dev.nodera.coordinator;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.region.RegionLease;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -15,8 +16,8 @@ class LagHandoffPolicyTest {
 
     @Test
     void requiresStrictlyGreaterSkewForConfiguredConsecutiveWindows() {
-        RegionId region = CoordFixtures.region(0, 0);
-        NodeId primary = CoordFixtures.node(1);
+        RegionId region = EngineFixtures.region(0, 0);
+        NodeId primary = EngineFixtures.node(1);
         RegionLease lease = lease(region, primary, 0);
         LagHandoffPolicy policy = new LagHandoffPolicy(THRESHOLD, 3, 20);
 
@@ -32,7 +33,7 @@ class LagHandoffPolicyTest {
 
     @Test
     void healthyWindowResetsTheUnhealthyStreak() {
-        RegionLease lease = lease(CoordFixtures.region(0, 0), CoordFixtures.node(1), 0);
+        RegionLease lease = lease(EngineFixtures.region(0, 0), EngineFixtures.node(1), 0);
         LagHandoffPolicy policy = new LagHandoffPolicy(THRESHOLD, 3, 20);
 
         assertThat(policy.observe(lease, THRESHOLD + 1, 1)).isEmpty();
@@ -45,28 +46,28 @@ class LagHandoffPolicyTest {
 
     @Test
     void primaryAndEpochChangesResetOnlyTheirRegionsStreak() {
-        RegionId firstRegion = CoordFixtures.region(0, 0);
-        RegionId secondRegion = CoordFixtures.region(1, 0);
-        RegionLease first = lease(firstRegion, CoordFixtures.node(1), 0);
-        RegionLease second = lease(secondRegion, CoordFixtures.node(2), 0);
+        RegionId firstRegion = EngineFixtures.region(0, 0);
+        RegionId secondRegion = EngineFixtures.region(1, 0);
+        RegionLease first = lease(firstRegion, EngineFixtures.node(1), 0);
+        RegionLease second = lease(secondRegion, EngineFixtures.node(2), 0);
         LagHandoffPolicy policy = new LagHandoffPolicy(THRESHOLD, 2, 0);
 
         assertThat(policy.observe(first, THRESHOLD + 1, 1)).isEmpty();
         assertThat(policy.observe(second, THRESHOLD + 1, 1)).isEmpty();
         assertThat(policy.observe(first, THRESHOLD + 1, 2)).isPresent();
 
-        RegionLease changedPrimary = lease(secondRegion, CoordFixtures.node(3), 0);
+        RegionLease changedPrimary = lease(secondRegion, EngineFixtures.node(3), 0);
         assertThat(policy.observe(changedPrimary, THRESHOLD + 1, 2)).isEmpty();
         assertThat(policy.observe(changedPrimary, THRESHOLD + 1, 3)).isPresent();
 
-        RegionLease changedEpoch = lease(secondRegion, CoordFixtures.node(3), 1);
+        RegionLease changedEpoch = lease(secondRegion, EngineFixtures.node(3), 1);
         assertThat(policy.observe(changedEpoch, THRESHOLD + 1, 4)).isEmpty();
         assertThat(policy.observe(changedEpoch, THRESHOLD + 1, 5)).isPresent();
     }
 
     @Test
     void cooldownStartsANewStreakAndPreventsFlapping() {
-        RegionLease lease = lease(CoordFixtures.region(0, 0), CoordFixtures.node(1), 0);
+        RegionLease lease = lease(EngineFixtures.region(0, 0), EngineFixtures.node(1), 0);
         LagHandoffPolicy policy = new LagHandoffPolicy(THRESHOLD, 2, 20);
 
         assertThat(policy.observe(lease, THRESHOLD + 1, 10)).isEmpty();

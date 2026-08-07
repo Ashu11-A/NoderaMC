@@ -127,7 +127,7 @@ public record WorldOwnership(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_OWNERSHIP).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_OWNERSHIP, ENCODING_VERSION);
         w.writeBytes(worldId);
         w.writeBytes(worldPublicKey);
         ownerNodeId.encode(w);
@@ -150,11 +150,7 @@ public record WorldOwnership(
      * @throws IllegalStateException if the next tag is not {@code WORLD_OWNERSHIP}.
      */
     public static WorldOwnership decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_OWNERSHIP) {
-            throw new IllegalStateException("expected WORLD_OWNERSHIP tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_OWNERSHIP, "WORLD_OWNERSHIP", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         Bytes worldPublicKey = r.readBytesValue();
         NodeId owner = NodeId.decode(r);

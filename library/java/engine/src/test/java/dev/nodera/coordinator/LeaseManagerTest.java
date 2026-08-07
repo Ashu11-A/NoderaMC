@@ -4,6 +4,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.region.RegionLease;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -13,10 +14,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LeaseManagerTest {
 
-    private final RegionId region = CoordFixtures.region(0, 0);
-    private final NodeId a = CoordFixtures.node(10L);
-    private final NodeId b = CoordFixtures.node(11L);
-    private final NodeId c = CoordFixtures.node(12L);
+    private final RegionId region = EngineFixtures.region(0, 0);
+    private final NodeId a = EngineFixtures.node(10L);
+    private final NodeId b = EngineFixtures.node(11L);
+    private final NodeId c = EngineFixtures.node(12L);
 
     @Test
     void firstIssueIsEpochZero() {

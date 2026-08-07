@@ -49,7 +49,7 @@ public record ContentId(Bytes hash, long size, Compression compression) implemen
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.CONTENT_ID).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CONTENT_ID, ENCODING_VERSION);
         w.writeBytes(hash);
         w.writeU64(size);
         w.writeU8(compression.ordinal());
@@ -63,11 +63,7 @@ public record ContentId(Bytes hash, long size, Compression compression) implemen
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static ContentId decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CONTENT_ID) {
-            throw new IllegalStateException("expected CONTENT_ID tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.CONTENT_ID, "CONTENT_ID", ENCODING_VERSION);
         Bytes hash = r.readBytesValue();
         long size = r.readU64();
         int ord = r.readU8();

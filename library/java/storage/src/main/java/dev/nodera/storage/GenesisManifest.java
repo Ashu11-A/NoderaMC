@@ -32,7 +32,7 @@ public record GenesisManifest(long worldSeed, int rulesVersion, long registryFin
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.GENESIS_MANIFEST).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.GENESIS_MANIFEST, ENCODING_VERSION);
         w.writeU64(worldSeed);
         w.writeU32(Integer.toUnsignedLong(rulesVersion));
         w.writeU64(registryFingerprint);
@@ -46,11 +46,7 @@ public record GenesisManifest(long worldSeed, int rulesVersion, long registryFin
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static GenesisManifest decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.GENESIS_MANIFEST) {
-            throw new IllegalStateException("expected GENESIS_MANIFEST tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.GENESIS_MANIFEST, "GENESIS_MANIFEST", ENCODING_VERSION);
         long worldSeed = r.readU64();
         int rulesVersion = r.readU32AsInt();
         long registryFingerprint = r.readU64();

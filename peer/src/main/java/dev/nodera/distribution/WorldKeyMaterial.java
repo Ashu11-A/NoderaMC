@@ -100,7 +100,7 @@ public record WorldKeyMaterial(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_KEY_MATERIAL).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_KEY_MATERIAL, ENCODING_VERSION);
         w.writeString(kdf);
         w.writeBytes(salt);
         w.writeU64(memoryKib);
@@ -117,11 +117,7 @@ public record WorldKeyMaterial(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static WorldKeyMaterial decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_KEY_MATERIAL) {
-            throw new IllegalStateException("expected WORLD_KEY_MATERIAL tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_KEY_MATERIAL, "WORLD_KEY_MATERIAL", ENCODING_VERSION);
         String kdf = r.readString();
         Bytes salt = r.readBytesValue();
         long memoryKib = r.readU64();

@@ -21,7 +21,6 @@ excluded. Sorted by `% duplicated` descending; `—` marks a manual candidate js
 |---|---:|---:|---|---|
 | `library/java/engine/src/test/.../border/BorderSignalTest.java` | 151 | 290.7 | most engine rule/IT tests | Extract a shared `RegionFixture`/`FakeRegion`-based snapshot+batch builder for the assertion scaffolding every rule test re-pastes (the 8-line "build snapshot, run engine, assert root" preamble). |
 | `library/java/core/.../state/BlockEventEntry.java` | 56 | 244.6 | BlockMutation, ChunkColumnState, ContainerEntry, all Encodables | The tag+version guard + `decode` boilerplate: extract `CanonicalFrame.expectTag(reader, tag)` / `CanonicalFrame.writeTag(writer, tag)` helpers used by every `Encodable` (wire bytes unchanged). |
-| `library/java/engine/src/test/.../committee/CommFixtures.java` | 112 | 231.2 | CoordFixtures, ActionForwardIT, CrossRegionFluidTest, … | Promote to `testing` module as the shared committee/coordinator fixture; six engine tests each paste their own copy. |
 | `library/java/core/.../action/AttackEntityAction.java` | 66 | 201.5 | every GameAction permit, ActionEnvelope | The `encode`/`encodeBody`/`decode`/`decodeBody` 4-method skeleton shared by all permits — fold into a `SealedActionCodec` once the tag/version helper above exists. |
 | `library/java/core/.../action/ActionEnvelope.java` | 105 | 196.2 | ActionBatch, every action, ~~CachedPeerStore~~ (deleted 2026-08-06), … | Same `Encodable` boilerplate; the `signedPortion()`/`writeSignedFields` split is genuine, keep that, dedup the rest via the frame helper. |
 | `library/java/core/.../consensuscert/VoteDecision.java` | 55 | 147.3 | BlockMutation, PeerRole, … | Tag+version guard (single `u8` ordinal body) — `Encodable`-enum helper. (`CommitteeChangeCertificate`, a 2026-07-28 partner, was deleted on 2026-08-06 with the committee-manager design; tag 53 stays reserved in `TypeTags`.) |
@@ -30,7 +29,6 @@ excluded. Sorted by `% duplicated` descending; `—` marks a manual candidate js
 | `library/java/core/.../identity/PeerRole.java` | 81 | 91.4 | NodeCapabilities, RegionReplicaRole, VoteDecision, WorldHealth | The `enum implements Encodable` `encode`/`decode` pair — one shared `EnumEncodable` helper covers all four enums. |
 | `library/java/core/.../identity/PersistedNodeIdentity.java` | 164 | 90.9 | ActionEnvelope, DimensionKey, EncryptedPiece, ManifestSeeders, PersistedWorldKey | Tag+version guard + UUID-pair + bytes-triple; the `Encodable` frame helper covers most. |
 | `library/java/engine/src/main/.../committee/CommitteeFailover.java` | 74 | 89.2 | LagHandoffPolicy, LeaseManager | `Comparator.comparing(NodeId::value)` canonical-order literal and the `TreeMap`/`HashMap` field trio recur — a `CanonicalNodeIdOrder` constant removes it. Three of this row's five 2026-07-28 partners (`NodeRegistry`, `ProposalManager`, `RegionAllocator`) were deleted with the central-coordinator design on 2026-08-06, so the cluster is now two files, not five. |
-| `library/java/engine/src/test/.../coordinator/CoordFixtures.java` | 108 | 136.1 | CommFixtures, CommitteeCollapseIT, ContainerRulesTest, … | Share with `CommFixtures` (same consolidation). |
 | `library/java/core/.../action/ActionBatch.java` | 87 | 88.5 | ActionEnvelope, EntityTransferDescriptor, GenesisManifest, QuorumCertificate | `Encodable` frame helper. |
 | `library/java/core/.../action/BreakBlockAction.java` | 58 | 82.8 | AttackEntityAction, BlockChangedEvent, InteractBlockAction, PlaceBlockAction | Sealed-action codec consolidation. |
 | `library/java/core/.../region/RegionCommittee.java` | 140 | 68.6 | NodeCapabilities, RegionLease, RegionProgress | The "defensive-copy + UUID-sort validators" compact-constructor block is shared with `RegionLease` — extract `NodeIdList.canonicalCopyOf`. |
@@ -46,6 +44,17 @@ excluded. Sorted by `% duplicated` descending; `—` marks a manual candidate js
 | One-line Javadoc boilerplate riding the same `Encodable` types (Plan.11 phase 2 audit, 2026-08-05) | — | — | 65 files repeat `<p>Thread-context: immutable record, safe for any thread.`; 35 repeat `@Thread-context not thread-safe; one reader per decode call.`; 12 repeat `@throws IllegalArgumentException if any argument is null.`; 7 repeat `Full-frame decode (tag + version + body).` verbatim (`core/action/*`) | Not a missed duplication — jscpd's line-based clone detector already counts these lines as part of the `%` figures on the two rows above, since it does not strip comments. They are listed separately here because the fix is different: the `CanonicalFrame` helper (row above) collapses the *code*; the matching one-line Javadoc disappears with it as a side effect, not because a docs pass rewrote 65 files. No standalone action — do not "fix" this by editing comments file-by-file; it retires when the `Encodable` frame helper lands. |
 
 ## Resolved
+
+- **2026-08-06 — one engine fixture instead of nine** (Plan 11 round 3, issue #214). `CommFixtures`,
+  `CoordFixtures`, `shadow/Fixtures` and `FbFixtures` are deleted; `simulation/TestFixtures`,
+  `DistFixtures`, `StoreFixtures` and `testkit.peer.RegionFixtures` keep only the half that is
+  genuinely theirs (a bare-`GameAction` façade, a swarm peer, a storage row, a signed envelope) and
+  delegate the rest to `dev.nodera.testkit.engine.EngineFixtures`. The two rows this register
+  carried for `CommFixtures` and `CoordFixtures` are struck because the files no longer exist. Two
+  behaviours the deleted copies held — `CommFixtures.corruptingEngine()` and `CoordFixtures.caps()`
+  — were dropped rather than moved: neither had a caller anywhere in the tree at the time of the
+  consolidation. Nothing else was lost; every test method name and every assertion line in the
+  touched trees is accounted for.
 
 - **2026-08-06 — the retired central-coordinator design is gone** (Plan 11 round 2, issue #210).
   30 production files across `coordinator/`, `committee/`, `consensus/` and `shadow/`, plus
@@ -79,9 +88,10 @@ The order favours changes that unlock the rest and that carry the least wire-con
 3. **`RedstoneRules` split** — the biggest god class (726 lines) and the one that makes every
    redstone change expensive to reason about. Split after the helpers above exist so the new
    `WireNetwork`/`PistonMotion` files can use them.
-4. **Shared test fixtures (`RegionFixture`, `MobSoakHarness`, consolidate `CommFixtures`/
-   `CoordFixtures`)** — the test duplication is the largest absolute volume (BorderSignalTest alone
-   is a 290%-hub) and pure-test refactors cannot break the gate; do it once the production helpers
-   land so the fixtures adopt them.
+4. **Shared test fixtures** — the fixture half of this landed on 2026-08-06 (see Resolved above):
+   `EngineFixtures` is now the one builder set and the eight copies are callers. What is still open
+   is the assertion scaffolding rather than the values — a `MobSoakHarness` for the "spawn N ghosts,
+   step T ticks, assert walkable + root-identical" block, and the snapshot+batch preamble that makes
+   `BorderSignalTest` a 290%-hub. Pure-test refactors cannot break the gate, so this stays cheap.
 5. **`FlatWorldPalette` extraction** — move the static palette table and whitelist builders out of
    `FlatWorldRules`; keep action dispatch and mutation semantics in the rule class.

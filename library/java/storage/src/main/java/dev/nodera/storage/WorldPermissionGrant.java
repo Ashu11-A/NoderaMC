@@ -122,7 +122,7 @@ public record WorldPermissionGrant(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_PERMISSION_GRANT).writeU16(version);
+        w.writeFrame(TypeTags.WORLD_PERMISSION_GRANT, version);
         w.writeBytes(worldId);
         subject.encode(w);
         if (version >= V2) {
@@ -148,10 +148,7 @@ public record WorldPermissionGrant(
      *                               version is neither v1 nor v2.
      */
     public static WorldPermissionGrant decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_PERMISSION_GRANT) {
-            throw new IllegalStateException("expected WORLD_PERMISSION_GRANT tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.WORLD_PERMISSION_GRANT, "WORLD_PERMISSION_GRANT");
         int version = r.readU16();
         if (version != V1 && version != V2) {
             throw new IllegalStateException("unsupported WorldPermissionGrant version " + version);

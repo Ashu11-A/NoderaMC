@@ -15,6 +15,7 @@ import dev.nodera.simulation.rules.FlatWorldRules;
 import dev.nodera.testkit.peer.Await;
 import dev.nodera.testkit.peer.PeerTestHarness;
 import dev.nodera.transport.PeerAddress;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class DistributionIT {
 
-    private static final RegionId REGION = DistFixtures.region(0, 0);
+    private static final RegionId REGION = EngineFixtures.region(0, 0);
     private static final int PIECE_TARGET = 512;
     private static final long TIMEOUT_SECONDS = 20L;
 
@@ -64,13 +65,13 @@ final class DistributionIT {
     @Test
     void regionReassemblesFromThreeSeedersNoneHoldingMoreThan40Percent() throws Exception {
         // --- the region, and the root the ENGINE says it has --------------------------------
-        RegionSnapshot base = DistFixtures.fullUniformSnapshot(REGION, FlatWorldRules.AIR);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(REGION, FlatWorldRules.AIR);
         RegionExecutionResult result = DistFixtures.executeOneBatch(base, 99);
         StateRoot engineRoot = result.resultingRoot();
 
         // Rebuild the post-batch snapshot the engine's root refers to, and split it.
         RegionSnapshot post = applyDelta(base, result);
-        assertThat(StateRoot.of(DistFixtures.hashes().hash(post))).isEqualTo(engineRoot);
+        assertThat(StateRoot.of(EngineFixtures.hashes().hash(post))).isEqualTo(engineRoot);
 
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(post, PIECE_TARGET);
         int pieceCount = layout.manifest().pieceCount();
@@ -115,7 +116,7 @@ final class DistributionIT {
         // --- the assertion this whole task exists for ---------------------------------
         Bytes assembled = done.join();
         assertThat(assembled).isEqualTo(layout.blob());
-        assertThat(StateRoot.of(DistFixtures.hashes().sha256(assembled))).isEqualTo(engineRoot);
+        assertThat(StateRoot.of(EngineFixtures.hashes().sha256(assembled))).isEqualTo(engineRoot);
         assertThat(RegionSnapshot.decode(
                 new dev.nodera.core.crypto.CanonicalReader(assembled))).isEqualTo(post);
 
@@ -132,7 +133,7 @@ final class DistributionIT {
 
     @Test
     void aPartialDownloadResumesAfterTheSeederDisconnects() throws Exception {
-        RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(4L), 40L);
+        RegionSnapshot snapshot = EngineFixtures.variedSnapshot(REGION, new SnapshotVersion(4L), 40L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
         int pieceCount = layout.manifest().pieceCount();
 
@@ -186,7 +187,7 @@ final class DistributionIT {
 
     @Test
     void aSeederServingCorruptBytesNeverUnlocksAndTheFetchStillCompletes() throws Exception {
-        RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(6L), 60L);
+        RegionSnapshot snapshot = EngineFixtures.variedSnapshot(REGION, new SnapshotVersion(6L), 60L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
         int pieceCount = layout.manifest().pieceCount();
 
@@ -223,7 +224,7 @@ final class DistributionIT {
 
     @Test
     void servingIsBoundedByTheBandwidthBudgetAndResumesInTheNextWindow() {
-        RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(8L), 80L);
+        RegionSnapshot snapshot = EngineFixtures.variedSnapshot(REGION, new SnapshotVersion(8L), 80L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
 
         long tinyBudget = layout.manifest().piece(0).length();   // exactly one piece per window
@@ -258,7 +259,7 @@ final class DistributionIT {
 
     @Test
     void availabilityAdvertisementsDescribeExactlyWhatAPeerHolds() {
-        RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 90L);
+        RegionSnapshot snapshot = EngineFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 90L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
 
         Peer p = peer(40);

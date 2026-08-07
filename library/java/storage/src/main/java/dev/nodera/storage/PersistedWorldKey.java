@@ -113,7 +113,7 @@ public record PersistedWorldKey(Bytes worldId, Bytes pkcs8Private, Bytes x509Pub
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_KEY_SECRET).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_KEY_SECRET, ENCODING_VERSION);
         w.writeBytes(worldId);
         w.writeBytes(pkcs8Private);
         w.writeBytes(x509Public);
@@ -127,11 +127,7 @@ public record PersistedWorldKey(Bytes worldId, Bytes pkcs8Private, Bytes x509Pub
      * @throws IllegalStateException if the next tag is not {@code WORLD_KEY_SECRET}.
      */
     public static PersistedWorldKey decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_KEY_SECRET) {
-            throw new IllegalStateException("expected WORLD_KEY_SECRET tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_KEY_SECRET, "WORLD_KEY_SECRET", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         Bytes priv = r.readBytesValue();
         Bytes pub = r.readBytesValue();

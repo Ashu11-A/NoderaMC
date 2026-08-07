@@ -12,6 +12,7 @@ import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.protocol.simulationmsg.HaloUpdate;
 import dev.nodera.simulation.rules.FlatWorldRules;
 import dev.nodera.simulation.rules.FluidRules;
+import dev.nodera.testkit.engine.EngineFixtures;
 import dev.nodera.testkit.peer.Await;
 import dev.nodera.testkit.peer.PeerTestHarness;
 import dev.nodera.testkit.peer.ValidationNode;
@@ -39,8 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class HaloExchangeIT {
 
-    private static final int MIN_Y = -64;
-    private static final int SECTIONS = 24;
+    private static final int MIN_Y = EngineFixtures.MIN_Y;
+    private static final int SECTIONS = EngineFixtures.SECTION_COUNT;
     private static final int AIR_SECTION = 8;
     private static final int Y = MIN_Y + AIR_SECTION * 16;
 
@@ -259,15 +260,9 @@ final class HaloExchangeIT {
         return new RegionSnapshot(ORIGIN, SnapshotVersion.INITIAL, 0, chunks);
     }
 
+    /** As {@link EngineFixtures#blockAt}, but a column this region does not cover reads as air. */
     private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (ChunkColumnState col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                return col.blockAt(Math.floorDiv(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.x(), 16), Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return FlatWorldRules.AIR;
+        int found = EngineFixtures.blockAt(snapshot, pos);
+        return found < 0 ? FlatWorldRules.AIR : found;
     }
 }

@@ -9,6 +9,7 @@ import dev.nodera.core.state.RegionChunkIndex;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,17 +25,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class InMemoryWorldViewHashingTest {
 
-    private final RegionId region = CoordFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
 
     private InMemoryWorldView loaded() {
         InMemoryWorldView world = new InMemoryWorldView();
-        world.load(CoordFixtures.fullUniformSnapshot(region, 0));
+        world.load(EngineFixtures.fullUniformSnapshot(region, 0));
         return world;
     }
 
     private static StateRoot recomputed(InMemoryWorldView world, RegionId region,
                                         SnapshotVersion version, long tick) {
-        return StateRoot.of(CoordFixtures.hashes().hash(world.reExtract(region, version, tick)));
+        return StateRoot.of(EngineFixtures.hashes().hash(world.reExtract(region, version, tick)));
     }
 
     @Test

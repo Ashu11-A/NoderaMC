@@ -12,6 +12,7 @@ import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
 import dev.nodera.transport.TransportException;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class RelayDrainResumeIT {
 
-    private static final RegionId REGION = DistFixtures.region(1, 1);
+    private static final RegionId REGION = EngineFixtures.region(1, 1);
     /**
      * Small on purpose: a manifest of many small pieces means the drain lands squarely in the
      * middle of the transfer instead of racing its last piece.
@@ -170,7 +171,7 @@ final class RelayDrainResumeIT {
      * relay and there is nothing to cut on a direct carrier.
      */
     private ContentTransferService relayed(RelayFabric fabric, long idBits, int slots) {
-        NodeId id = DistFixtures.node(idBits);
+        NodeId id = EngineFixtures.node(idBits);
         LoopbackTransport loop = harness.network().register(id);
         RelayedTransport transport = new RelayedTransport(id, loop, fabric);
         ContentTransferService content = new ContentTransferService(
@@ -185,7 +186,7 @@ final class RelayDrainResumeIT {
 
     @Test
     void aCircuitCutWhenTheGracePeriodExpiresResumesThroughTheReplacementRelay() throws Exception {
-        RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 90L);
+        RegionSnapshot snapshot = EngineFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 90L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
         int pieceCount = layout.manifest().pieceCount();
         assertThat(pieceCount).isGreaterThanOrEqualTo(8);
@@ -244,7 +245,7 @@ final class RelayDrainResumeIT {
      */
     @Test
     void aDrainWithNoHolderRestorationLeavesTheTransferStuck() throws Exception {
-        RegionSnapshot snapshot = DistFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 91L);
+        RegionSnapshot snapshot = EngineFixtures.variedSnapshot(REGION, new SnapshotVersion(9L), 91L);
         RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, PIECE_TARGET);
 
         RelayFabric fabric = new RelayFabric();

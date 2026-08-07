@@ -4,6 +4,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -15,9 +16,9 @@ class InterferenceProbeTest {
 
     @Test
     void identicalSnapshotsShowNoInterference() {
-        RegionId region = Fixtures.region(0, 0);
-        RegionSnapshot expected = Fixtures.fullUniformSnapshot(region, 1);
-        RegionSnapshot reExtracted = Fixtures.fullUniformSnapshot(region, 1);
+        RegionId region = EngineFixtures.region(0, 0);
+        RegionSnapshot expected = EngineFixtures.fullUniformSnapshot(region, 1);
+        RegionSnapshot reExtracted = EngineFixtures.fullUniformSnapshot(region, 1);
 
         InterferenceProbe probe = new InterferenceProbe();
         InterferenceProbe.Report report = probe.probe(expected, reExtracted);
@@ -30,8 +31,8 @@ class InterferenceProbeTest {
 
     @Test
     void foreignMutationIsDetectedAndCounted() {
-        RegionId region = Fixtures.region(0, 0);
-        RegionSnapshot expected = Fixtures.fullUniformSnapshot(region, 1); // all STONE
+        RegionId region = EngineFixtures.region(0, 0);
+        RegionSnapshot expected = EngineFixtures.fullUniformSnapshot(region, 1); // all STONE
 
         // A foreign mutation (random tick / fluid / another mod) painted one section DIRT in one chunk.
         List<ChunkColumnState> cols = new ArrayList<>(expected.chunks());
@@ -55,8 +56,8 @@ class InterferenceProbeTest {
 
     @Test
     void oneBlockChangedInsideASectionIsInvisibleToTheCoarseCountAndExactToTheFineOne() {
-        RegionId region = Fixtures.region(0, 0);
-        RegionSnapshot expected = Fixtures.fullUniformSnapshot(region, 1); // all STONE
+        RegionId region = EngineFixtures.region(0, 0);
+        RegionSnapshot expected = EngineFixtures.fullUniformSnapshot(region, 1); // all STONE
 
         // What a live extraction produces once a player mines a single block: the section stops
         // being uniform and arrives as a dense array. The per-section palette entry of a dense
@@ -82,8 +83,8 @@ class InterferenceProbeTest {
 
     @Test
     void aDenseSectionThatMatchesItsUniformCounterpartIsNotInterference() {
-        RegionId region = Fixtures.region(0, 0);
-        RegionSnapshot expected = Fixtures.fullUniformSnapshot(region, 1);
+        RegionId region = EngineFixtures.region(0, 0);
+        RegionSnapshot expected = EngineFixtures.fullUniformSnapshot(region, 1);
 
         // A dense section whose 4096 ids are all STONE is re-sparsified by ChunkColumnState, so
         // the two snapshots must compare equal on both counts: the extractor's shape must never

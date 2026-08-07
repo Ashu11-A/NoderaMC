@@ -117,7 +117,7 @@ public record CertifiedWorldGenesis(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.CERTIFIED_WORLD_GENESIS).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CERTIFIED_WORLD_GENESIS, ENCODING_VERSION);
         manifest.encode(w);
         List<Map.Entry<RegionId, Bytes>> entries = new ArrayList<>(regionDigests.entrySet());
         w.writeList(entries, (ww, e) -> {
@@ -141,11 +141,7 @@ public record CertifiedWorldGenesis(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static CertifiedWorldGenesis decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CERTIFIED_WORLD_GENESIS) {
-            throw new IllegalStateException("expected CERTIFIED_WORLD_GENESIS tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.CERTIFIED_WORLD_GENESIS, "CERTIFIED_WORLD_GENESIS", ENCODING_VERSION);
         GenesisManifest manifest = GenesisManifest.decode(r);
         List<Map.Entry<RegionId, Bytes>> entries = r.readList(rr -> {
             RegionId region = RegionId.decode(rr);

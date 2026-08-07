@@ -155,7 +155,7 @@ public record WorldIdentity(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_IDENTITY).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_IDENTITY, ENCODING_VERSION);
         w.writeBytes(worldId);
         authorNodeId.encode(w);
         w.writeBytes(authorPublicKey);
@@ -178,11 +178,7 @@ public record WorldIdentity(
      * @throws IllegalStateException if the next tag is not {@code WORLD_IDENTITY}.
      */
     public static WorldIdentity decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_IDENTITY) {
-            throw new IllegalStateException("expected WORLD_IDENTITY tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_IDENTITY, "WORLD_IDENTITY", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         NodeId author = NodeId.decode(r);
         Bytes authorPublicKey = r.readBytesValue();

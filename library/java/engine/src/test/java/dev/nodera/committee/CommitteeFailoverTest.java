@@ -4,6 +4,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.region.RegionLease;
 import dev.nodera.coordinator.LeaseManager;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -12,13 +13,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CommitteeFailoverTest {
 
-    private final RegionId region = CommFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
 
     @Test
     void primaryLossPromotesAValidatorUnderBumpedEpoch() {
-        NodeId a = new NodeId(new java.util.UUID(0L, 10L));
-        NodeId b = new NodeId(new java.util.UUID(0L, 11L));
-        NodeId c = new NodeId(new java.util.UUID(0L, 12L));
+        NodeId a = EngineFixtures.node(10L);
+        NodeId b = EngineFixtures.node(11L);
+        NodeId c = EngineFixtures.node(12L);
         LeaseManager leases = new LeaseManager(200);
         RegionLease lease = leases.issue(region, a, List.of(b, c), 0); // epoch 0, primary a
 
@@ -33,7 +34,7 @@ class CommitteeFailoverTest {
 
     @Test
     void noSurvivorsRevokesToVanillaLane() {
-        NodeId a = new NodeId(new java.util.UUID(0L, 10L));
+        NodeId a = EngineFixtures.node(10L);
         LeaseManager leases = new LeaseManager(200);
         RegionLease lease = leases.issue(region, a, List.of(), 0); // no validators
         RegionLease promoted = CommitteeFailover.promoteOnPrimaryLoss(lease, leases, 100);

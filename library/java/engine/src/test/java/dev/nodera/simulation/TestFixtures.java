@@ -19,9 +19,16 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Shared deterministic builders for the {@code simulation} tests. Everything here is fixed-value
- * (no clocks, no {@link UUID#randomUUID}) so tests stay reproducible — the engine determinism bet
- * must not depend on test-time randomness either.
+ * The {@code simulation} tests' own façade over {@link EngineFixtures}: the rule suites work in
+ * bare {@link dev.nodera.core.action.GameAction}s and wrap them once, where every other suite works
+ * in whole envelopes, so {@code place}/{@code brk} here mean something different from the engine
+ * fixture's methods of the same name. Everything the two DID agree on — the dimension, the vertical
+ * extent, the region and column builders — delegates rather than being re-typed, because a base
+ * snapshot is an input to a deterministic engine and two copies that drift compute different roots
+ * while appearing to test the same thing.
+ *
+ * <p>Everything here is fixed-value (no clocks, no {@link UUID#randomUUID}) so tests stay
+ * reproducible — the engine determinism bet must not depend on test-time randomness either.
  *
  * <p>Thread-context: single test thread.
  */
@@ -32,17 +39,17 @@ public final class TestFixtures {
     /** Empty placeholder signature; the engine never verifies signatures (coordinator's job). */
     public static final Bytes SIG = Bytes.empty();
     /** The overworld dimension, used everywhere in the MVP. */
-    public static final DimensionKey OVERWORLD = DimensionKey.overworld();
+    public static final DimensionKey OVERWORLD = EngineFixtures.OVERWORLD;
 
     /** Standard MVP vertical extent: {@code [-64, 320]} = 24 sections of 16 blocks. */
-    public static final int DEFAULT_MIN_Y = -64;
-    public static final int DEFAULT_SECTION_COUNT = 24;
+    public static final int DEFAULT_MIN_Y = EngineFixtures.MIN_Y;
+    public static final int DEFAULT_SECTION_COUNT = EngineFixtures.SECTION_COUNT;
 
     private TestFixtures() {}
 
     /** Region at the grid coordinate given, in the overworld. */
     public static RegionId region(int regionX, int regionZ) {
-        return new RegionId(OVERWORLD, regionX, regionZ);
+        return EngineFixtures.region(regionX, regionZ);
     }
 
     /** A single chunk column uniform in {@code uniformStateId} across all sections. */
