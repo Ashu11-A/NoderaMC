@@ -15,9 +15,9 @@
 
 | Surface | Last run | Result |
 |---|---|---|
-| Desktop launcher + shared core | 2026-08-06 | **342 tests** (270 shared core + 2 shell, one intentionally ignored + 70 frontend): 341 passed, 1 ignored |
+| Desktop launcher + shared core | 2026-08-06 | **344 tests** (270 shared core + 2 shell, one intentionally ignored + 72 frontend): 343 passed, 1 ignored |
 | Android | last build 2026-08-01 · last physical run 2026-08-01 | `scripts/android-e2e.sh` **5 passed, 0 failed** on a Xiaomi 2210129SG (Android 15 / API 35) |
-| Website | 2026-08-06 | **140 passed, 0 failed** — `scripts/build-site.sh` runs the suite and now counts it |
+| Website | 2026-08-06 | **144 passed, 0 failed** — `scripts/build-site.sh` runs the suite and now counts it |
 
 ```bash
 cd app && cargo test        # REQUIRED — root workspace does not cover the Tauri shell
@@ -82,9 +82,9 @@ count typed into a document behaves — and why nothing but a measurement belong
 |---|---:|
 | `library/rust/nodera-core` | 270 |
 | `app` Tauri shell | 2 (1 ignored: opens a real browser) |
-| `app/ui/tests` | 70 |
-| `web/tests` | 140 |
-| **Total** | **482** |
+| `app/ui/tests` | 72 |
+| `web/tests` | 144 |
+| **Total** | **488** |
 
 ### A3. Manual smoke, per increment
 

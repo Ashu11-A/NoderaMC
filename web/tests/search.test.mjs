@@ -43,6 +43,10 @@ test("the index declares a version the reader knows", () => {
   // number is actually there — an index with no version is one a stale page will happily misread.
   assert.equal(index.version, 1);
   assert.equal(index.terms.length, index.idf.length, "idf is parallel to terms, or it is nothing");
+  // And it carries pages. Four rules below iterate `index.docs` and assert per document; over an
+  // index that built empty every one of them passes having looked at nothing. The site has 22
+  // indexable routes, so a floor of 20 fails on an outage and survives a page being retired.
+  assert.ok(index.docs.length >= 20, `the index carries ${index.docs.length} page(s)`);
 });
 
 test("the term list is sorted, because the query side binary-searches it", () => {
@@ -227,7 +231,11 @@ test("results are ordered by score, capped, and never duplicated", () => {
 test("a section is offered only when the query is in that heading", () => {
   // A deep link to a section that does not mention what was asked for is worse than a link to the
   // page: it looks like an answer and lands on a paragraph about something else.
-  for (const result of rank(index, "tracker")) {
+  const ranked = rank(index, "tracker");
+  // The count first: "tracker" matching nothing would make the rule below pass without ever seeing
+  // a section, which is the same green as a rule that holds.
+  assert.ok(ranked.length > 0, "the query that this rule is written against matched no page");
+  for (const result of ranked) {
     if (!result.section) continue;
     assert.ok(
       tokenize(result.section.text).some((term) => term.startsWith("tracker")),
@@ -285,7 +293,11 @@ test("the index is not bundled into the JavaScript every visitor loads", () => {
 test("every page carries a visible search button, reachable without the shortcut", () => {
   // `Ctrl K` is invisible to anybody who has not been told about it. A search that can only be
   // reached by a shortcut is a search most readers never find.
-  for (const route of routes.filter((entry) => entry.file !== null && entry.sitemap)) {
+  const listed = routes.filter((entry) => entry.file !== null && entry.sitemap);
+  // A filter is how a full route table becomes an empty one. Without this, a change to `sitemap`
+  // or `file` would turn "every page carries a search button" into a rule about no pages at all.
+  assert.ok(listed.length >= 20, `only ${listed.length} listed route(s) to check`);
+  for (const route of listed) {
     const html = readFileSync(path.join(distDirectory, outputPath(route.path)), "utf8");
     const { document } = new JSDOM(html).window;
     const buttons = [...document.querySelectorAll("button")].filter((node) => {

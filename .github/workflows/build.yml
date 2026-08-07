@@ -124,6 +124,14 @@ jobs:
         run: |
           scripts/loc-metrics.py --selftest
           scripts/loc-metrics.py --check
+      # The Rust and TypeScript half of a question Java has been answering since phase 1:
+      # `:peer:structureReport` ratchets `never_referenced_methods` in `fixtures/structure/budget.json`
+      # and 45 methods were deleted on the strength of it — while `pub fn` and `export` went
+      # unasked, across 43% of the tree's code. Not a hypothetical gap: `onDrainNotice` had no caller
+      # anywhere, so the service-drain migration lane ran on no node, and `circuit_idle_timeout_seconds`
+      # was loaded, validated, env-overridable and read by nothing. Same shape, two more languages.
+      - name: Every exported symbol has a call site
+        run: scripts/reference-check.py --check
       # `layout.properties` is the one layout table, and `LayoutManifestTest` holds Gradle, the Java
       # harness, the scripts and the Rust tests to it. Workflow YAML, Dockerfiles, `.dockerignore`
       # and `tauri.*.conf.json` cannot read it — GitHub, Docker and Tauri parse them first — and
