@@ -6,6 +6,7 @@ import dev.nodera.protocol.wire.FrameFlags;
 import dev.nodera.protocol.wire.NoderaFrame;
 import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.wire.WireRegistry;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +34,7 @@ final class UnknownKindDoesNotBreakTheContentLaneTest {
                 WireRegistry.WIRE_EPOCH, WireRegistry.NEXT_KIND + 17, FrameFlags.EVENT, 0L,
                 Bytes.unsafeWrap(new byte[]{9, 9, 9})).encode();
 
-        dev.nodera.core.identity.NodeId self = DistFixtures.node(1L);
+        dev.nodera.core.identity.NodeId self = EngineFixtures.node(1L);
         dev.nodera.testkit.LoopbackTransport.LoopbackNetwork network =
                 dev.nodera.testkit.LoopbackTransport.LoopbackNetwork.newNetwork();
         ContentTransferService service = new ContentTransferService(
@@ -42,7 +43,7 @@ final class UnknownKindDoesNotBreakTheContentLaneTest {
                 64, 64L * 1024 * 1024);
 
         dev.nodera.transport.PeerAddress from =
-                dev.nodera.transport.PeerAddress.of(DistFixtures.node(2L), "loopback");
+                dev.nodera.transport.PeerAddress.of(EngineFixtures.node(2L), "loopback");
 
         // First: prove this entry point is live at all. `doesNotThrowAnyException` on its own is
         // satisfied by a handler that was never reached — a renamed method, a changed signature, a

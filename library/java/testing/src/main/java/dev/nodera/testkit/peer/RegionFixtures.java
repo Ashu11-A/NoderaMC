@@ -10,18 +10,16 @@ import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import dev.nodera.testkit.engine.EngineFixtures;
 
 /**
- * The region and action values every committee test starts from.
+ * The <b>signed</b> action values every committee test starts from.
  *
- * <p>These four methods were copied verbatim into nine integration tests, along with the three
- * constants they read. That is not a saving of nine copies but a correctness matter: a base
- * snapshot is an INPUT to a deterministic engine, so two suites whose fixtures drifted apart would
- * be computing different roots while appearing to test the same thing.
+ * <p>Everything unsigned this class used to hold — the world seed, the vertical extent,
+ * {@code uniformColumn} and {@code fullUniformSnapshot} — was a second copy of
+ * {@link EngineFixtures}' in the same source set, one package away, and is now a delegation. What
+ * is left is the half that is genuinely this module's: an envelope carrying a real Ed25519
+ * signature, which an engine fixture must not build because the engine never verifies signatures.
  *
  * <p>The world seed is a default, not a constant of the system — {@link PeerTestHarness} takes it
  * as a named parameter because at least one suite deliberately runs on a different one.
@@ -31,13 +29,13 @@ import java.util.List;
 public final class RegionFixtures {
 
     /** The seed nearly every committee test runs on. Overridable per node; never assumed. */
-    public static final long WORLD_SEED = 0x4E4F4445_5241L;
+    public static final long WORLD_SEED = EngineFixtures.WORLD_SEED;
 
     /** Vanilla's overworld floor, which the flat-world rules are written against. */
-    public static final int MIN_Y = -64;
+    public static final int MIN_Y = EngineFixtures.MIN_Y;
 
     /** Sections per column at that floor. */
-    public static final int SECTION_COUNT = 24;
+    public static final int SECTION_COUNT = EngineFixtures.SECTION_COUNT;
 
     private RegionFixtures() {}
 
@@ -47,9 +45,7 @@ public final class RegionFixtures {
      * @param stateId the block state to fill with.
      */
     public static ChunkColumnState uniformColumn(int chunkX, int chunkZ, int stateId) {
-        int[] palette = new int[SECTION_COUNT];
-        Arrays.fill(palette, stateId);
-        return new ChunkColumnState(chunkX, chunkZ, palette, MIN_Y, SECTION_COUNT);
+        return EngineFixtures.uniformColumn(chunkX, chunkZ, stateId);
     }
 
     /**
@@ -62,15 +58,7 @@ public final class RegionFixtures {
      * @param stateId the block state every column holds.
      */
     public static RegionSnapshot fullUniformSnapshot(RegionId region, int stateId) {
-        int ox = region.originChunkX();
-        int oz = region.originChunkZ();
-        List<ChunkColumnState> columns = new ArrayList<>(64);
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                columns.add(uniformColumn(ox + dx, oz + dz, stateId));
-            }
-        }
-        return new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L, columns);
+        return EngineFixtures.fullUniformSnapshot(region, stateId);
     }
 
     /**

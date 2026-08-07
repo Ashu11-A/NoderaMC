@@ -19,6 +19,7 @@ import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.entity.ItemEntityRules;
 import dev.nodera.simulation.RegionExecutionResult;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -28,21 +29,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorldMutationApplierTest {
 
-    private final RegionId region = CoordFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
 
     @Test
     void commitAppliesDeltaAndWorldMatchesEngineRoot() {
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0); // AIR
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0); // AIR
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
 
         // Actions in distinct chunks/sections so the section-granularity delta reproduces the root.
-        ActionBatch batch = CoordFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL, 0, 1,
+        ActionBatch batch = EngineFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL, 0, 1,
                 List.of(
-                        CoordFixtures.place(region, 1, 0, 5, 70, 5, 1),
-                        CoordFixtures.place(region, 2, 0, 40, 100, 40, 4),
-                        CoordFixtures.place(region, 3, 0, 80, 50, 80, 3)));
-        RegionExecutionResult engineResult = CoordFixtures.engine().execute(CoordFixtures.request(base, batch));
+                        EngineFixtures.place(region, EngineFixtures.node(1L), 1, 0, 5, 70, 5, 1),
+                        EngineFixtures.place(region, EngineFixtures.node(1L), 2, 0, 40, 100, 40, 4),
+                        EngineFixtures.place(region, EngineFixtures.node(1L), 3, 0, 80, 50, 80, 3)));
+        RegionExecutionResult engineResult = EngineFixtures.engine().execute(EngineFixtures.request(base, batch));
 
         WorldMutationApplier applier = new WorldMutationApplier(world);
         WorldMutationApplier.ApplyResult result = applier.apply(engineResult.delta());
@@ -51,7 +52,7 @@ class WorldMutationApplierTest {
         assertThat(result.applied()).isEqualTo(engineResult.delta().blockMutations().size());
 
         RegionSnapshot reExtracted = world.reExtract(region, SnapshotVersion.INITIAL.next(), 1L);
-        StateRoot worldRoot = StateRoot.of(CoordFixtures.hashes().hash(reExtracted));
+        StateRoot worldRoot = StateRoot.of(EngineFixtures.hashes().hash(reExtracted));
         assertThat(worldRoot).isEqualTo(engineResult.resultingRoot());
     }
 
@@ -59,15 +60,15 @@ class WorldMutationApplierTest {
     void lockedChunkFailsClosedBeforeAnyWrite() {
         // L-33: an un-arrived/un-verified chunk (piece-locked) must reject a delta touching it —
         // the whole delta aborts in the verify pass, nothing lands anywhere.
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
-        ActionBatch batch = CoordFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL, 0, 1,
+        ActionBatch batch = EngineFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL, 0, 1,
                 List.of(
-                        CoordFixtures.place(region, 1, 0, 5, 70, 5, 1),
-                        CoordFixtures.place(region, 2, 0, 40, 100, 40, 4)));
+                        EngineFixtures.place(region, EngineFixtures.node(1L), 1, 0, 5, 70, 5, 1),
+                        EngineFixtures.place(region, EngineFixtures.node(1L), 2, 0, 40, 100, 40, 4)));
         RegionExecutionResult engineResult =
-                CoordFixtures.engine().execute(CoordFixtures.request(base, batch));
+                EngineFixtures.engine().execute(EngineFixtures.request(base, batch));
 
         // The chunk containing (40,*,40) has not arrived: lock it.
         WorldMutationApplier applier = new WorldMutationApplier(world,
@@ -84,7 +85,7 @@ class WorldMutationApplierTest {
 
     @Test
     void badGuardInMiddleAppliesNothing() {
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0); // AIR everywhere
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0); // AIR everywhere
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
 
@@ -113,7 +114,7 @@ class WorldMutationApplierTest {
 
     @Test
     void entityCreateAndInventoryCreditApplyExactlyOnce() {
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
         PersistedEntityState entity = item(1, 3);
@@ -136,7 +137,7 @@ class WorldMutationApplierTest {
 
     @Test
     void entityCasFailureAbortsBlockAndCreditToo() {
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
         PersistedEntityState absentExpected = item(1, 3);
@@ -161,7 +162,7 @@ class WorldMutationApplierTest {
 
     @Test
     void conflictingReplayKeyAbortsBeforeEntityRemoval() {
-        RegionSnapshot blocks = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot blocks = EngineFixtures.fullUniformSnapshot(region, 0);
         PersistedEntityState entity = item(1, 3);
         RegionSnapshot base = new RegionSnapshot(
                 region, blocks.version(), 0, blocks.chunks(), List.of(entity));
@@ -183,9 +184,9 @@ class WorldMutationApplierTest {
 
     @Test
     void multiRegionEntityTransferAppliesBothSidesAtomically() {
-        RegionId target = CoordFixtures.region(1, 0);
-        RegionSnapshot sourceBlocks = CoordFixtures.fullUniformSnapshot(region, 0);
-        RegionSnapshot targetBlocks = CoordFixtures.fullUniformSnapshot(target, 0);
+        RegionId target = EngineFixtures.region(1, 0);
+        RegionSnapshot sourceBlocks = EngineFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot targetBlocks = EngineFixtures.fullUniformSnapshot(target, 0);
         PersistedEntityState entity = item(1, 3);
         RegionSnapshot source = new RegionSnapshot(
                 region, sourceBlocks.version(), 0, sourceBlocks.chunks(), List.of(entity));
@@ -212,9 +213,9 @@ class WorldMutationApplierTest {
 
     @Test
     void badTargetGuardLeavesSourceEntityUntouched() {
-        RegionId target = CoordFixtures.region(1, 0);
-        RegionSnapshot sourceBlocks = CoordFixtures.fullUniformSnapshot(region, 0);
-        RegionSnapshot targetBlocks = CoordFixtures.fullUniformSnapshot(target, 0);
+        RegionId target = EngineFixtures.region(1, 0);
+        RegionSnapshot sourceBlocks = EngineFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot targetBlocks = EngineFixtures.fullUniformSnapshot(target, 0);
         PersistedEntityState entity = item(1, 3);
         PersistedEntityState conflict = item(1, 4);
         InMemoryWorldView world = new InMemoryWorldView();
@@ -241,8 +242,8 @@ class WorldMutationApplierTest {
 
     @Test
     void unloadedTargetAbortsBeforeSourceRemoval() {
-        RegionId target = CoordFixtures.region(1, 0);
-        RegionSnapshot sourceBlocks = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionId target = EngineFixtures.region(1, 0);
+        RegionSnapshot sourceBlocks = EngineFixtures.fullUniformSnapshot(region, 0);
         PersistedEntityState entity = item(1, 3);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(new RegionSnapshot(
@@ -266,9 +267,9 @@ class WorldMutationApplierTest {
 
     @Test
     void partialReplayRequiresAuthenticatedRecoveryPath() {
-        RegionId target = CoordFixtures.region(1, 0);
-        RegionSnapshot sourceBlocks = CoordFixtures.fullUniformSnapshot(region, 0);
-        RegionSnapshot targetBlocks = CoordFixtures.fullUniformSnapshot(target, 0);
+        RegionId target = EngineFixtures.region(1, 0);
+        RegionSnapshot sourceBlocks = EngineFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot targetBlocks = EngineFixtures.fullUniformSnapshot(target, 0);
         PersistedEntityState entity = item(1, 3);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(new RegionSnapshot(
@@ -298,9 +299,9 @@ class WorldMutationApplierTest {
 
     @Test
     void writeFailureRollsBackEarlierRegionMutation() {
-        RegionId target = CoordFixtures.region(1, 0);
-        RegionSnapshot sourceBlocks = CoordFixtures.fullUniformSnapshot(region, 0);
-        RegionSnapshot targetBlocks = CoordFixtures.fullUniformSnapshot(target, 0);
+        RegionId target = EngineFixtures.region(1, 0);
+        RegionSnapshot sourceBlocks = EngineFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot targetBlocks = EngineFixtures.fullUniformSnapshot(target, 0);
         PersistedEntityState entity = item(1, 3);
         InMemoryWorldView backing = new InMemoryWorldView();
         backing.load(new RegionSnapshot(
@@ -325,8 +326,8 @@ class WorldMutationApplierTest {
 
     @Test
     void borderIntentCannotRemoveSourceOutsideTransferCoordinator() {
-        RegionId target = CoordFixtures.region(1, 0);
-        RegionSnapshot sourceBlocks = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionId target = EngineFixtures.region(1, 0);
+        RegionSnapshot sourceBlocks = EngineFixtures.fullUniformSnapshot(region, 0);
         PersistedEntityState entity = item(1, 3);
         PersistedEntityState moved = new PersistedEntityState(
                 entity.id(), entity.kind(), entity.typeId(), FixedVec3.ofBlock(128, 5, 2),
@@ -349,7 +350,7 @@ class WorldMutationApplierTest {
 
     @Test
     void duplicateMultiRegionTargetIsRejectedBeforeWrites() {
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
         NBlockPos pos = new NBlockPos(1, 64, 1);
@@ -375,7 +376,7 @@ class WorldMutationApplierTest {
         // section-paint delta model, so any delta touching two blocks of the same 16³ box — every
         // spreading fluid — aborted with DUPLICATE_BLOCK_TARGET. The conflict unit is the exact
         // position now; two writers of one POSITION are still refused (the test above).
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
         NBlockPos firstPos = new NBlockPos(1, 64, 1);
@@ -392,7 +393,7 @@ class WorldMutationApplierTest {
 
     @Test
     void duplicatePositionInOneDeltaIsRejectedBeforeWrites() {
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
         NBlockPos pos = new NBlockPos(1, 64, 1);
@@ -408,7 +409,7 @@ class WorldMutationApplierTest {
 
     @Test
     void legacySnapshotBodyVersionSurvivesLoadAndExtraction() {
-        RegionSnapshot current = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot current = EngineFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot legacy = new RegionSnapshot(
                 region, current.version(), current.tick(), current.chunks(), List.of(), 1);
         InMemoryWorldView world = new InMemoryWorldView();

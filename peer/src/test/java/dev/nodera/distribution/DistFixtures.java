@@ -6,13 +6,10 @@ import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.PlaceBlockAction;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeId;
-import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
-import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
-import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.simulation.RegionExecutionContext;
 import dev.nodera.simulation.RegionExecutionRequest;
 import dev.nodera.simulation.RegionExecutionResult;
@@ -21,24 +18,26 @@ import dev.nodera.simulation.rules.FlatWorldRules;
 import dev.nodera.storage.ContentId;
 import dev.nodera.storage.ContentStore;
 import dev.nodera.testkit.LoopbackTransport;
+import dev.nodera.testkit.engine.EngineFixtures;
 import dev.nodera.testkit.peer.PeerTestHarness;
 import dev.nodera.transport.PeerAddress;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Fixed-value deterministic builders for the {@code distribution} (Task 19) tests. */
+/**
+ * What only the {@code distribution} (Task 19) tests need: a wired swarm peer, an in-memory content
+ * store, and the piece-level helpers.
+ *
+ * <p>The region, node, snapshot and hash builders that used to sit here were a fourth re-typing of
+ * {@link EngineFixtures}' and now delegate to it; a swarm test and an engine test disagreeing about
+ * what a "full uniform snapshot" is would make the pieces they exchange incomparable.
+ */
 final class DistFixtures {
 
-    static final DimensionKey OVERWORLD = DimensionKey.overworld();
-    static final int MIN_Y = -64;
-    static final int SECTION_COUNT = 24;
-    static final long WORLD_SEED = 0x4E4F4445_5241L;
+    static final long WORLD_SEED = EngineFixtures.WORLD_SEED;
 
     /** Serve budgets wide open — the swarm tests are about correctness; bounds get their own test. */
     static final int WIDE_OPEN_SLOTS = 64;
@@ -56,7 +55,7 @@ final class DistFixtures {
      * @param budget   bytes this peer may serve per window.
      */
     static Peer peer(PeerTestHarness harness, long idBits, int slots, long budget) {
-        NodeId id = node(idBits);
+        NodeId id = EngineFixtures.node(idBits);
         LoopbackTransport transport = harness.network().register(id);
         ContentTransferService content = new ContentTransferService(
                 id, transport, new MapContentStore(),
@@ -84,9 +83,9 @@ final class DistFixtures {
     static RegionExecutionResult executeOneBatch(RegionSnapshot base, long actorId) {
         RegionId region = base.region();
         FlatWorldRegionEngine engine = new FlatWorldRegionEngine(
-                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), hashes());
+                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint(), EngineFixtures.hashes());
         ActionEnvelope place = new ActionEnvelope(
-                node(actorId), 1L, 1L, 1L, region,
+                EngineFixtures.node(actorId), 1L, 1L, 1L, region,
                 new PlaceBlockAction(new NBlockPos(3, 0, 3), FlatWorldRules.STONE, 1),
                 Bytes.empty());
         ActionBatch batch = new ActionBatch(region, RegionEpoch.INITIAL, base.version(),
@@ -103,54 +102,6 @@ final class DistFixtures {
         return new Bytes(layout.blob().toArray(), (int) p.offset(), (int) p.length());
     }
 
-    static HashService hashes() {
-        return new HashService();
-    }
-
-    static RegionId region(int rx, int rz) {
-        return new RegionId(OVERWORLD, rx, rz);
-    }
-
-    static NodeId node(long lsb) {
-        return new NodeId(new UUID(0L, lsb));
-    }
-
-    static ChunkColumnState uniformColumn(int chunkX, int chunkZ, int stateId) {
-        int[] palette = new int[SECTION_COUNT];
-        Arrays.fill(palette, stateId);
-        return new ChunkColumnState(chunkX, chunkZ, palette, MIN_Y, SECTION_COUNT);
-    }
-
-    /** The 8x8-chunk region snapshot the engine actually produces, all sections {@code stateId}. */
-    static RegionSnapshot fullUniformSnapshot(RegionId region, int stateId) {
-        int ox = region.originChunkX();
-        int oz = region.originChunkZ();
-        List<ChunkColumnState> cols = new ArrayList<>(64);
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                cols.add(uniformColumn(ox + dx, oz + dz, stateId));
-            }
-        }
-        return new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L, cols);
-    }
-
-    /** A snapshot whose columns differ from one another, so pieces are not accidentally equal. */
-    static RegionSnapshot variedSnapshot(RegionId region, SnapshotVersion version, long tick) {
-        int ox = region.originChunkX();
-        int oz = region.originChunkZ();
-        List<ChunkColumnState> cols = new ArrayList<>(64);
-        for (int dx = 0; dx < 8; dx++) {
-            for (int dz = 0; dz < 8; dz++) {
-                int[] palette = new int[SECTION_COUNT];
-                for (int s = 0; s < SECTION_COUNT; s++) {
-                    palette[s] = (dx * 8 + dz) * 31 + s;
-                }
-                cols.add(new ChunkColumnState(ox + dx, oz + dz, palette, MIN_Y, SECTION_COUNT));
-            }
-        }
-        return new RegionSnapshot(region, version, tick, cols);
-    }
-
     /** Flip one byte of a piece payload — the "corrupt seeder" fixture. */
     static Bytes corrupt(Bytes payload) {
         byte[] raw = payload.toArray();
@@ -162,7 +113,7 @@ final class DistFixtures {
     static final class MapContentStore implements ContentStore {
 
         private final Map<ContentId, byte[]> blobs = new ConcurrentHashMap<>();
-        private final HashService hashes = new HashService();
+        private final HashService hashes = EngineFixtures.hashes();
 
         @Override
         public ContentId put(byte[] blob) {

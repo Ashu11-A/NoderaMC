@@ -9,26 +9,32 @@ import dev.nodera.core.event.BlockChangedEvent;
 import dev.nodera.core.event.CommittedEventEnvelope;
 import dev.nodera.core.event.RegionEvent;
 import dev.nodera.core.identity.NodeId;
-import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
+import dev.nodera.testkit.engine.EngineFixtures;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Fixed-value deterministic builders shared by every storage-tier test (the union of the former
  * per-module {@code StorageFixtures} and {@code RocksFixtures}).
+ *
+ * <p>What is here is the storage tier's own vocabulary — a genesis manifest, a quorum certificate,
+ * a chained committed event. The four values it shares with the rest of the tree (the hasher, the
+ * world seed, the region on the grid and a fixed-value node id) are taken from
+ * {@link EngineFixtures} rather than re-typed: a storage test and an engine test that disagreed
+ * about which region {@code 0,0} is, or about what seed the world runs on, would be writing and
+ * reading rows that do not describe the same world while both looking correct.
  */
 public final class StoreFixtures {
 
-    public static final HashService HASHES = new HashService();
-    public static final RegionId REGION = new RegionId(DimensionKey.overworld(), 0, 0);
+    public static final HashService HASHES = EngineFixtures.hashes();
+    public static final RegionId REGION = EngineFixtures.region(0, 0);
     public static final GenesisManifest GENESIS =
-            new GenesisManifest(0x4E4F4445_5241L, 1, 99L, root("genesis"));
+            new GenesisManifest(EngineFixtures.WORLD_SEED, 1, 99L, root("genesis"));
 
     private StoreFixtures() {
     }
@@ -38,7 +44,7 @@ public final class StoreFixtures {
     }
 
     public static NodeId voter(long lo) {
-        return new NodeId(new UUID(0L, lo));
+        return EngineFixtures.node(lo);
     }
 
     /** The deterministic root chain shared by the crash victim and the recovering parent. */

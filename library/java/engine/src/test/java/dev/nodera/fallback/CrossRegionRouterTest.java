@@ -2,6 +2,7 @@ package dev.nodera.fallback;
 
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,15 +10,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CrossRegionRouterTest {
 
     private final CrossRegionRouter router = new CrossRegionRouter();
-    private final RegionId region = FbFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
 
     private ActionEnvelope inRegion() {
-        return FbFixtures.place(region, 1, 5, 70, 5, 1); // x=5,z=5 owned by region (0,0)
+        return EngineFixtures.place(region, EngineFixtures.node(1), 1, 0L, 5, 70, 5, 1); // x=5,z=5 owned by region (0,0)
     }
 
     private ActionEnvelope crossRegion() {
         // env.region = (0,0) but the target x=200 lands in region (1,0) → cross-region.
-        return FbFixtures.place(region, 2, 200, 70, 5, 1);
+        return EngineFixtures.place(region, EngineFixtures.node(2), 2, 0L, 200, 70, 5, 1);
     }
 
     @Test
