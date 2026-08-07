@@ -301,7 +301,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 64 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 87 | ✅ |
 | `app` | The desktop shell: window, tray, autostart, command registration. Everything it *is* lives in `nodera-core`; the Android front end is native Compose (separate workspace) | 2 | 🚧 |
-| `app/ui` | The companion app's frontend — screens, the design system, the token audit | 72 | 🚧 |
+| `app/ui` | The companion app's frontend — screens, the design system, the token audit | 73 | 🚧 |
 | `web` | noderamc.org: the generated site, its mirrors, the `/add-store` deep-link page | 144 | 🚧 |
 | `library/ts/nodera-ui` | The shared frontend kit: the platform seam, the store link, the token audit both applications run | — | ✅ |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
