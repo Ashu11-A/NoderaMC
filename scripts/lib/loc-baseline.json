@@ -1,13 +1,13 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
-  "measured": "2026-08-06 at 41bc91e on the full tree, by `scripts/loc-metrics.py --baseline`.",
+  "measured": "2026-08-06 at 0a2adb6 on the full tree, by `scripts/loc-metrics.py --baseline`.Re-stamped twice more during the validation pass, for findings the pass proved rather than argued. First: `scripts/test-counts.sh` derived its frontend package list from a hardcoded pair, so a suite in any other package was counted by nothing -- demonstrated by registering a probe package whose failing suite the gate reported as `skipped` and exited 0 on. Second: `SpawnedService` waited on the child process with blocking reads, so its 20-second ready deadline could never fire and a silent child hung the calling thread forever; the fix moves the wait onto a queue poll, and the two new tests fail against the old reading logic with the threads parked at `BufferedReader.readLine` and `InputStream.readAllBytes`. Note that `library/java/testing/src/main` classifies into the java.test bucket, which is why a fix to a main-source class lands there. Total code 159298. Programme total against the 167,711 starting line: -8,413, -5.02%. A note for whoever stamps this next: `--baseline` writes the measured value, so every bucket sits exactly on its limit after every stamp and there is never any headroom. That is the ratchet working -- a deliberate rise, stamped in the same commit, is the documented path -- but it does mean a one-line bug fix and its test cost a baseline edit, and the pressure that creates is what turns a ratchet into a rubber stamp. Read the reason field before assuming a rise was lazy.",
   "limits": {
     "java.main.code": 56423,
     "java.main.comment": 33607,
-    "java.test.code": 54816,
-    "java.test.comment": 12073,
+    "java.test.code": 54970,
+    "java.test.comment": 12140,
     "rust.main.code": 19576,
-    "rust.main.comment": 7736,
+    "rust.main.comment": 7742,
     "rust.test.code": 12197,
     "rust.test.comment": 1116,
     "ts.main.code": 12588,
