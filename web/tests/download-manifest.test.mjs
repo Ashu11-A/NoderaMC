@@ -59,6 +59,14 @@ test("the generated key set is exactly release_manifest, plus the integrity file
 });
 
 test("every asset carries a real URL and a real size", () => {
+  // The count before the walk. A release fetch that came back with no assets — a rate-limited API,
+  // a tag whose upload leg failed, the missing `.msi` that has turned this site red before — leaves
+  // `release.assets` as `{}`, and every clause below then holds over nothing. `release_manifest`
+  // names twelve deliverables and the generator adds the integrity files, so twelve is the floor.
+  assert.ok(
+    Object.keys(release.assets).length >= 12,
+    `the generated release carries ${Object.keys(release.assets).length} asset(s)`,
+  );
   for (const [name, asset] of Object.entries(release.assets)) {
     assert.match(asset.url, /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\//, name);
     assert.ok(Number.isInteger(asset.size) && asset.size > 0, `${name} has size ${asset.size}`);

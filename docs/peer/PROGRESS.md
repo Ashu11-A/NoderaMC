@@ -28,6 +28,104 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-06 — A meter that leaked when nobody looked, and one transfer predicate instead of two
+
+Two of Plan 11's "implemented, tested, connected to nothing" findings, closed together.
+
+**`PeerTrafficMeter` ([#218](https://github.com/Ashu11-A/NoderaMC/issues/218)).** The per-peer table's
+only eviction path lived inside `snapshot()`, and `snapshot()` had no production caller — so the lid
+existed and was never lifted. A worker running for weeks with no companion app attached kept one entry
+per peer it had ever exchanged a frame with. Deleting the unreferenced method would have traded a lint
+finding for an unbounded map, which is why the phase-1 sweep stopped at it. The idle sweep now runs
+from `recordTx`/`recordRx`, at most once per `SWEEP_INTERVAL_NANOS` and claimed by CAS so concurrent
+senders sweep once between them: the table cannot grow without the same path also lifting the lid.
+`snapshot()` gained a reader as well — `WorkerControlHandler` reads the meter **once** per state poll
+through the new `byNode()` instead of once per member, which also removes the second entry point into
+rate sampling. Evidence: `PeerTrafficMeterTest`, which never reads the meter while it is filling it and
+asserts a thousand peers met and gone leave nothing behind.
+
+**`validateTransferPlan` ([#233](https://github.com/Ashu11-A/NoderaMC/issues/233)).** The proposer's
+check on a transfer plan was a second, hand-written copy of the one every remote committee member runs,
+and it omitted four of its clauses. Its body is now two `validateTransferSide` calls — 22 lines fewer,
+and no cross-side clause left over, because every clause the old body carried belongs to one side or
+the other.
+
+Worth recording precisely, because the issue predicted a live defect and the measurement did not find
+one: **none of the four omitted clauses was reachable as a divergence.** `SnapshotDeltaApplier.apply`
+re-checks the delta's `region` and `baseVersion` and throws when its declared `resultingRoot` is not
+what applying it produces — inside the `catch (RuntimeException)` the old body already had.
+`EntityTransferPrepare`'s own constructor refuses a delta whose region the descriptor does not name.
+And the replica-region clause cannot fail at the call site, because the proposer fetches each replica
+*by* the region the descriptor names. So the defect was duplication, not a hole: two predicates that
+had to stay in step and nothing asserting they did. `TransferPlanMatchesTransferSideTest` is that
+assertion — on every malformed plan it checks the proposer and the member return the same answer.
+
+### 2026-08-05 — Methods nothing in the tree names are gone from `:peer` (Plan 11 phase 1)
+
+Sixteen methods that `:peer:structureReport` §2.3 reported as referenced by nothing at all — tests
+and benchmarks included — were deleted from `dev.nodera.peer`: `PeerRuntime#messageCounters`/
+`#tickSync`, `SessionView#contains`, `GatewayHandoverListener#handover`,
+`PeerDiscoveryService#knownPeers`, `PersistentIdentityStore#file`, `CachedPeerStore#forget`,
+`CommonsPresence#leave`, `CompanionClient#joinWorld`, `CompanionLink#clear`,
+`RendezvousArchivePolicy#factors`, `LanWatcher#openWorlds`, `TunnelService#self` +
+`LocalEndpoint#sessionIdHex`, and `WorkerValidationService`'s eleven-argument constructor and
+`#reliability`. The report's budget drops from 136 never-referenced methods to 93 and from 267
+unreachable to 264.
+
+Two readers were deliberately kept rather than deleted. `PeerTrafficMeter#snapshot` is the meter's
+only reader AND its only eviction path, so deleting it would have made the per-peer table grow
+without bound — that is behaviour, not dead weight, and Plan 11 removes no behaviour. Nothing calls
+it today, which is a wiring defect worth its own issue rather than a deletion. `TickSync`'s own
+verbs stay too: they are reachable from production only through `PeerRuntime`'s delegates, and
+deleting those delegates would have PROMOTED the `TickSync` methods into the test-only column, which
+is a ratchet moving sideways rather than down.
+
+Evidence: `./gradlew :peer:test` green, `:peer:structureReport` green against the tightened
+`fixtures/structure/budget.json`, `scripts/loc-metrics.py --check` OK.
+### 2026-08-05 — Second pass: full territory census, not a five-file sample (Plan.11 phase 2)
+
+A quantified census of the full comment-migration territory (`scripts/lib/loc_classify` over 249
+files, 8,815 comment lines) found the mass is not concentrated — only three files exceed 150 comment
+lines and the rest average ~38 per file — so the productive method is reading down the list, not
+generalising from the largest outliers. Read all 29 `library/java/endpoint` files in full (the
+category's strongest density signal, 77.6%) plus the top of `library/java/core` and
+`library/java/transport` beyond the first pass. Result: `AuthorshipMemo`'s "why 'I cannot check' must
+not mean 'no'" history (the incident: a transient worker-socket failure read as a permanent loss of
+world administration) moved to [`Task.8.md`](Task.8.md) §"Why 'I cannot check' must not mean 'no'",
+with a pointer left at the call site. Also found and removed two dead, self-superseded Javadoc blocks
+— `endpoint/telemetry/ModTelemetry.followCompanionLink` and
+`endpoint/client/MultiplayerStatusFeed.reachable` each carried an orphaned one-line comment
+describing a design the very next Javadoc block (for the same declaration) had already replaced; a
+repo-wide scan for the same adjacent-block pattern found no further instances. Most of the territory
+remains protected content (consensus/wire invariants, past-bug "why" explanations, short public-API
+Javadoc) — see the phase-2 PR for the full accounting. No code changed; `:core:compileJava` and
+`:endpoint:compileJava` verified green.
+
+### 2026-08-05 — Control protocol spec moved out of the comment block and into a reference doc
+
+`ControlProtocol.java` carried the wire grammar, reply shapes and design rationale for all 30 verbs
+as Javadoc — 449 comment lines above 46 code lines, the headline example
+[`docs/plans/Plan.11.md`](../plans/Plan.11.md) phase 2 names. That prose is now
+[`REFERENCE.md`](REFERENCE.md): one section per verb, nothing dropped. The Java file keeps every
+constant's short wire-form line, the invariant `NO_VALUE` explains (the "Teste 1" → "0" rename bug),
+and a one-line pointer per multi-paragraph entry naming the doc section that holds the rest — 270
+comment lines remain, code line count unchanged (46). No behaviour changed; `:peer:compileJava`
+verified green.
+### 2026-08-05 — Four primitives, and the security guard that existed in two versions
+
+Plan 11 phase 4 (issue #213) against `REFACTORING.md` §1. `SignedGossipRelay` replaces the four
+copies of the mesh flood in `WorldOwnershipService`, `WorldGrantGossipService` and
+`WorldDeletionService`; `WorldIds` replaces seven copies of `shortId` and the world-id normaliser;
+`Json` replaces ten hand-concatenated control replies and the twice-written world row, taking two of
+the category's three JSON escapes with it. The one that matters most is `HexKeyedStore`: a world id
+becomes a path component, so the hex-only check IS the path-traversal guard, and it had been written
+twice — `WorldKeyStore` with an even-length check and a resolved-path containment re-check,
+`WorldTombstoneStore` with neither. The tombstone store now has both.
+
+`WorldReplicationService` was audited against the relay as the register asked and does not carry the
+shape; its row now says so rather than leaving the question open. Evidence: `./gradlew :peer:test`
+green with no test file changed, and `scripts/loc-metrics.py --diff`.
+
 ### 2026-08-03 — Replicated worlds reach the companion before their download completes
 
 `NODERA-STATE` built `connected_worlds` only from the local hosting registry. An Android worker

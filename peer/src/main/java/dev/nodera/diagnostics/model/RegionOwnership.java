@@ -68,10 +68,6 @@ public record RegionOwnership(
             certification = certification == null ? Certification.UNKNOWN : certification;
         }
 
-        /** A lease with no certification information (pre-#47.3 shape). */
-        public LeaseInfo(long epoch, long leaseExpiryTick) {
-            this(epoch, leaseExpiryTick, Certification.UNKNOWN, 0, 0);
-        }
     }
 
     /**

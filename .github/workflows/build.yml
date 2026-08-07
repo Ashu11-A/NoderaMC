@@ -25,6 +25,36 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+      # No `dtolnay/rust-toolchain@stable`: rust-toolchain.toml pins the channel and rustup honours
+      # it, the same reasoning the `companion` job carries.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      # ---------------------------------------------------------------------------------------
+      # What `./gradlew check` needs in order to be the gate it claims to be.
+      #
+      # Twelve tests in this job were SKIPPED on every run this workflow has ever done, and always
+      # for the same reason: "a cargo binary or the peer distribution was not built". Seven
+      # `TrackerServiceIT`, one `RendezvousRelayIT`, one `WorldContinuityIT`, one
+      # `CompanionCrashSurvivalIT` and two `TelemetryRegistryMirrorTest` — the suites that drive the
+      # REAL service binaries rather than a Java stand-in, which is precisely what makes them worth
+      # having. `cargo build --release` lived in a different job, so `2,423 passed / 12 skipped`
+      # overstated what this gate proved, and an `assumeTrue` on a path that has moved reports as a
+      # skip rather than as a failure (see docs/testing/TESTING.md).
+      #
+      # The rule that file already states is the fix: anything the build produces is BUILT by the
+      # runner rather than waited for. `--release` is not a choice — `TestPaths.trackerBinary()`
+      # resolves `<dir.cargoTarget>/release/nodera-tracker` and nothing else.
+      #
+      # A separate Gradle invocation, before `check`, on purpose: `:peer:test` does not depend on
+      # `:peer:installDist`, so naming both in one command leaves the order to Gradle and the
+      # distribution can land after the test that needed it.
+      # ---------------------------------------------------------------------------------------
+      - name: Build what the real-binary suites drive
+        run: |
+          set -euo pipefail
+          cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
+          ./gradlew :peer:installDist
       - run: ./gradlew check build --stacktrace
       # `check build` is cacheable end to end, so a healthy run can finish in ~40s with every
       # `:*:test` FROM-CACHE — visually identical to a job that skipped into green. Judge the gate
@@ -40,9 +70,33 @@ jobs:
       - name: Java test totals
         if: always()
         run: |
+          set -euo pipefail
           mkdir -p run/totals
           scripts/test-totals.sh --java > run/totals/java.json
           cat run/totals/java.json
+      # The other half of the step above: `passed` is the badge, and `skipped` is the number the
+      # badge cannot show. This job reported `2,423 passed / 12 skipped` on every run, and all twelve
+      # were the real-binary suites waiting for something the job simply had not built — a suite that
+      # skips is a suite that asserts nothing, and it renders exactly like one that passed.
+      #
+      # Zero is stamped, not derived. A new skip is a decision: either the runner builds what it
+      # needs (the step above is where that goes), or the test is `@Disabled` with a reason, or this
+      # number moves in the same commit and somebody reviews the line that moved it.
+      - name: Nothing skipped into green
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - run/totals/java.json <<'PY'
+          import json, sys
+          skipped = json.load(open(sys.argv[1]))["skipped"]
+          if skipped:
+              sys.exit(
+                  f"{skipped} Java test(s) skipped. A skip asserts nothing and renders as a pass. "
+                  "Build what they wait for in 'Build what the real-binary suites drive', disable "
+                  "them with a reason, or re-stamp the expected count in this step."
+              )
+          print("no Java test skipped")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -61,6 +115,23 @@ jobs:
       # to make the documented claim true.
       - name: Every version mirror agrees with VERSION
         run: scripts/version.sh --check
+      # The size ratchet of the Plan 11 reduction programme (docs/plans/Plan.11.md). `--selftest`
+      # runs first because the ratchet is only worth as much as the lexer under it: a regression
+      # that made the classifier count comments as code would otherwise show up as a tree that
+      # shrank. Growth is not forbidden — it has to be re-stamped with `--baseline` in the same
+      # commit, which turns "the tree got bigger" into a line somebody reviews.
+      - name: Source size is within its stamped baseline
+        run: |
+          scripts/loc-metrics.py --selftest
+          scripts/loc-metrics.py --check
+      # The Rust and TypeScript half of a question Java has been answering since phase 1:
+      # `:peer:structureReport` ratchets `never_referenced_methods` in `fixtures/structure/budget.json`
+      # and 45 methods were deleted on the strength of it — while `pub fn` and `export` went
+      # unasked, across 43% of the tree's code. Not a hypothetical gap: `onDrainNotice` had no caller
+      # anywhere, so the service-drain migration lane ran on no node, and `circuit_idle_timeout_seconds`
+      # was loaded, validated, env-overridable and read by nothing. Same shape, two more languages.
+      - name: Every exported symbol has a call site
+        run: scripts/reference-check.py --check
       # `layout.properties` is the one layout table, and `LayoutManifestTest` holds Gradle, the Java
       # harness, the scripts and the Rust tests to it. Workflow YAML, Dockerfiles, `.dockerignore`
       # and `tauri.*.conf.json` cannot read it — GitHub, Docker and Tauri parse them first — and
@@ -154,6 +225,20 @@ jobs:
       # no-Tauri-in-the-browser-bundle check all run.
       - name: Build the website
         run: scripts/build-site.sh
+      # 209 frontend tests, counted by nothing until now. Both build scripts above run their
+      # package's `node --test` through `tee`, hold the result to README's stamped count, and leave
+      # the totals here; this uploads them so the badge stops understating the tree by two whole
+      # suites. See `scripts/test-totals.sh --tap` for why an empty glob was the failure that made
+      # counting them worth doing.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: totals-frontend
+          path: |
+            run/totals/app-ui.json
+            run/totals/site.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Build the companion app
         run: cd app && cargo build --release
       # The app's own tests have never run in CI, which is how the settings model, the
@@ -380,9 +465,10 @@ jobs:
   # skips into green — so the badge now shows a NUMBER that only a suite which actually ran can
   # produce: how many tests passed, and how many failed.
   #
-  # The three test jobs each measured their own half and uploaded it; this job only sums and
-  # renders. Nothing is re-run to produce a badge, because a number from a second, cheaper run
-  # would be a badge about a run nobody looked at.
+  # The three test jobs each measured their own share and uploaded it — five totals across them,
+  # since the `companion` job carries the app's separate cargo workspace and both frontend
+  # packages; this job only sums and renders. Nothing is re-run to produce a badge, because a number
+  # from a second, cheaper run would be a badge about a run nobody looked at.
   #
   # `always()` on purpose: a red run is exactly when the failed count must update. The publish is
   # skipped when a totals file is missing, since a partial sum would silently understate the tree.
@@ -411,7 +497,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for part in java rust app; do
+          for part in java rust app app-ui site; do
             if [[ ! -s "run/totals/$part.json" ]]; then
               echo "::warning::no totals for $part — the badge would understate the tree, so it is not updated"
               missing=1
@@ -421,7 +507,8 @@ jobs:
       - name: Sum and render
         if: steps.parts.outputs.complete == '1'
         run: |
-          scripts/test-totals.sh --merge run/totals/java.json run/totals/rust.json run/totals/app.json \
+          scripts/test-totals.sh --merge run/totals/java.json run/totals/rust.json \
+            run/totals/app.json run/totals/app-ui.json run/totals/site.json \
             --badges run/badges
           cat run/badges/tests-passed.json run/badges/tests-failed.json
       - name: Publish to the badges branch

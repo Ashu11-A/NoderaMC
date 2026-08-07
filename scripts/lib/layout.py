@@ -113,6 +113,11 @@ def workspace_crates() -> dict[str, pathlib.Path]:
     return {name: p for name, p in crates().items() if name != "nodera-app"}
 
 
+def packages() -> dict[str, pathlib.Path]:
+    """Every frontend package, `package.json` name to absolute directory."""
+    return _by_prefix("package.")
+
+
 def _by_prefix(prefix: str) -> dict[str, pathlib.Path]:
     base = root()
     return {

@@ -17,7 +17,9 @@
     },
     "./vite": "./vite/preset.mjs",
     "./layout": "./layout.mjs",
-    "./token-audit": "./tests/token-audit.mjs"
+    "./component-audit": "./tests/component-audit.mjs",
+    "./token-audit": "./tests/token-audit.mjs",
+    "./vacuity-audit": "./tests/vacuity-audit.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^4.3.1",
+    "acorn": "^8.18.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.5.3",
     "vite": "^5.4.0"

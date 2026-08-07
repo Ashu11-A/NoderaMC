@@ -26,11 +26,6 @@ public final class PieceBitmap {
 
     private PieceBitmap() {}
 
-    /** An empty bitmap — the holder has no pieces of the manifest. */
-    public static Bytes empty() {
-        return Bytes.empty();
-    }
-
     /**
      * Pack the given piece indexes into a canonical bitmap.
      *

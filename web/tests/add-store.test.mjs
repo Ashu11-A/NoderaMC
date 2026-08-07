@@ -285,7 +285,12 @@ test("R16 the footer says a tracker is a hint, never an authority", () => {
 
 test("R17 the page is self-contained: no external CSS, font, script or image", () => {
   const context = load("");
-  for (const node of context.document.querySelectorAll("[src], [href]")) {
+  const referencing = [...context.document.querySelectorAll("[src], [href]")];
+  // The page has links in it — the fallback's releases link, the footer's. A selector matching
+  // nothing means the page did not parse, and "no element pulls from another origin" is then true
+  // of a document with no elements.
+  assert.ok(referencing.length > 0, "nothing on the page carries a src or an href");
+  for (const node of referencing) {
     const url = node.getAttribute("src") ?? node.getAttribute("href");
     // An outbound `<a>` is a link somebody chooses to follow, not a request the page makes.
     if (node.tagName === "A") continue;

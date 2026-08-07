@@ -30,27 +30,12 @@ public record PickupItemAction(NetworkEntityId entityId) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PICKUP_ITEM_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PICKUP_ITEM_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
     private void encodeBody(CanonicalWriter w) {
         entityId.encode(w);
-    }
-
-    /**
-     * Full-frame decode (tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code PICKUP_ITEM_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static PickupItemAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PICKUP_ITEM_ACTION) {
-            throw new IllegalStateException("expected PICKUP_ITEM_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
     }
 
     static PickupItemAction decodeBody(CanonicalReader r) {

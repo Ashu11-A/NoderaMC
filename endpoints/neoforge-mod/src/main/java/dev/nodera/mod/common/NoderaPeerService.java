@@ -175,36 +175,6 @@ public final class NoderaPeerService {
         return INSTANCE;
     }
 
-    /**
-     * Start the host peer for this world (Task 30). Called by a dedicated server that auto-hosts, or
-     * by the pause-menu "Share" action on a player's integrated server — the role, not the dist,
-     * decides who calls this. Idempotent: re-calling while already hosting keeps the existing runtime
-     * and only refreshes the share options.
-     *
-     * <p>Beyond starting the peer, this announces the world to the configured tracker(s) (so peers
-     * can discover it, Task 28) and registers a signed record with the configured rendezvous
-     * service(s) (so peers can reach it across NATs, Task 29). Both engage automatically from the
-     * embedded default endpoints ({@link NoderaConfig#DEFAULT_TRACKER_ENDPOINTS} /
-     * {@link NoderaConfig#DEFAULT_RENDEZVOUS_ENDPOINTS}); an unreachable service degrades to
-     * direct/no-announce rather than failing the share.
-     *
-     * @param bindHost      local bind address.
-     * @param port          local P2P port.
-     * @param advertiseHost host that joiners dial ({@code "auto"} → best local non-loopback address).
-     * @param options       the share options (password, delegation, visibility); never {@code null}.
-     * @param worldId       the world identity used to key tracker/rendezvous (interim placeholder
-     *                      until the live genesis hash, Task 9/30c); may be {@code null}.
-     * @param worldName     the world's display name for the tracker directory.
-     * @return the advertised host route ({@code host:port}); {@code null} if the P2P socket bind
-     *         failed and even an ephemeral-port retry failed (issue #39) — the world then runs in
-     *         vanilla-only mode rather than crashing the server.
-     */
-    public synchronized String startHost(String bindHost, int port, String advertiseHost,
-                                          ShareOptions options, Bytes worldId, String worldName) {
-        return startHost(bindHost, port, advertiseHost, options, worldId, worldName,
-                NodeIdentity.generate());
-    }
-
     /** Start the host with a save-persistent identity used by durable validation records. */
     public synchronized String startHost(
             String bindHost, int port, String advertiseHost, ShareOptions options,
@@ -348,6 +318,33 @@ public final class NoderaPeerService {
     }
 
     /**
+     * Read a list of relay routes, dropping the ones that do not parse.
+     *
+     * <p>Written three times over — twice against the settings and once against the worker's live
+     * list — with the same "one bad route must not lose the others" rule each time. That rule is the
+     * whole reason it is a loop rather than a stream: a relay list is user- and network-supplied, and
+     * refusing the entire list because one entry is malformed would take a player's working relays
+     * away over a typo in an unrelated one.
+     *
+     * @param routes the routes as configured or reported.
+     * @param source where they came from, for the log line a bad one produces.
+     * @return the routes that parsed, in order; possibly empty.
+     */
+    private static List<RendezvousEndpoint> parseRelays(Iterable<? extends String> routes,
+                                                        String source) {
+        List<RendezvousEndpoint> endpoints = new ArrayList<>();
+        for (String route : routes) {
+            try {
+                endpoints.add(RendezvousEndpoint.parse(route));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed rendezvous endpoint '{}' from {}: {}",
+                        route, source, e.getMessage());
+            }
+        }
+        return endpoints;
+    }
+
+    /**
      * Wrap the direct socket in the rendezvous transport when endpoints are configured (Task 29), so
      * the host registers a discoverable, NAT-reachable record. Falls back to the direct socket if the
      * rendezvous service is unreachable — a down relay must never stop a LAN/direct share.
@@ -358,14 +355,7 @@ public final class NoderaPeerService {
         if (routes == null || routes.isEmpty() || worldId == null) {
             return serverTransport;
         }
-        List<RendezvousEndpoint> endpoints = new ArrayList<>();
-        for (String route : routes) {
-            try {
-                endpoints.add(RendezvousEndpoint.parse(route));
-            } catch (IllegalArgumentException e) {
-                LOG.warn("Ignoring malformed rendezvous endpoint '{}': {}", route, e.getMessage());
-            }
-        }
+        List<RendezvousEndpoint> endpoints = parseRelays(routes, "the settings");
         if (endpoints.isEmpty()) {
             return serverTransport;
         }
@@ -413,14 +403,7 @@ public final class NoderaPeerService {
         } catch (RuntimeException malformed) {
             return clientTransport;
         }
-        List<RendezvousEndpoint> endpoints = new ArrayList<>();
-        for (String route : routes) {
-            try {
-                endpoints.add(RendezvousEndpoint.parse(route));
-            } catch (IllegalArgumentException e) {
-                LOG.warn("Ignoring malformed rendezvous endpoint '{}': {}", route, e.getMessage());
-            }
-        }
+        List<RendezvousEndpoint> endpoints = parseRelays(routes, "the settings");
         if (endpoints.isEmpty()) {
             return clientTransport;
         }
@@ -545,15 +528,7 @@ public final class NoderaPeerService {
         if (live.isEmpty()) {
             return;
         }
-        List<RendezvousEndpoint> endpoints = new ArrayList<>();
-        for (String route : live) {
-            try {
-                endpoints.add(RendezvousEndpoint.parse(route));
-            } catch (IllegalArgumentException e) {
-                LOG.warn("Ignoring malformed rendezvous endpoint '{}' from the worker: {}",
-                        route, e.getMessage());
-            }
-        }
+        List<RendezvousEndpoint> endpoints = parseRelays(live, "the worker");
         if (endpoints.isEmpty()) {
             return;
         }
@@ -908,17 +883,6 @@ public final class NoderaPeerService {
         hostWorldName = null;
         hostCaps = null;
         gameRoute = null;
-    }
-
-    /**
-     * Client callback: the server told us its P2P route via {@link NoderaSessionPayload}; join the
-     * mesh. Idempotent (a re-login while still connected is a no-op).
-     *
-     * @param bootstrapRoute the server's advertised P2P route.
-     * @param advertiseHost  this client's advertise host ({@code "auto"} → best local address).
-     */
-    public synchronized void onServerSessionInfo(String bootstrapRoute, String advertiseHost) {
-        onServerSessionInfo(bootstrapRoute, advertiseHost, null);
     }
 
     /**

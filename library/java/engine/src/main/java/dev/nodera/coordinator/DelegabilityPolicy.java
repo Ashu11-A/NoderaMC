@@ -14,6 +14,16 @@ import java.util.Set;
  * default: delegation is opt-in per region and a non-delegable region keeps untouched vanilla
  * execution.
  *
+ * <p><b>This is the rule table, not the driver.</b> Live refusal happens in the entity lane
+ * ({@code LiveEntityLaneRuntime} / {@code ObserverLaneRuntime}), which announces
+ * {@code RegionRefusal.Reason.NON_DELEGABLE_ENTITY} for the one reason it evaluates —
+ * {@link EntityDelegabilityRules} is that narrowing of {@link Reason#ENTITY_PRESENT}. A second
+ * implementation existed, a hysteresis monitor with a peer-side gate that mapped verdicts onto
+ * announceable refusals, and it had no production caller either; it was deleted on 2026-08-06
+ * (Plan 11 round 2, issue #210) so that delegability is described in one place rather than
+ * decided in none. The remaining reasons here are still declared and still unevaluated: whoever
+ * wires them should evaluate them where the live lane already refuses, not build a third driver.
+ *
  * @Thread-context confined to the coordinator thread; the evaluation is pure over its inputs.
  */
 public final class DelegabilityPolicy {

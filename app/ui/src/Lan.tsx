@@ -8,6 +8,7 @@
 // exactly the design that makes people click the wrong button.
 import { useEffect, useState } from "react";
 import { FiGlobe, FiRadio, FiShare2, FiX } from "react-icons/fi";
+import { useSubscribe } from "./api";
 import { Button, Card, Empty, Modal, Pill } from "./components";
 import {
   lanAction,
@@ -57,32 +58,19 @@ export function LanOfferModal(props: {
 
   // Subscribed once. The worker's announcement is the trigger; the payload carries the port, which
   // is all this needs to match it against the list.
-  useEffect(() => {
-    let alive = true;
-    let unlisten: (() => void) | undefined;
-    onWorkerEvent((event) => {
-      if (!alive || event.event !== "lan.opened") return;
-      const port = Number(event.attributes.port);
-      if (!Number.isFinite(port)) return;
-      // A freshly-announced world clears any earlier dismissal of that port: the player closed a
-      // world and opened a new one, which is a new decision.
-      setDismissed((previous) => {
-        const next = new Set(previous);
-        next.delete(port);
-        return next;
-      });
-      setAnnounced((previous) => new Set(previous).add(port));
-    })
-      .then((un) => {
-        if (alive) unlisten = un;
-        else un();
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-      unlisten?.();
-    };
-  }, []);
+  useSubscribe(onWorkerEvent, (event) => {
+    if (event.event !== "lan.opened") return;
+    const port = Number(event.attributes.port);
+    if (!Number.isFinite(port)) return;
+    // A freshly-announced world clears any earlier dismissal of that port: the player closed a
+    // world and opened a new one, which is a new decision.
+    setDismissed((previous) => {
+      const next = new Set(previous);
+      next.delete(port);
+      return next;
+    });
+    setAnnounced((previous) => new Set(previous).add(port));
+  });
 
   // Forget ports that are no longer open, so a world closing takes its prompt with it and a
   // reopened one is asked about again. Compared by value, not by array identity: the dashboard

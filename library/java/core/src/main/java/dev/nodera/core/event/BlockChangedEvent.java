@@ -33,7 +33,7 @@ public record BlockChangedEvent(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.BLOCK_CHANGED_EVENT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.BLOCK_CHANGED_EVENT, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -41,21 +41,6 @@ public record BlockChangedEvent(
         pos.encode(w);
         w.writeU32(Integer.toUnsignedLong(oldStateId));
         w.writeU32(Integer.toUnsignedLong(newStateId));
-    }
-
-    /**
-     * Full-frame decode (tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code BLOCK_CHANGED_EVENT}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static BlockChangedEvent decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.BLOCK_CHANGED_EVENT) {
-            throw new IllegalStateException("expected BLOCK_CHANGED_EVENT tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
     }
 
     static BlockChangedEvent decodeBody(CanonicalReader r) {

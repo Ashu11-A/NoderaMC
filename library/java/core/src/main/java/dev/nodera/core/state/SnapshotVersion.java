@@ -32,16 +32,12 @@ public record SnapshotVersion(long value) implements Encodable, Comparable<Snaps
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SNAPSHOT_VERSION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.SNAPSHOT_VERSION, ENCODING_VERSION);
         w.writeU64(value);
     }
 
     public static SnapshotVersion decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SNAPSHOT_VERSION) {
-            throw new IllegalStateException("expected SNAPSHOT_VERSION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.SNAPSHOT_VERSION, "SNAPSHOT_VERSION", ENCODING_VERSION);
         return new SnapshotVersion(r.readU64());
     }
 }

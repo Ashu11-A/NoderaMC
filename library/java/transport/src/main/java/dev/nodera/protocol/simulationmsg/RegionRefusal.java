@@ -9,12 +9,19 @@ import java.util.Objects;
  * "This region cannot be validated by anyone — stop trying" (L-60).
  *
  * <p>Some facts that disqualify a region from the validated lane are visible on a node that owns
- * <b>none</b> of it. The one this exists for: an entity kind the world never opted into
- * ({@code entity.mobCaptureDimensions}) is alive in the region. Under field-of-view ownership the
- * seats sit on the players' nodes while the session server — which is where entities actually
- * spawn and tick — usually owns nothing, so the node that <i>sees</i> the disqualifying entity is
- * routinely not the node that could act on it. Without this message the region simply stayed
- * unvalidated and silent, which is indistinguishable from working.
+ * <b>none</b> of it. Under field-of-view ownership the seats sit on the players' nodes while the
+ * session server — which is where entities actually spawn and tick — usually owns nothing, so the
+ * node that <i>sees</i> a disqualifying condition is routinely not the node that could act on it.
+ * Without this message the region simply stayed unvalidated and silent, which is indistinguishable
+ * from working.
+ *
+ * <p><b>The receive half is live; no reason has a sender in this build.</b> The condition this
+ * message was written for — {@link Reason#NON_DELEGABLE_ENTITY} — was retired on 2026-07-29
+ * (issue #236) and the remaining five have never had an evaluator ({@code DelegabilityPolicy} is
+ * the rule table, and nothing drives it). {@code WorkerValidationService.onRegionRefusal} still
+ * accepts, re-checks and acts on refusals, because peers on older releases send them and because
+ * the sender for the other five is a wiring job, not a redesign:
+ * {@code WorkerValidationService.refuseRegion} is the one announcement path they would use.
  *
  * <p>A refusal is not a vote and carries no authority: it says "I observed a condition your region
  * cannot be validated under". The recipient re-checks the same condition against its own config
@@ -39,7 +46,21 @@ public record RegionRefusal(RegionId region, int reasonCode) implements NoderaMe
      * before {@link #UNKNOWN}.
      */
     public enum Reason {
-        /** A non-delegable entity in a dimension that never opted into mob capture. */
+        /**
+         * A non-delegable entity in a dimension that never opted into mob capture.
+         *
+         * <p><b>Reserved: nothing in this build sends it</b> (issue #236, decided 2026-08-06).
+         * Refusing a region because an entity the engine does not model walked into it was retired
+         * on 2026-07-29 — {@code entity.mobCaptureSpecies} defaults to zombies alone, so the first
+         * cow, bat or item frame permanently removed the region from the validated lane on every
+         * node, and a default install therefore validated nothing in any world that has animals in
+         * it. Unmodelled entities are left to vanilla instead
+         * ({@code EntityCaptureBridge.captureJoin}), so no node has a refusal to make.
+         *
+         * <p>The constant and its wire code 1 stay: builds released before that date send it, the
+         * receive path still honours it, and a code is a permanent promise (see
+         * {@code WireEnums.REGION_REFUSAL_REASON}).
+         */
         NON_DELEGABLE_ENTITY,
 
         // The delegability rule set, as far as it is OBSERVABLE by a node that owns none of the

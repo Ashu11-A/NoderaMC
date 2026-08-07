@@ -64,7 +64,12 @@ test("no emitted page loads anything from another origin", () => {
     // address — it names the public origin by definition, and reading it as a third-party request
     // would make every page fail for saying where it lives.
     const fetched = 'link[rel="stylesheet"], link[rel="preload"], link[rel="modulepreload"], link[rel="icon"]';
-    for (const node of document.querySelectorAll(`[src], ${fetched}`)) {
+    const requests = [...document.querySelectorAll(`[src], ${fetched}`)];
+    // Every emitted page loads at least its own stylesheet and its own module. A page with nothing
+    // to check is a page the parser failed on, or a selector that has stopped matching what Vite
+    // emits — and either reads as "no third-party request found" if nobody counts.
+    assert.ok(requests.length > 0, `${name} makes no subresource request at all`);
+    for (const node of requests) {
       const url = node.getAttribute("src") ?? node.getAttribute("href");
       assert.ok(
         !/^(https?:)?\/\//.test(url),
@@ -76,7 +81,12 @@ test("no emitted page loads anything from another origin", () => {
 });
 
 test("no emitted stylesheet fetches a font or an image from another origin", () => {
-  for (const file of sourceFiles(distDirectory, /\.css$/)) {
+  const stylesheets = sourceFiles(distDirectory, /\.css$/);
+  // The build emits hashed CSS into `assets/`. If that layout moves — a different `assetsDir`, a
+  // build that inlined its styles — this walk returns nothing and the rule reports green over a
+  // directory it can no longer see.
+  assert.ok(stylesheets.length > 0, "no stylesheet was emitted, so nothing was inspected");
+  for (const file of stylesheets) {
     const css = readFileSync(file, "utf8");
     const remote = [...css.matchAll(/url\((['"]?)((?:https?:)?\/\/[^)'"]+)\1\)/g)].map((m) => m[2]);
     assert.deepEqual(remote, [], `${path.relative(distDirectory, file)} fetches from another origin`);
@@ -101,7 +111,11 @@ test("none of the usual third parties appear anywhere in dist", () => {
     "unpkg.com",
     "plausible.io",
   ];
-  for (const file of sourceFiles(distDirectory, /\.(html|css|js)$/)) {
+  const served = sourceFiles(distDirectory, /\.(html|css|js)$/);
+  // Same reason as the stylesheet walk above, and it matters more here: this is the rule that would
+  // catch an analytics tag, and an empty walk is exactly how it would fail to.
+  assert.ok(served.length >= 20, `only ${served.length} served file(s) were scanned`);
+  for (const file of served) {
     const text = readFileSync(file, "utf8");
     for (const host of banned) {
       assert.ok(!text.includes(host), `${path.relative(distDirectory, file)} references ${host}`);

@@ -87,7 +87,7 @@ public record ContainerEntry(NBlockPos pos, List<ItemSlot> slots) implements Enc
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.CONTAINER_ENTRY).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CONTAINER_ENTRY, ENCODING_VERSION);
         pos.encode(w);
         w.writeList(slots, (ww, s) -> {
             ww.writeU32(Integer.toUnsignedLong(s.itemStackId()));
@@ -102,11 +102,7 @@ public record ContainerEntry(NBlockPos pos, List<ItemSlot> slots) implements Enc
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static ContainerEntry decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CONTAINER_ENTRY) {
-            throw new IllegalStateException("expected CONTAINER_ENTRY tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.CONTAINER_ENTRY, "CONTAINER_ENTRY", ENCODING_VERSION);
         NBlockPos pos = NBlockPos.decode(r);
         List<ItemSlot> slots = r.readList(rr -> new ItemSlot((int) rr.readU32(), rr.readU8()));
         return new ContainerEntry(pos, slots);

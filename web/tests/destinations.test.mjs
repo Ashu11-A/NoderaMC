@@ -71,7 +71,14 @@ test("every dependsOn chain terminates in the table", () => {
 
 test("every command destination carries the literal command text", () => {
   // A `<Cmd>` that renders a label with no command is a page telling somebody to type nothing.
-  for (const [, key, body] of table.matchAll(/"?([a-z][a-z0-9-]*)"?:\s*\{([^}]*)\}/g)) {
+  //
+  // The bodies are matched with `[^}]*`, which is the whole reason the count below is here: one
+  // nested brace anywhere in `destinations.ts` — a template literal, an object-valued field — and
+  // this regex stops finding entries. It does not fail; it finds none, and a rule over no entries
+  // is green.
+  const entries = [...table.matchAll(/"?([a-z][a-z0-9-]*)"?:\s*\{([^}]*)\}/g)];
+  assert.equal(entries.length, declared.size, "the body regex did not find every declared entry");
+  for (const [, key, body] of entries) {
     if (!usages.some(([, used]) => used === key)) continue;
     if (!body.includes("command:")) continue;
     assert.match(body, /command:\s*"\/[^"]+"/, `${key} has an empty command`);

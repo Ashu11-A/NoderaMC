@@ -58,11 +58,6 @@ public final class PersistentIdentityStore {
         this.file = Objects.requireNonNull(file, "file");
     }
 
-    /** @return the file this store reads and writes. */
-    public Path file() {
-        return file;
-    }
-
     /**
      * Load an existing identity, if present.
      *

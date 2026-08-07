@@ -12,8 +12,12 @@
 //!
 //! ```text
 //!   nodera-query [tracker-host:port] [world-id-hex | --commons]
-//!   nodera-query [tracker-host:port] --services
+//!   nodera-query [tcp://tracker-host:port] --services
 //! ```
+//!
+//! The endpoint takes either form. `tcp://` is what the documentation, the compose file and every
+//! service config carry, so the scheme is stripped before the connect rather than handed to a
+//! resolver that reads it as part of the hostname.
 //!
 //! `--services` asks the same question about infrastructure that the default asks about worlds:
 //! which relays and trackers does this tracker actually know? It is the only way to check the
@@ -118,7 +122,10 @@ fn ask_services(
     endpoint: &str,
     request: &[u8],
 ) -> Result<Vec<nodera_codec::service::ServiceDirectoryEntry>, String> {
-    let mut stream = TcpStream::connect(endpoint)
+    // The scheme comes off before the resolver sees it: `tcp://tracker.example.org:25600` is the
+    // documented endpoint form — it is what the compose file and every config carries — and handing
+    // it to `connect` verbatim fails with "Name does not resolve".
+    let mut stream = TcpStream::connect(nodera_service::endpoint::socket_target(endpoint))
         .map_err(|e| format!("cannot reach the tracker at {endpoint}: {e}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -142,7 +149,8 @@ fn ask_services(
 }
 
 fn query(endpoint: &str, world: &[u8]) -> Result<nodera_codec::messages::TrackerResponse, String> {
-    let mut stream = TcpStream::connect(endpoint)
+    // Scheme off before the resolver sees it — see `ask_services`.
+    let mut stream = TcpStream::connect(nodera_service::endpoint::socket_target(endpoint))
         .map_err(|e| format!("cannot reach the tracker at {endpoint}: {e}"))?;
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))

@@ -220,7 +220,7 @@ public record WorldShareLink(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_SHARE_LINK).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_SHARE_LINK, ENCODING_VERSION);
         w.writeBytes(worldId);
         w.writeString(name);
         w.writeString(kind);
@@ -239,11 +239,7 @@ public record WorldShareLink(
      * @throws IllegalStateException if the next tag is not {@code WORLD_SHARE_LINK}.
      */
     public static WorldShareLink decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_SHARE_LINK) {
-            throw new IllegalStateException("expected WORLD_SHARE_LINK tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_SHARE_LINK, "WORLD_SHARE_LINK", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         String name = r.readString();
         String kind = r.readString();

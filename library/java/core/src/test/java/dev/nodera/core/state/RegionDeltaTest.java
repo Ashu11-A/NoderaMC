@@ -6,6 +6,8 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionId;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 import java.util.UUID;
@@ -119,60 +121,59 @@ final class RegionDeltaTest {
         assertThat(delta.isEmpty()).isFalse();
     }
 
-    @Test
-    void versionOneDeltaDecodesWithEmptyEntityLists() {
+    /**
+     * A body encoded by an older build: the fixed head, then {@code emptyTails} empty lists.
+     *
+     * @param bodyVersion the version to stamp in the header.
+     * @param emptyTails how many trailing empty lists that version's body carries after the root.
+     * @return the encoded frame.
+     */
+    private static byte[] olderBody(int bodyVersion, int emptyTails) {
         CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(1);
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(bodyVersion);
         REGION.encode(w);
         SnapshotVersion.INITIAL.encode(w);
         SnapshotVersion.INITIAL.next().encode(w);
         w.writeList(List.of(), CanonicalWriter::writeEncodable);
         ROOT.encode(w);
-        byte[] versionOne = w.toByteArray();
-        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(versionOne));
+        for (int i = 0; i < emptyTails; i++) {
+            w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        }
+        return w.toByteArray();
+    }
+
+    /**
+     * Every body version this build still reads, and how many trailing lists it carries.
+     *
+     * <p>These were three methods differing by a version number and a count of
+     * {@code writeList(List.of(), …)} calls, each asserting the subset of tails its own version
+     * introduced. As one parameterised claim every version asserts <i>all</i> the tails are empty,
+     * which is strictly stronger, and version five is a row rather than a fourth copy.
+     *
+     * @return version, number of trailing empty lists.
+     */
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> olderBodyVersions() {
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of(1, 0),
+                org.junit.jupiter.params.provider.Arguments.of(2, 2),
+                org.junit.jupiter.params.provider.Arguments.of(3, 3));
+    }
+
+    @ParameterizedTest(name = "a v{0} body decodes with empty tails and re-encodes to its own bytes")
+    @MethodSource("olderBodyVersions")
+    void anOlderBodyVersionDecodesEmptyAndReEncodesExactly(int bodyVersion, int emptyTails) {
+        byte[] encoded = olderBody(bodyVersion, emptyTails);
+        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(encoded));
+
+        assertThat(decoded.bodyVersion()).isEqualTo(bodyVersion);
         assertThat(decoded.entityMutations()).isEmpty();
         assertThat(decoded.inventoryCredits()).isEmpty();
         assertThat(decoded.transferIntents()).isEmpty();
-        assertThat(decoded.bodyVersion()).isEqualTo(1);
-        assertThat(encode(decoded)).isEqualTo(versionOne);
-    }
-
-    @Test
-    void versionTwoDeltaDecodesWithEmptyTransferList() {
-        CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(2);
-        REGION.encode(w);
-        SnapshotVersion.INITIAL.encode(w);
-        SnapshotVersion.INITIAL.next().encode(w);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        ROOT.encode(w);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        byte[] versionTwo = w.toByteArray();
-        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(versionTwo));
-        assertThat(decoded.transferIntents()).isEmpty();
-        assertThat(decoded.bodyVersion()).isEqualTo(2);
-        assertThat(encode(decoded)).isEqualTo(versionTwo);
-    }
-
-    @Test
-    void versionThreeDeltaDecodesWithEmptyScheduledState() {
-        CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(3);
-        REGION.encode(w);
-        SnapshotVersion.INITIAL.encode(w);
-        SnapshotVersion.INITIAL.next().encode(w);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        ROOT.encode(w);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        w.writeList(List.of(), CanonicalWriter::writeEncodable);
-        byte[] versionThree = w.toByteArray();
-        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(versionThree));
         assertThat(decoded.scheduledTicks()).isEmpty();
         assertThat(decoded.blockEvents()).isEmpty();
-        assertThat(decoded.bodyVersion()).isEqualTo(3);
-        assertThat(encode(decoded)).isEqualTo(versionThree);
+        // Re-encoding to the SAME bytes is the whole point: a build that upgraded the body on
+        // decode would hash a different root from the peer that sent it.
+        assertThat(encode(decoded)).isEqualTo(encoded);
     }
 
     @Test

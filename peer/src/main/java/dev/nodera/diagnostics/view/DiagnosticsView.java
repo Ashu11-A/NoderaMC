@@ -20,11 +20,6 @@ public record DiagnosticsView(List<Panel> panels) {
         panels = panels == null ? List.of() : List.copyOf(panels);
     }
 
-    /** @return a view from a vararg of panels. */
-    public static DiagnosticsView of(Panel... panels) {
-        return new DiagnosticsView(List.of(panels));
-    }
-
     /** @return {@code true} if no panel has any row (the empty-render guard). */
     public boolean isEmpty() {
         for (Panel p : panels) {

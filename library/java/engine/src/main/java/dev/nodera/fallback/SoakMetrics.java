@@ -9,7 +9,7 @@ import java.util.Map;
  * re-execution. The Phase 4 exit criterion is a sustained {@code > 90%} committee-commit ratio in a
  * spread-out session ({@link #meetsPhase4ExitCriterion()}).
  *
- * @Thread-context confined to the router thread; {@link #snapshot()} returns an immutable copy.
+ * @Thread-context confined to the router thread.
  */
 public final class SoakMetrics {
 
@@ -56,18 +56,5 @@ public final class SoakMetrics {
     /** @return {@code true} if the committee-commit ratio clears the Phase 4 exit threshold. */
     public boolean meetsPhase4ExitCriterion() {
         return committeeCommitRatio() > PHASE4_COMMITTEE_RATIO;
-    }
-
-    /** @return an immutable snapshot of the counters. */
-    public Snapshot snapshot() {
-        return new Snapshot(committeeBatches, fallbackBatches, committeeCommitRatio());
-    }
-
-    /**
-     * @param committeeBatches batches committee-committed.
-     * @param fallbackBatches  batches server-executed.
-     * @param committeeRatio   committee-committed / total.
-     */
-    public record Snapshot(long committeeBatches, long fallbackBatches, double committeeRatio) {
     }
 }

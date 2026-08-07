@@ -52,22 +52,9 @@ public record WorldRegistry(List<Entry> entries) implements Encodable {
         return new WorldRegistry(List.of());
     }
 
-    /**
-     * @param worldIdHex the world.
-     * @return that world's row, if this registry has one.
-     */
-    public Optional<Entry> find(String worldIdHex) {
-        for (Entry entry : entries) {
-            if (entry.worldIdHex().equalsIgnoreCase(worldIdHex)) {
-                return Optional.of(entry);
-            }
-        }
-        return Optional.empty();
-    }
-
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_REGISTRY).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_REGISTRY, ENCODING_VERSION);
         w.writeList(entries, (writer, entry) -> {
             writer.writeBytes(entry.worldId());
             writer.writeString(entry.name());
@@ -86,11 +73,7 @@ public record WorldRegistry(List<Entry> entries) implements Encodable {
      * @throws IllegalStateException if the next tag is not {@code WORLD_REGISTRY}.
      */
     public static WorldRegistry decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_REGISTRY) {
-            throw new IllegalStateException("expected WORLD_REGISTRY tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_REGISTRY, "WORLD_REGISTRY", ENCODING_VERSION);
         List<Entry> entries = new ArrayList<>(r.readList(reader -> new Entry(
                 reader.readBytesValue(),
                 reader.readString(),

@@ -116,11 +116,6 @@ public final class WireEnum<E extends Enum<E>> {
         return new CodedValue<>(found == null ? unknown : found, code, found != null);
     }
 
-    /** Wrap a known constant as a {@link CodedValue}. */
-    public CodedValue<E> resolved(E value) {
-        return new CodedValue<>(value, code(value), true);
-    }
-
     /** Every assigned code, for snapshot tests. */
     public Map<Integer, E> assignments() {
         return byCode;

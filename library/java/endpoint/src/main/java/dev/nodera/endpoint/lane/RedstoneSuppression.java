@@ -76,11 +76,6 @@ public final class RedstoneSuppression {
         SUPPRESSED_RANDOM_TICKS.increment();
     }
 
-    /** Total vanilla chunk random-tick passes skipped because the engine owns them. */
-    public static long suppressedRandomTicks() {
-        return SUPPRESSED_RANDOM_TICKS.sum();
-    }
-
     /** The number of regions currently suppressed. */
     public static int activeRegions() {
         return SUPPRESSED_REGIONS.size();

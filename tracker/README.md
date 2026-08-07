@@ -32,10 +32,12 @@ rust/nodera-tracker/src/
 ├── announce.rs   started / heartbeat / stopped, with Ed25519 verification
 ├── query.rs      reservoir-sampled responses with a seeder floor
 ├── health.rs     world-health derivation + the retention countdown surface
-├── limits.rs     per-IP and per-identity quotas, record-size caps, bounded counts
 ├── wire.rs       u32-length framing (16 MiB cap) over TCP, plus the UDP datagram surface
 └── service.rs    the tokio server: one task per connection, graceful SIGTERM drain
 ```
+
+There is no `limits.rs` here any more: per-IP and per-identity quotas, record-size caps and bounded
+counts became `nodera_service::limits` on 2026-08-06, shared with rendezvous and telemetry.
 
 ## Why it is shaped this way
 

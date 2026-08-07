@@ -1,3 +1,15 @@
+# Research — prior art and the original architecture proposal
+
+> **This is a pre-implementation record, not a description of the code.** Everything below was
+> written before Nodera existed, and the directory trees, class names and sequence diagrams in it
+> are a *proposal* — note the `decentralized-minecraft/` root and the `dev.ashu.decentralized`
+> package, neither of which was ever built. Names here that also appear in the tree
+> (`WorkerRuntime`, `PeerDirectory`, `ArchiveInventory`, `NodeRegistry`, `RegionAllocator`, …) are
+> coincidental or ancestral, and several of them were deleted on 2026-08-06 (Plan 11 round 2, issue
+> #210). **Do not read any listing here as current.** For what the tree actually contains, see
+> [`/layout.properties`](../../layout.properties), the module READMEs, and `AGENTS.md`. Framing note
+> added 2026-08-06; the research itself is untouched.
+
 There are P2P or servidores descentralizada Minecraft servers where all users act as servers, and each player validates the actions of the other players.
 
 Systems close to this idea exist, but **there is no widely used production Minecraft Java/Bedrock implementation in which every player runs the complete server simulation and collectively validates every action**.

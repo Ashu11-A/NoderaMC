@@ -180,7 +180,7 @@ public record SessionDelegation(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SESSION_DELEGATION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.SESSION_DELEGATION, ENCODING_VERSION);
         w.writeString(workerNodeId.value().toString());
         w.writeBytes(workerPublicKey);
         w.writeBytes(sessionPublicKey);

@@ -40,7 +40,6 @@ import {
   FiSearch,
   FiShield,
   FiTrash2,
-  FiX,
 } from "react-icons/fi";
 import {
   addTrackerStore,
@@ -56,7 +55,7 @@ import {
   type TrackerStore,
 } from "./ipc";
 import { linkNote, useExternalLink } from "./links";
-import { CARD_GRID, Modal, Pagination } from "./components";
+import { Banner, CARD_GRID, Modal, Pagination } from "./components";
 
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
@@ -312,14 +311,14 @@ export default function TrackerStores() {
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <SecondaryButton onClick={refreshAll} disabled={busy || stores.length === 0}>
+          <StoreButton variant="secondary" onClick={refreshAll} disabled={busy || stores.length === 0}>
             <FiRefreshCw className={busy ? "animate-spin" : ""} aria-hidden />
             Refresh all
-          </SecondaryButton>
-          <PrimaryButton onClick={() => setImporter({ step: "url", url: "", source: "typed" })}>
+          </StoreButton>
+          <StoreButton variant="primary" onClick={() => setImporter({ step: "url", url: "", source: "typed" })}>
             <FiPlus aria-hidden />
             Add store
-          </PrimaryButton>
+          </StoreButton>
         </div>
       </header>
 
@@ -340,7 +339,11 @@ export default function TrackerStores() {
       )}
 
       {error && (
-        <Banner tone="error" onDismiss={() => setError("")}>
+        <Banner
+          tone="store-error"
+          icon={<FiAlertTriangle aria-hidden className="flex-none" />}
+          onDismiss={() => setError("")}
+        >
           {error}
         </Banner>
       )}
@@ -402,18 +405,20 @@ export default function TrackerStores() {
           reinstated: a user who removed it did so on purpose, and a screen that quietly put it back
           would make the project the authority this design does not want it to be. */}
       {stores.length > 0 && official && !officialPresent && (
-        <Banner tone="hint">
-          <span>
-            The project's own list is not among these. It is one store like any other, and can be
-            added back.
-          </span>
-          <button
-            type="button"
-            onClick={() => setImporter({ step: "checking", url: official, source: "official" })}
-            className="shrink-0 font-medium text-[var(--tracker-store-primary)] underline underline-offset-2"
-          >
-            Add it
-          </button>
+        <Banner
+          tone="store-hint"
+          action={
+            <button
+              type="button"
+              onClick={() => setImporter({ step: "checking", url: official, source: "official" })}
+              className="shrink-0 font-medium text-[var(--tracker-store-primary)] underline underline-offset-2"
+            >
+              Add it
+            </button>
+          }
+        >
+          The project's own list is not among these. It is one store like any other, and can be
+          added back.
         </Banner>
       )}
 
@@ -507,12 +512,13 @@ function ImportDialog(props: {
           what it serves before deciding.
         </p>
         <DialogActions>
-          <GhostButton onClick={close}>Cancel</GhostButton>
-          <PrimaryButton
+          <StoreButton variant="ghost" onClick={close}>Cancel</StoreButton>
+          <StoreButton
+            variant="primary"
             onClick={() => onState({ step: "checking", url: state.url, source: "link" })}
           >
             Check address
-          </PrimaryButton>
+          </StoreButton>
         </DialogActions>
       </Dialog>
     );
@@ -540,7 +546,7 @@ function ImportDialog(props: {
           Fetching…
         </div>
         <DialogActions>
-          <GhostButton onClick={close}>Cancel</GhostButton>
+          <StoreButton variant="ghost" onClick={close}>Cancel</StoreButton>
         </DialogActions>
       </Dialog>
     );
@@ -574,19 +580,21 @@ function ImportDialog(props: {
 
       <DialogActions>
         {state.source === "typed" ? (
-          <GhostButton
+          <StoreButton
+            variant="ghost"
             disabled={busy}
             onClick={() => onState({ step: "url", url: state.url, source: state.source })}
           >
             <FiArrowLeft aria-hidden />
             Back
-          </GhostButton>
+          </StoreButton>
         ) : (
-          <GhostButton disabled={busy} onClick={close}>
+          <StoreButton variant="ghost" disabled={busy} onClick={close}>
             Cancel
-          </GhostButton>
+          </StoreButton>
         )}
-        <PrimaryButton
+        <StoreButton
+          variant="primary"
           disabled={busy}
           onClick={() => {
             if (state.step !== "preview") return;
@@ -596,7 +604,7 @@ function ImportDialog(props: {
         >
           {busy ? <FiRefreshCw className="animate-spin" aria-hidden /> : <FiCheck aria-hidden />}
           {replacing ? "Replace store" : "Add store"}
-        </PrimaryButton>
+        </StoreButton>
       </DialogActions>
     </Dialog>
   );
@@ -647,14 +655,14 @@ function UrlStep(props: {
           </p>
         )}
         <DialogActions>
-          <GhostButton type="button" onClick={props.onCancel}>
+          <StoreButton variant="ghost" type="button" onClick={props.onCancel}>
             Cancel
-          </GhostButton>
+          </StoreButton>
           {/* Not "Add". The next thing that happens is a look at what the address serves, and a
               button that promises the wrong outcome is how a user learns to stop reading them. */}
-          <PrimaryButton type="submit" disabled={!ready}>
+          <StoreButton variant="primary" type="submit" disabled={!ready}>
             Check address
-          </PrimaryButton>
+          </StoreButton>
         </DialogActions>
       </form>
     </Dialog>
@@ -913,12 +921,12 @@ function EmptyState(props: {
       </p>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         {props.official && (
-          <PrimaryButton onClick={props.onAddOfficial}>
+          <StoreButton variant="primary" onClick={props.onAddOfficial}>
             <FiPlus aria-hidden />
             Add the project's list
-          </PrimaryButton>
+          </StoreButton>
         )}
-        <SecondaryButton onClick={props.onAddOther}>Add another store</SecondaryButton>
+        <StoreButton variant="secondary" onClick={props.onAddOther}>Add another store</StoreButton>
       </div>
       <p className="mx-auto mt-4 max-w-md text-xs text-[var(--tracker-store-muted)]">
         The project's list has no special standing. It is one store among however many you choose,
@@ -947,8 +955,8 @@ function RemoveDialog(props: { store: TrackerStore; onCancel: () => void; onConf
       </p>
       <Address url={props.store.url} />
       <DialogActions>
-        <GhostButton onClick={props.onCancel}>Cancel</GhostButton>
-        <DangerButton onClick={props.onConfirm}>Remove</DangerButton>
+        <StoreButton variant="ghost" onClick={props.onCancel}>Cancel</StoreButton>
+        <StoreButton variant="danger" onClick={props.onConfirm}>Remove</StoreButton>
       </DialogActions>
     </Dialog>
   );
@@ -960,39 +968,6 @@ function Address(props: { url: string }) {
     <p className="mt-3 rounded-lg border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface-container)] p-3 font-[family-name:var(--tracker-store-mono)] text-xs break-all text-[var(--tracker-store-on-surface)]">
       {props.url}
     </p>
-  );
-}
-
-function Banner(props: {
-  tone: "error" | "hint";
-  onDismiss?: () => void;
-  children: React.ReactNode;
-}) {
-  const error = props.tone === "error";
-  return (
-    <div
-      role={error ? "alert" : undefined}
-      className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
-        error
-          ? "border-[var(--tracker-store-error)] bg-[var(--tracker-store-error-container)] text-[var(--tracker-store-on-error-container)]"
-          : "border-[var(--tracker-store-outline)] text-[var(--tracker-store-on-surface-variant)]"
-      }`}
-    >
-      {error && <FiAlertTriangle className="mt-0.5 shrink-0" aria-hidden />}
-      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words">
-        {props.children}
-      </span>
-      {props.onDismiss && (
-        <button
-          type="button"
-          onClick={props.onDismiss}
-          aria-label="Dismiss"
-          className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100"
-        >
-          <FiX />
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -1055,52 +1030,33 @@ type ButtonProps = {
 const BUTTON_BASE =
   "flex items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50 disabled:pointer-events-none";
 
-function PrimaryButton(props: ButtonProps) {
-  return (
-    <button
-      type={props.type ?? "button"}
-      onClick={props.onClick}
-      disabled={props.disabled}
-      className={`${BUTTON_BASE} [background:var(--tracker-store-primary-fill)] font-medium text-[var(--tracker-store-on-primary)] hover:opacity-90`}
-    >
-      {props.children}
-    </button>
-  );
-}
+/**
+ * The four variants, as four class strings rather than four components.
+ *
+ * `components.tsx`'s `Button` docstring already records that this screen "carried a seventh set of
+ * its own"; that consolidation stopped here because these four carry the `--tracker-store-*` roles,
+ * and `tests/tracker-stores-style.test.mjs` asserts each of those declarations reaches the built CSS
+ * from a class selector. So the strings stay exactly as they were and only the four identical
+ * component bodies go.
+ */
+const BUTTON_VARIANT = {
+  primary:
+    "[background:var(--tracker-store-primary-fill)] font-medium text-[var(--tracker-store-on-primary)] hover:opacity-90",
+  secondary:
+    "border border-[var(--tracker-store-outline)] text-[var(--tracker-store-on-surface)] hover:bg-[var(--tracker-store-surface-hover)]",
+  ghost:
+    "text-[var(--tracker-store-primary)] hover:bg-[var(--tracker-store-surface-hover)]",
+  danger:
+    "font-medium text-[var(--tracker-store-error)] hover:bg-[var(--tracker-store-surface-hover)]",
+} as const;
 
-function SecondaryButton(props: ButtonProps) {
+function StoreButton(props: ButtonProps & { variant: keyof typeof BUTTON_VARIANT }) {
   return (
     <button
       type={props.type ?? "button"}
       onClick={props.onClick}
       disabled={props.disabled}
-      className={`${BUTTON_BASE} border border-[var(--tracker-store-outline)] text-[var(--tracker-store-on-surface)] hover:bg-[var(--tracker-store-surface-hover)]`}
-    >
-      {props.children}
-    </button>
-  );
-}
-
-function GhostButton(props: ButtonProps) {
-  return (
-    <button
-      type={props.type ?? "button"}
-      onClick={props.onClick}
-      disabled={props.disabled}
-      className={`${BUTTON_BASE} text-[var(--tracker-store-primary)] hover:bg-[var(--tracker-store-surface-hover)]`}
-    >
-      {props.children}
-    </button>
-  );
-}
-
-function DangerButton(props: ButtonProps) {
-  return (
-    <button
-      type={props.type ?? "button"}
-      onClick={props.onClick}
-      disabled={props.disabled}
-      className={`${BUTTON_BASE} font-medium text-[var(--tracker-store-error)] hover:bg-[var(--tracker-store-surface-hover)]`}
+      className={`${BUTTON_BASE} ${BUTTON_VARIANT[props.variant]}`}
     >
       {props.children}
     </button>

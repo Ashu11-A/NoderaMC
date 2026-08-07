@@ -55,7 +55,7 @@ public record ActionBatch(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ACTION_BATCH).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ACTION_BATCH, ENCODING_VERSION);
         region.encode(w);
         epoch.encode(w);
         baseVersion.encode(w);
@@ -71,11 +71,7 @@ public record ActionBatch(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static ActionBatch decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ACTION_BATCH) {
-            throw new IllegalStateException("expected ACTION_BATCH tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ACTION_BATCH, "ACTION_BATCH", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);
         SnapshotVersion baseVersion = SnapshotVersion.decode(r);

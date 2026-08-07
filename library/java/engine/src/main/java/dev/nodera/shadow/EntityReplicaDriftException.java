@@ -17,16 +17,4 @@ public final class EntityReplicaDriftException extends RuntimeException {
         this.expected = expected;
         this.actual = actual;
     }
-
-    public NetworkEntityId id() {
-        return id;
-    }
-
-    public PersistedEntityState expected() {
-        return expected;
-    }
-
-    public PersistedEntityState actual() {
-        return actual;
-    }
 }

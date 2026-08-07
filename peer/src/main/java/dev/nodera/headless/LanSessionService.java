@@ -98,18 +98,6 @@ public final class LanSessionService implements AutoCloseable {
     private final WorkerEventBus events;
 
     /**
-     * @param self    this node's id, mixed into session ids so two machines sharing the same world
-     *                name on the same port do not collide.
-     * @param tunnel  the service that carries the connections.
-     * @param hosting the announce lane a shared session is published through.
-     * @throws IOException if the LAN group cannot be joined — the caller runs without this lane.
-     */
-    public LanSessionService(NodeId self, TunnelService tunnel, WorldHostingService hosting)
-            throws IOException {
-        this(self, tunnel, hosting, new LanWatcher(), null);
-    }
-
-    /**
      * As above, announcing to {@code events} so the companion app is told rather than left to
      * notice.
      *

@@ -171,11 +171,6 @@ public final class PieceDownloader {
         this.reassembler = new PieceReassembler(manifest);
     }
 
-    /** @return the manifest being fetched. */
-    public PieceManifest manifest() {
-        return manifest;
-    }
-
     /**
      * Where a verified piece is persisted, before the download is allowed to call itself finished.
      *

@@ -136,6 +136,11 @@ tasks.withType<JavaCompile>().configureEach {
     options.isDeprecation = false
 }
 
+// Same forwarding as nodera.java-library; see NoderaServiceBinaries.kt. These modules host no
+// real-binary suite today, but the flag has to mean the same thing in every `Test` task or it
+// means nothing.
+val requireServiceBinaries = serviceBinaryRequirement()
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     testLogging {
@@ -143,6 +148,7 @@ tasks.withType<Test>().configureEach {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
     maxHeapSize = "1g"
+    requireServiceBinaries?.let { systemProperty(REQUIRE_SERVICE_BINARIES_PROPERTY, it) }
 }
 
 // Reproducible archives

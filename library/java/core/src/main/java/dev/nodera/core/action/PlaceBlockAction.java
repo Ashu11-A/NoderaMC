@@ -40,7 +40,7 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PLACE_BLOCK_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PLACE_BLOCK_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -48,21 +48,6 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
         pos.encode(w);
         w.writeU32(Integer.toUnsignedLong(blockStateId));
         w.writeU8(face);
-    }
-
-    /**
-     * Full-frame decode (reads tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code PLACE_BLOCK_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static PlaceBlockAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PLACE_BLOCK_ACTION) {
-            throw new IllegalStateException("expected PLACE_BLOCK_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
     }
 
     static PlaceBlockAction decodeBody(CanonicalReader r) {

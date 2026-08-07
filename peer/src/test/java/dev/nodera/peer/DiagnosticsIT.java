@@ -10,14 +10,11 @@ import dev.nodera.diagnostics.source.EntityControlProvider;
 import dev.nodera.diagnostics.source.RegionOwnershipProvider;
 import dev.nodera.peer.metric.MeteredPeerTransport;
 import dev.nodera.testkit.LoopbackTransport;
-import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
+import dev.nodera.testkit.peer.Await;
+import dev.nodera.testkit.peer.PeerTestHarness;
 import dev.nodera.transport.PeerAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,20 +27,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class DiagnosticsIT {
 
-    private final PeerRuntimeConfig fast =
-            new PeerRuntimeConfig(Duration.ofMillis(100), Duration.ofMillis(500));
-    private final List<PeerRuntime> runtimes = new ArrayList<>();
+    private final PeerTestHarness harness = PeerTestHarness.create();
+    private final PeerRuntimeConfig fast = PeerTestHarness.FAST;
 
     @AfterEach
     void tearDown() {
-        for (PeerRuntime rt : runtimes) {
-            rt.stop();
-        }
+        harness.close();
     }
 
     @Test
     void snapshotReflectsRealTrafficAndSessionOverLoopback() {
-        LoopbackNetwork net = LoopbackNetwork.newNetwork();
+        var net = harness.network();
 
         NodeIdentity bootId = NodeIdentity.generate();
         NodeIdentity p1Id = NodeIdentity.generate();
@@ -54,7 +48,7 @@ final class DiagnosticsIT {
         MeteredPeerTransport bootTx = new MeteredPeerTransport(net.register(bootId.nodeId()), bootMeter);
         PeerRuntime boot = PeerRuntime.bootstrap(bootId, NodeCapabilities.initial(),
                 bootTx, () -> "loopback", fast, new RecordingListener(), bootCounts);
-        runtimes.add(boot);
+        harness.onClose(boot::stop);
         DiagnosticsCollector bootCol = new DiagnosticsCollector(bootMeter, bootCounts)
                 .register(boot)
                 .register(RegionOwnershipProvider.stub())
@@ -67,7 +61,7 @@ final class DiagnosticsIT {
         PeerAddress bootAddr = PeerAddress.of(bootId.nodeId(), "loopback");
         PeerRuntime p1 = PeerRuntime.peer(p1Id, NodeCapabilities.initial(),
                 p1Tx, () -> "loopback", bootAddr, fast, new RecordingListener(), p1Counts);
-        runtimes.add(p1);
+        harness.onClose(p1::stop);
         DiagnosticsCollector p1Col = new DiagnosticsCollector(p1Meter, p1Counts)
                 .register(p1)
                 .register(RegionOwnershipProvider.stub())

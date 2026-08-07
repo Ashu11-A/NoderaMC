@@ -199,11 +199,6 @@ public final class SocketPeerTransport implements PeerTransport {
         this.bindPortEnd = rangeStart == 0 ? 0 : rangeEnd;
     }
 
-    /** @return this peer's stable id. */
-    public NodeId nodeId() {
-        return self;
-    }
-
     /**
      * Cap how many peer connections this transport will hold at once.
      *

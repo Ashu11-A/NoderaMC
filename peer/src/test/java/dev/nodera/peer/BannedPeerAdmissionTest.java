@@ -4,6 +4,7 @@ import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.testkit.LoopbackTransport;
 import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
+import dev.nodera.testkit.peer.Await;
 import dev.nodera.transport.PeerAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

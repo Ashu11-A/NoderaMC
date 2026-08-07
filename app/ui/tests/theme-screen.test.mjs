@@ -74,7 +74,12 @@ test("the guard layer is declared first, and every declaration in it is importan
 
   // Being first is also what makes the guard the *weakest* layer for normal declarations: one
   // written here would lose to `nodera.base` and silently do nothing. So there must not be one.
-  for (const declaration of guard.replace(/\/\*[\s\S]*?\*\//g, "").match(/[a-z-]+\s*:[^;{}]+;/g) ?? []) {
+  const declarations = guard.replace(/\/\*[\s\S]*?\*\//g, "").match(/[a-z-]+\s*:[^;{}]+;/g) ?? [];
+  // The `?? []` is what makes the count necessary: the guard layer DOES carry declarations — that is
+  // how it pins `[data-nodera-escape]` — so a match of nothing means the extraction stopped working,
+  // not that the layer is clean, and the rule below would report green either way.
+  assert.ok(declarations.length > 0, "no declaration was found in the guard layer to check");
+  for (const declaration of declarations) {
     assert.match(
       declaration.trim(),
       /!important;$/,

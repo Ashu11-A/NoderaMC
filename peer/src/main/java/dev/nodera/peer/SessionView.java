@@ -37,11 +37,6 @@ public record SessionView(long epoch, NodeId gatewayId, List<PeerEntry> members)
         members = members.stream().sorted(BY_NODE_ID).toList();
     }
 
-    /** @return {@code true} if a peer with {@code id} is a member of this view. */
-    public boolean contains(NodeId id) {
-        return members.stream().anyMatch(e -> e.nodeId().equals(id));
-    }
-
     /** @return the number of members. */
     public int size() {
         return members.size();

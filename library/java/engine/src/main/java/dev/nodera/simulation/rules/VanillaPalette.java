@@ -152,11 +152,6 @@ public final class VanillaPalette {
         return REVERSE.get(paletteId);
     }
 
-    /** @return true when the id has a vanilla projection (every palette entry does). */
-    public static boolean isBound(int paletteId) {
-        return REVERSE.containsKey(paletteId);
-    }
-
     /**
      * @return a {@link StableHash} over the ordered {@code (id, key, properties)} rows. Two builds
      *         whose bindings differ produce different fingerprints, so a capture lane can refuse a

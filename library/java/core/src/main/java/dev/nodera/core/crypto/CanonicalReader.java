@@ -127,6 +127,53 @@ public final class CanonicalReader {
         return version;
     }
 
+    /**
+     * Read and validate the {@code u16} type tag that opens every {@link Encodable} frame.
+     *
+     * <p>This is the first half of the frame every {@code decode} used to open by hand:
+     * {@code int tag = r.readU16(); if (tag != TypeTags.X) throw …}. Written out at every call
+     * site it is five lines of which four are the same four lines, and a decoder that forgets the
+     * guard accepts any type's bytes as its own. One method makes the guard unforgettable.
+     *
+     * <p>{@code typeName} is a parameter rather than a reverse lookup on {@link TypeTags} on
+     * purpose: the thrown message is part of the observed behaviour of these decoders, and the
+     * names in it are not all the constant's name ({@code ServiceScore}, {@code SignedPeerRecord}
+     * and {@code PeerCandidate} spell theirs in camel case). A reverse lookup would silently
+     * reword three dozen exceptions.
+     *
+     * @param expectedTag the {@link TypeTags} constant this decoder answers to.
+     * @param typeName    the name to put in the failure message.
+     * @return the tag read (always {@code == expectedTag} on success).
+     * @throws IllegalStateException if the frame opens with a different type's tag.
+     */
+    public int expectFrame(int expectedTag, String typeName) {
+        int tag = readU16();
+        if (tag != expectedTag) {
+            throw new IllegalStateException("expected " + typeName + " tag, got " + tag);
+        }
+        return tag;
+    }
+
+    /**
+     * Read a whole {@code typeTag + version} frame: {@link #expectFrame(int, String)} followed by
+     * {@link #readVersion(int)}.
+     *
+     * <p>Types whose body version is a <i>range</i> rather than a single accepted value (the
+     * tolerant readers in {@code RegionSnapshot}, {@code RegionDelta}, {@code SignedVote},
+     * {@code ServerAuthorityCertificate} and {@code ChunkColumnState}) must use the two-argument
+     * overload and keep their own version check — collapsing those here would turn a tolerated
+     * older body into a decode failure.
+     *
+     * @param expectedTag     the {@link TypeTags} constant this decoder answers to.
+     * @param typeName        the name to put in the tag failure message.
+     * @param expectedVersion the single body version this decoder accepts.
+     * @return the version read (always {@code == expectedVersion} on success).
+     */
+    public int expectFrame(int expectedTag, String typeName, int expectedVersion) {
+        expectFrame(expectedTag, typeName);
+        return readVersion(expectedVersion);
+    }
+
     /** Read a u8 presence marker. */
     public boolean readOptional() {
         return readBoolean();

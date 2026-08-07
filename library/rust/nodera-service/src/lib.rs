@@ -13,6 +13,12 @@
 //!   and swapping it.
 //! * [`env`] — reading configuration out of the environment, so an image can be run without a file.
 //! * [`endpoint`] — taking the scheme off a configured route before a socket is opened to it.
+//! * [`admission`] — the freshness window and the trust-on-first-use identity table.
+//! * [`config`] — loading, overlaying and validating an operator's TOML, and binding the listener.
+//! * [`cli`] — the five flags every service takes, and the dispatch behind them.
+//! * [`frame`] — the length-prefixed framing all three serve, and the bounds that make it safe.
+//! * [`limits`] — the fixed-window per-source quotas that stand in for authentication.
+//! * [`serve`] — the shutdown signal and the accept loop.
 //!
 //! ## The rule this crate does not break
 //!
@@ -22,10 +28,16 @@
 
 #![deny(missing_docs)]
 
+pub mod admission;
+pub mod cli;
+pub mod config;
 pub mod directory;
 pub mod drain;
 pub mod endpoint;
 pub mod env;
+pub mod frame;
 pub mod identity;
 pub mod lifecycle;
+pub mod limits;
+pub mod serve;
 pub mod update;

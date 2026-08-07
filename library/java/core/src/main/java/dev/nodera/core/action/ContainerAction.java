@@ -52,7 +52,7 @@ public record ContainerAction(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.CONTAINER_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CONTAINER_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -63,21 +63,6 @@ public record ContainerAction(
         w.writeU8(slot);
         w.writeU32(Integer.toUnsignedLong(itemStackId));
         w.writeU8(count);
-    }
-
-    /**
-     * Full-frame decode (tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code CONTAINER_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static ContainerAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CONTAINER_ACTION) {
-            throw new IllegalStateException("expected CONTAINER_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
     }
 
     static ContainerAction decodeBody(CanonicalReader r) {

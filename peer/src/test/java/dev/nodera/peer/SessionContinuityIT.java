@@ -1,5 +1,7 @@
 package dev.nodera.peer;
 
+import dev.nodera.testkit.peer.Await;
+
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.transport.PeerAddress;

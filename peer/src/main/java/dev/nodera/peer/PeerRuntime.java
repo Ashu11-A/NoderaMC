@@ -3,7 +3,6 @@ package dev.nodera.peer;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.core.region.RegionCommittee;
 import dev.nodera.diagnostics.metric.MessageCounters;
 import dev.nodera.diagnostics.model.PeerLink;
 import dev.nodera.diagnostics.model.SessionInfo;
@@ -157,7 +156,7 @@ public final class PeerRuntime implements DiagnosticsSource {
     /**
      * Bootstrap factory with per-type message counters enabled (Task 18). The runtime records TX/RX
      * counts keyed by {@code MessageCodec} type name on every encoded send and decoded inbound
-     * message; the diagnostics collector reads them via {@link #messageCounters()}.
+     * message.
      */
     public static PeerRuntime bootstrap(NodeIdentity identity, NodeCapabilities capabilities,
                                         PeerTransport transport, Supplier<String> selfRouteSupplier,
@@ -362,36 +361,6 @@ public final class PeerRuntime implements DiagnosticsSource {
     /** @return {@code true} if this runtime is the bootstrap/full-archival peer. */
     public boolean isBootstrap() {
         return bootstrapCapable;
-    }
-
-    /** @return the per-type message counters (null if counting was not enabled). */
-    public MessageCounters messageCounters() {
-        return messageCounters;
-    }
-
-    /** @return the regional tick synchronizer, or {@code null} when not wired. */
-    public TickSync tickSync() {
-        return tickSync;
-    }
-
-    /**
-     * Feed one locally verified regional certificate into the optional Task 25 synchronizer.
-     * Runtime factories without a synchronizer remain source- and behavior-compatible.
-     *
-     * @return {@code true} if the certified assignment/progress snapshot advanced.
-     */
-    public boolean onCertifiedCommit(RegionCommittee assignment, long lastAppliedTick) {
-        return tickSync != null && tickSync.onCertifiedCommit(assignment, lastAppliedTick);
-    }
-
-    /**
-     * Feed a locally verified commit from elsewhere in the network into the lag reference without
-     * claiming local application progress for that region.
-     *
-     * @return {@code true} if the certified network reference advanced.
-     */
-    public boolean onCertifiedNetworkReference(long committedTick) {
-        return tickSync != null && tickSync.onCertifiedNetworkReference(committedTick);
     }
 
     /**

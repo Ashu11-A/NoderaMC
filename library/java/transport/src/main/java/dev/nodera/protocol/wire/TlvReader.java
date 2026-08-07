@@ -103,17 +103,6 @@ public final class TlvReader {
         return f;
     }
 
-    /** @return {@code true} if the body carries this field id. */
-    public boolean has(int id) {
-        return fields.containsKey(id);
-    }
-
-    /** Read a u8, or {@code fallback} when the field is absent. */
-    public int u8(int id, int fallback) {
-        TlvField f = typed(id, WireType.U8);
-        return f == null ? fallback : f.value().toArray()[0] & 0xFF;
-    }
-
     /** Read a u16, or {@code fallback} when the field is absent. */
     public int u16(int id, int fallback) {
         TlvField f = typed(id, WireType.U16);

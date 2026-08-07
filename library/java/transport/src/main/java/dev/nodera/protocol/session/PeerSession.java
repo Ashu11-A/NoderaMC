@@ -6,7 +6,6 @@ import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.protocol.wire.WireCodec;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -64,16 +63,6 @@ public final class PeerSession {
         return new PeerSession(peer, SessionRole.OBSERVER, Set.of());
     }
 
-    /** A session with everything this build can do — for loopback and tests. */
-    public static PeerSession full(NodeId peer) {
-        return new PeerSession(peer, SessionRole.ADMITTED, WireFeature.all());
-    }
-
-    /** The authenticated peer this session belongs to. */
-    public NodeId peer() {
-        return peer;
-    }
-
     /** What the peer may do; see {@link SessionRole}. */
     public SessionRole role() {
         return role;
@@ -117,8 +106,10 @@ public final class PeerSession {
         if (msg instanceof SessionKeepAlive keepAlive
                 && !supports(WireFeature.KEEP_ALIVE_REGION_PROGRESS)
                 && !keepAlive.regionProgress().isEmpty()) {
-            // The former body version 1: identity and sequence only.
-            return new SessionKeepAlive(keepAlive.from(), keepAlive.seq(), List.of());
+            // Identity and sequence only — the constructor that names that shape, rather than a
+            // second spelling of it here. The body version is not what changes: since 0.2.0 tag 23
+            // is version 2 either way, and what this peer did not accept is the progress field.
+            return new SessionKeepAlive(keepAlive.from(), keepAlive.seq());
         }
         return msg;
     }

@@ -84,7 +84,20 @@ fi
 [[ -f "$DIST/index.html" ]] || { echo "build-site: nothing was written to $DIST" >&2; exit 1; }
 
 if [[ $TESTS -eq 1 ]]; then
-	bun run --cwd "$SITE" test
+	# `tee`, and then a count. `bun run test` is `node --test "tests/*.test.mjs"`, which answers a
+	# glob that matches no file with `# pass 0` and exit status 0 — so this step went green whether
+	# the site's 140 tests ran or the directory had been renamed away. `pipefail` keeps a red suite
+	# red through the pipe; the two commands after it are what make an EMPTY one red.
+	TAP="$NODERA_RUN_DIR/tap/nodera-site.log"
+	mkdir -p "$(dirname "$TAP")" "$NODERA_RUN_DIR/totals"
+	bun run --cwd "$SITE" test 2>&1 | tee "$TAP"
+
+	# The measured number, for the badge the `companion` job publishes…
+	"$NODERA_ROOT/scripts/test-totals.sh" --tap "$TAP" --source site \
+		> "$NODERA_RUN_DIR/totals/site.json"
+	cat "$NODERA_RUN_DIR/totals/site.json"
+	# …and the same number against README's stamped one.
+	"$NODERA_ROOT/scripts/test-counts.sh" --check nodera-site
 fi
 
 echo "build-site: $(find "$DIST" -type f | wc -l | tr -d ' ') file(s) in $DIST"

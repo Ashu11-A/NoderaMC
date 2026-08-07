@@ -30,6 +30,12 @@ dependencies {
     // hardcoded `java/neoforge-mod/...` fallback, duplicated in six files. Nothing from `:testing`
     // reaches the fat jar, which is built from `tasks.jar` plus `noderaBundled` below.
     testImplementation(project(":testing"))
+
+    // `EventHandlerFirewallTest` reads this module's own bytecode: which methods NeoForge's game
+    // bus can call, and whether each one's calls sit inside a catch. That is a question about
+    // compiled code (try/catch ranges live in the exception table, not in the source text), which
+    // is why it is ArchUnit rather than another source scanner.
+    testImplementation(libs.archunit)
 }
 
 // NeoForge/log4j owns the SLF4J binding inside a Minecraft runtime; peer's slf4j-simple is for

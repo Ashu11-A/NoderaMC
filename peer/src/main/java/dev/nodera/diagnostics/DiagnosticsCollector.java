@@ -69,11 +69,6 @@ public final class DiagnosticsCollector {
         this(meter, counters, DEFAULT_RATE_SAMPLES, DEFAULT_RATE_WINDOW_NANOS);
     }
 
-    /** @return the shared per-type counters (for {@code PeerRuntime}). */
-    public MessageCounters messageCounters() {
-        return counters;
-    }
-
     /** Register a capture source (session, regions, entities). */
     public DiagnosticsCollector register(DiagnosticsSource source) {
         if (source != null) {

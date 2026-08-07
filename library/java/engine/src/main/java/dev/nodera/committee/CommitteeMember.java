@@ -29,11 +29,6 @@ public final class CommitteeMember {
     private final RegionEngine engine;
     private final VotePersistence persistence;
 
-    /** Create a member using the compatibility no-op persistence seam. */
-    public CommitteeMember(NodeIdentity identity, RegionEngine engine) {
-        this(identity, engine, VotePersistence.none());
-    }
-
     /**
      * Create a member whose accepted candidates cross {@code persistence} before voting.
      *
@@ -83,22 +78,6 @@ public final class CommitteeMember {
     /** Bind this member's prepared candidate to the certificate before canonical state advances. */
     public void markCommitted(QuorumCertificate certificate) {
         persistence.commit(certificate);
-    }
-
-    /**
-     * Cast an explicit decision (e.g. a REJECT) on a given root — used when a member disagrees with
-     * a proposal rather than proposing its own.
-     */
-    public SignedVote sign(StateRoot root, VoteDecision decision) {
-        return sign(root, root, decision);
-    }
-
-    /** Sign both post-state truth and the complete transition, including one-way effects. */
-    public SignedVote sign(StateRoot root, StateRoot transitionRoot, VoteDecision decision) {
-        SignedVote unsigned = new SignedVote(
-                nodeId(), root, transitionRoot, decision, Bytes.empty());
-        Bytes signature = identity.sign(unsigned.signedPortion());
-        return new SignedVote(nodeId(), root, transitionRoot, decision, signature);
     }
 
     private SignedVote sign(

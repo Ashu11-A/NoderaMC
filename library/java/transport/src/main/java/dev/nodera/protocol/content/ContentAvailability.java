@@ -12,9 +12,16 @@ import java.util.Objects;
 /**
  * "This is what I hold" — a peer's piece-level holdings, advertised to the swarm (Task 19).
  *
- * <p>Consumed by the fetching side's holder set (so {@code PieceSelector} can compute rarest-first
- * order), by Task 20's {@code ArchiveInventory} ("who has what", the tracker's seeder index), and
- * by Task 21's placement audit (expected holders vs actual).
+ * <p>Produced by {@code ContentTransferService.availability()}, and again — unsolicited — when a
+ * {@code ContentRequest} asks for pieces this peer does not hold, so the requester learns "I do not
+ * have it" instead of reading silence. {@code ContentTransferService} is also the receiver: it hands
+ * each advertisement to {@code PieceDownloader.addHolder}, which folds the bitmap into the holder
+ * set so {@code PieceSelector} can compute rarest-first order.
+ *
+ * <p>The tracker's seeder index is <i>not</i> fed from this message: peers announce the same
+ * {@link ManifestHolding} shape on {@code TrackerAnnounce}, and the Rust tracker indexes that. The
+ * Java-side {@code ArchiveInventory} that once mirrored it was deleted on 2026-08-06 (Plan 11
+ * round 2, issue #210).
  *
  * <p>The holdings list is canonicalised on construction — sorted by {@code manifestRoot} hex, with
  * a later entry for the same root replacing an earlier one — so an advertisement's encoded form is

@@ -26,8 +26,8 @@ dev.nodera.core
 ├── state/          RegionSnapshot, RegionDelta, StateRoot, NBlockState/NBlockPos,
 │                   entity records, deterministic fixed-point math, packed chunk keys
 ├── event/          the RegionEvent family
-├── consensuscert/  ValidationVote, QuorumCertificate, CommitteeChangeCertificate,
-│                   ServerAuthorityCertificate
+├── consensuscert/  SignedVote, VoteDecision, QuorumCertificate, HaloEndorsement,
+│                   EntityTransferCertificate, ServerAuthorityCertificate
 ├── crypto/         CanonicalWriter/Reader, Encodable, TypeTags, HashService,
 │   └── symmetric/  SignatureService, StableHash · AES-GCM-256, PBKDF2, the KDF seam
 └── Bytes           the single immutable byte-array value type

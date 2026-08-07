@@ -48,12 +48,6 @@ public record PeerJoin(NodeId joiner, String listenRoute, NodeCapabilities capab
         clientVersion = clientVersion == null ? "" : clientVersion;
     }
 
-    /** Back-compat constructor for callers that publish a key but no client agent. */
-    public PeerJoin(NodeId joiner, String listenRoute, NodeCapabilities capabilities, boolean bootstrap,
-                    Bytes publicKey) {
-        this(joiner, listenRoute, capabilities, bootstrap, publicKey, "");
-    }
-
     /** Back-compat constructor for callers with no key to publish (tests, probe-only meshes). */
     public PeerJoin(NodeId joiner, String listenRoute, NodeCapabilities capabilities, boolean bootstrap) {
         this(joiner, listenRoute, capabilities, bootstrap, Bytes.empty(), "");

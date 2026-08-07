@@ -29,6 +29,7 @@ import { ConsoleScreen } from "./Console";
 import { AboutScreen } from "./About";
 import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
+  Banner,
   Button,
   Card,
   Toggle,
@@ -58,7 +59,6 @@ import {
   type ConfigStatus,
   type WorkerOwnership,
   type Theme,
-  type NetworkPolicy,
 } from "./ipc";
 import { formatBytes, type Dashboard } from "./api";
 import { fetchStorageInfo, type StorageInfo, type SystemStats } from "./ipc";
@@ -217,6 +217,39 @@ function StorageChoices(props: { current: string; onPick: (path: string) => void
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * A list of endpoints, one per line.
+ *
+ * The trackers box and the relays box are the same control over two different arrays, and they were
+ * the same eleven lines written twice — including the parse, which is the part worth having in one
+ * place: split, trim, drop the blanks. A box that kept a trailing empty line would push `""` into
+ * the settings document as an endpoint, and an empty endpoint is a peer dialling nothing.
+ *
+ * These arrays are what this install TYPED, never the effective list — the stores contribute the
+ * rest. Editing them here is fine; counting them anywhere is not (`tracker-stores-style.test.mjs`).
+ */
+function EndpointTextarea(props: {
+  rows: number;
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <textarea
+      className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
+      rows={props.rows}
+      value={props.value.join("\n")}
+      onChange={(e) =>
+        props.onChange(
+          e.target.value
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean),
+        )
+      }
+    />
   );
 }
 
@@ -439,33 +472,34 @@ export function SettingsScreen(props: {
           description={SECTION_COPY[section]}
           className="mb-2"
         />
+        {/* Five banners on this screen, and they used to be five hand-written `<div>`s with five
+            copies of the same border/background/padding string. The shared component is what makes
+            "wrong" and "pending" look the same everywhere in the launcher — and it is what gives
+            the first of these its `role="alert"`, which none of the hand-written ones had. */}
         {error && (
-          <div className="flex items-center gap-2 rounded-sm border border-danger/45 bg-danger/12 px-3.5 py-2.5 text-sm text-danger">
-            <FiAlertCircle aria-hidden /> {error}
-          </div>
+          <Banner tone="danger" icon={<FiAlertCircle aria-hidden className="flex-none" />}>
+            {error}
+          </Banner>
         )}
 
         {fault && (
-          <div className="flex items-start gap-2 rounded-sm border border-warn/45 bg-warn/12 px-3.5 py-2.5 text-sm text-warn">
-            <FiAlertCircle aria-hidden className="mt-0.5 flex-none" />
-            <span>
-              Your saved settings could not be read, so these are defaults. The file has been left
-              alone — {fault}
-            </span>
-          </div>
+          <Banner tone="warn" icon={<FiAlertCircle aria-hidden className="flex-none" />}>
+            Your saved settings could not be read, so these are defaults. The file has been left
+            alone — {fault}
+          </Banner>
         )}
 
         {/* Soft status, never an error: the setting is already saved either way. */}
         {config.pushed && !config.supported && (
-          <div className="flex items-center gap-2 rounded-sm border border-warn/45 bg-warn/12 px-3.5 py-2.5 text-sm text-warn">
-            <FiAlertCircle aria-hidden /> This peer worker is older than the app and does not accept
-            configuration. Limits below are saved but not applied.
-          </div>
+          <Banner tone="warn" icon={<FiAlertCircle aria-hidden className="flex-none" />}>
+            This peer worker is older than the app and does not accept configuration. Limits below
+            are saved but not applied.
+          </Banner>
         )}
         {!config.pushed && config.error && (
-          <div className="flex items-center gap-2 rounded-sm border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-dim">
-            <FiAlertCircle aria-hidden /> Saved. The worker has not confirmed yet — {config.error}
-          </div>
+          <Banner tone="muted" icon={<FiAlertCircle aria-hidden className="flex-none" />}>
+            Saved. The worker has not confirmed yet — {config.error}
+          </Banner>
         )}
 
         {/* Transient by construction now. It appears when a bind-time setting has actually moved,
@@ -476,19 +510,17 @@ export function SettingsScreen(props: {
             answers `pending_known` where it spawned the worker itself, which is exactly where it
             may stop it — the two come from the same question. */}
         {restartNeeded && (
-          <div className="flex flex-wrap items-center gap-3 rounded-sm border border-down/40 bg-down/12 px-3.5 py-2.5 text-sm text-down">
-            <FiRefreshCw aria-hidden />
-            <span className="flex-1">
-              Restarting the peer worker to apply {pendingKeys.join(", ")}.
-            </span>
-            <button
-              className="rounded-sm border border-down/50 px-2.5 py-1 text-xs hover:bg-down/12 disabled:opacity-50"
-              disabled={restarting}
-              onClick={restartNow}
-            >
-              {restarting ? "Restarting…" : "Restart now"}
-            </button>
-          </div>
+          <Banner
+            tone="info"
+            icon={<FiRefreshCw aria-hidden className="flex-none" />}
+            action={
+              <Button disabled={restarting} onClick={restartNow}>
+                {restarting ? "Restarting…" : "Restart now"}
+              </Button>
+            }
+          >
+            Restarting the peer worker to apply {pendingKeys.join(", ")}.
+          </Banner>
         )}
 
         {section === "appearance" && (
@@ -602,19 +634,10 @@ export function SettingsScreen(props: {
               hint="Discovery services this node announces its worlds to and queries for peers. One per line — tcp://host:port; a bare host:port means TCP."
               right={note("network.default_trackers")}
             >
-              <textarea
-                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
+              <EndpointTextarea
                 rows={4}
-                value={s.network.default_trackers.join("\n")}
-                onChange={(e) =>
-                  update(
-                    (d) =>
-                      (d.network.default_trackers = e.target.value
-                        .split("\n")
-                        .map((l) => l.trim())
-                        .filter(Boolean)),
-                  )
-                }
+                value={s.network.default_trackers}
+                onChange={(next) => update((d) => (d.network.default_trackers = next))}
               />
             </Card>
 
@@ -623,19 +646,10 @@ export function SettingsScreen(props: {
               hint="Used to reach peers that cannot accept an inbound connection. One per line, same syntax as the trackers."
               right={note("network.rendezvous_endpoints")}
             >
-              <textarea
-                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
+              <EndpointTextarea
                 rows={3}
-                value={s.network.rendezvous_endpoints.join("\n")}
-                onChange={(e) =>
-                  update(
-                    (d) =>
-                      (d.network.rendezvous_endpoints = e.target.value
-                        .split("\n")
-                        .map((l) => l.trim())
-                        .filter(Boolean)),
-                  )
-                }
+                value={s.network.rendezvous_endpoints}
+                onChange={(next) => update((d) => (d.network.rendezvous_endpoints = next))}
               />
             </Card>
 
@@ -660,9 +674,7 @@ export function SettingsScreen(props: {
                   { value: "unmetered_only", label: "Unmetered only" },
                   { value: "wifi_only", label: "Wi-Fi only" },
                 ]}
-                onChange={(v) =>
-                  update((d) => (d.network.transfer_network = v as NetworkPolicy))
-                }
+                onChange={(v) => update((d) => (d.network.transfer_network = v))}
               />
             </Card>
 

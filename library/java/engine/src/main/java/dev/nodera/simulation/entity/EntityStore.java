@@ -7,7 +7,6 @@ import dev.nodera.core.state.PersistedEntityState;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
@@ -97,10 +96,5 @@ public final class EntityStore {
     /** Return inventory effects in insertion order; RegionDelta canonicalizes them. */
     public List<InventoryCredit> credits() {
         return List.copyOf(credits);
-    }
-
-    /** Package-visible immutable base map for focused tests. */
-    Map<NetworkEntityId, PersistedEntityState> baseView() {
-        return Map.copyOf(base);
     }
 }

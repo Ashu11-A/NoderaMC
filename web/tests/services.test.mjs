@@ -132,6 +132,15 @@ test("an unparseable address is unknown with a sentence, never unreachable", asy
 
 /* ------------------------------------------------------- the record, and where it is published */
 
+test("the generated record has services in it at all", () => {
+  // Three rules below walk `generated.services` and assert per service. `build-services.mjs` resolves
+  // the published index from a git ref, a fetched remote ref, or a URL — three ways to end up with a
+  // valid file listing nothing, at which point every one of those rules passes having read no
+  // service. The list is the official one and has two entries today; a floor of one says "the
+  // resolution worked" without pinning how many operators there are.
+  assert.ok(generated.services.length > 0, "the generated service list is empty");
+});
+
 test("the reading is joined to the list by address, not by name", () => {
   // Both services on the official list are called `noderamc.org`. A join by name shows the tracker's
   // latency beside the relay and neither row is wrong-looking.

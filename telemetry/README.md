@@ -34,7 +34,7 @@ frame ─► probe? ─► quota ─► parse + consent ─► schema validate �
 | `event.rs` | Batch parsing, consent enforcement, per-event and per-attribute validation |
 | `subject.rs` | Forward-secret rotating pseudonymisation — each period mints a fresh OS-CSPRNG key, held only in memory and wiped on rotation; the install id is never stored and the operator's config carries no key material |
 | `geo.rs` | Longest-prefix `cidr,country,asn` lookup; the address itself is discarded |
-| `limits.rs` | Per-source batch and event quotas (the service is unauthenticated by design) |
+| `nodera_service::limits` | Per-source batch and event quotas (the service is unauthenticated by design). Shared with the tracker and rendezvous since 2026-08-06; this crate no longer has its own `limits.rs` |
 | `sink.rs` | Rotating NDJSON spool — the file is the buffer, so a broker outage cannot drop a report |
 | `service.rs` | The ingest decision and the reply; per-reason counters |
 | `wire.rs` | `nodera-codec` framing over TCP, the sweep, and the operator counter line |

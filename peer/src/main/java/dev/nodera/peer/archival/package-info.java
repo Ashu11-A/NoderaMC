@@ -9,15 +9,17 @@
  *   <li><b>Rule 0 — host = physical backup.</b> The {@code FULL_ARCHIVE} host holds everything and
  *       is in every expected-holder set. It is the physical fallback (Task 24's continuous stream
  *       keeps it fed) but gets <i>no extra consensus vote</i> (Invariant 2).</li>
- *   <li><b>Rule 1 — ≥25%-seed floor.</b> Each peer seeds at least {@code min(25%, R/N)} of a world,
- *       dynamically: at small N the floor is the spec's flat 25%; as players join it decays to
- *       {@code R/N} (the average that sustains R copies).</li>
+ *   <li><b>Rule 1 — every placed peer seeds the world it was placed for.</b> Placement is a pure
+ *       function of the live peer set ({@code RendezvousArchivePolicy}), and the worker's sweep
+ *       adopts every world it is an expected holder of, up to a byte budget.</li>
  *   <li><b>Rule 3 — &lt;5%-per-peer cap.</b> No peer holds more than {@code max(5%, 2·R/N)}, so no
  *       one peer concentrates data. The cap only binds at large N; before then a flat 5% is
  *       arithmetically impossible (it would fund fewer than R copies).</li>
  * </ul>
  *
- * <p>The floor is always below the cap, so the two can never conflict.
+ * <p>A piece-denominated seed floor was written for Task 21 alongside this and never reached from
+ * a shipping entry point — the worker bounds itself in bytes, a different model — so it was
+ * deleted on 2026-08-06 (Plan 11 round 2, issue #210).
  *
  * <h2>Deterministic placement = convergent repair</h2>
  *
@@ -26,12 +28,16 @@
  * Every peer computes the same set, so when one detects under-replication it assigns the same
  * next-ranked peer everyone else would — repair converges without a central allocator.
  *
- * <h2>Repair is bounded and trustless</h2>
+ * <h2>Repair is the sweep, not a second mechanism</h2>
  *
- * <p>{@link dev.nodera.peer.archival.ArchiveRepairService} re-replicates under a
- * {@code maxConcurrent}/{@code bandwidthBudget} cap (the MultiPaper lesson: a mass-disconnect must
- * not trigger a repair storm). It pulls pieces <i>by hash</i> and verifies before ack — and the
- * coordinator re-audits rather than trusting the ack, because a peer can claim anything.
+ * <p>A departure shrinks the peer set, placement re-ranks, a peer that was not a holder becomes
+ * one, and the next sweep adopts — which is what {@code WorldReplicationService.placedFor} reads
+ * and what {@code DepartureIsRepairedByPlacementTest} pins. A separate audit→repair triangle
+ * (an audit task, a repair service and a custody digest, plus the push-side assignment/ack wire
+ * tags) was written for Task 21 as a closed loop with no entry point into it, and was deleted on
+ * 2026-08-06 (Plan 11 round 2, issue #210). Its durability property is the one the sweep already
+ * holds, and it held it worse: evacuating on the way out depends on the departing node still being
+ * alive, which a crash and a closed laptop both violate.
  *
  * <p>Thread-context: the services are thread-safe; see per-class Javadoc.
  */

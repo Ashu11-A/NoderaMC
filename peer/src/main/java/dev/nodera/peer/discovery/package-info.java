@@ -11,14 +11,16 @@
  * online, but not about state, because every manifest and checkpoint verifies by hash. The cost of
  * a lying tracker is a wasted round trip.
  *
- * <h2>Three ways in (spec: "at least three bootstrap mechanisms")</h2>
+ * <h2>How a node gets in</h2>
  *
- * <p>{@link dev.nodera.peer.discovery.BootstrapClient} resolves candidates from, in order:
- * a configured multi-entry list, the {@link dev.nodera.peer.discovery.CachedPeerStore} of
- * addresses remembered from prior sessions, and a signed
- * {@link dev.nodera.peer.discovery.InvitationCodec} blob a friend pastes. Any one of them suffices,
- * so a world survives its original host going offline permanently — which was the whole point of
- * decentralising it.
+ * <p>{@link dev.nodera.peer.discovery.PeerDiscoveryService} over
+ * {@link dev.nodera.peer.discovery.TrackerClient} and
+ * {@link dev.nodera.peer.discovery.RendezvousDirectory}: configured routes are asked for the
+ * world's peers, candidates are dialled direct-first, and the service directory supplies a
+ * replacement when a relay drains. A second resolver — a cached-peer redial plus a signed
+ * invitation blob a friend pastes — was written for Task 20 and never reached from a shipping
+ * entry point; it was deleted on 2026-08-06 (Plan 11 round 2, issue #210) rather than left to look
+ * like a path a node might take.
  *
  * <h2>Identity has to persist for any of this to mean anything</h2>
  *
@@ -29,10 +31,11 @@
  *
  * <h2>Bounded, always</h2>
  *
- * <p>{@link dev.nodera.peer.discovery.ArchiveInventory} and
- * {@link dev.nodera.peer.discovery.PeerDirectory} are both LRU-bounded. Everything they hold
- * arrives from remote peers, so an unbounded index is a memory-exhaustion vector reachable by any
- * peer that gossips enthusiastically enough (Plan §3.13).
+ * <p>Everything these services hold arrives from remote peers, so every index is bounded: an
+ * unbounded one is a memory-exhaustion vector reachable by any peer that gossips enthusiastically
+ * enough (Plan §3.13). A separate LRU peer directory was written for Task 20 and consulted by
+ * nothing that ships; it was deleted on 2026-08-06 (Plan 11 round 2, issue #210) along with the two
+ * `DiscoveryBenchmark` lanes that were measuring it.
  *
  * <p>Thread-context: the services are thread-safe; see per-class Javadoc.
  */

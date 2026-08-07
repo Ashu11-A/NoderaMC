@@ -71,11 +71,6 @@ public final class BoundedClientWorldStore implements PinnableContentStore {
         this.usedBytes = 0L;
     }
 
-    /** @return the quota manager reflecting current usage. */
-    public synchronized StorageQuotaManager quota() {
-        return new StorageQuotaManager(quota.budgetBytes(), usedBytes);
-    }
-
     /**
      * Pin a blob: it becomes assigned-region current state and will never be evicted.
      *
@@ -104,20 +99,6 @@ public final class BoundedClientWorldStore implements PinnableContentStore {
     public synchronized boolean isPinned(ContentId id) {
         Meta m = meta.get(id);
         return m != null && m.pinned();
-    }
-
-    /**
-     * Mark a blob accessed at the current tick, refreshing its LRU position.
-     *
-     * @param id  the blob.
-     * @param now the access tick.
-     * @Thread-context any thread.
-     */
-    public synchronized void touch(ContentId id, long now) {
-        Meta m = meta.get(id);
-        if (m != null) {
-            meta.put(id, m.withAccess(now));
-        }
     }
 
     @Override
@@ -187,11 +168,6 @@ public final class BoundedClientWorldStore implements PinnableContentStore {
     @Override
     public synchronized int size() {
         return blobs.size();
-    }
-
-    /** @return the byte budget. */
-    public long budgetBytes() {
-        return quota.budgetBytes();
     }
 
     /** @return bytes currently stored. */

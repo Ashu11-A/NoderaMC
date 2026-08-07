@@ -2,13 +2,14 @@ package dev.nodera.coordinator;
 
 import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DelegabilityPolicyTest {
 
-    private final RegionId region = CoordFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
 
     @Test
     void flatMvpWithQuorumIsDelegable() {

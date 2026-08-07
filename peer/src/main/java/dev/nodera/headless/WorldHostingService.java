@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * Task 32/33 (live lane): the worker's world-hosting engine — the part that makes a shared world
@@ -107,11 +108,6 @@ public final class WorldHostingService implements AutoCloseable {
     /** L-38 coordinated retention: countdown on zero-seeder worlds, cancel on return. */
     private final dev.nodera.peer.archival.RetentionPolicy retention =
             new dev.nodera.peer.archival.RetentionPolicy();
-
-    /** @return the retention policy driving the announce's decommission deadline (L-38). */
-    public dev.nodera.peer.archival.RetentionPolicy retention() {
-        return retention;
-    }
 
     private final Map<String, HostedWorld> worlds = new ConcurrentHashMap<>();
     private final Map<String, dev.nodera.transport.Reachability.Probe> trackerReachable =
@@ -986,11 +982,6 @@ public final class WorldHostingService implements AutoCloseable {
         }
     }
 
-    /** @return the rendezvous endpoints in use, best first. @Thread-context any thread. */
-    public List<RendezvousEndpoint> rendezvousEndpoints() {
-        return rendezvousEndpoints;
-    }
-
     private void registerRendezvous(HostedWorld world, RegistrationEvent event) {
         List<RendezvousEndpoint> endpoints = rendezvousEndpoints;
         if (endpoints.isEmpty()) {
@@ -1049,13 +1040,13 @@ public final class WorldHostingService implements AutoCloseable {
      * padded or upper-cased therefore created an entry that {@code stop} could not remove and that
      * kept announcing until the process died — a duplicate that outlived the thing that made it. Hex
      * has no meaningful case, so normalising costs nothing.
+     *
+     * <p>Not a static import of {@link WorldIds#key} because this class also has a
+     * {@code key(String, int)} for endpoint health, and a local overload hides a static import
+     * of the same name outright.
      */
     private static String key(String worldIdHex) {
-        return worldIdHex.trim().toLowerCase(java.util.Locale.ROOT);
-    }
-
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
+        return WorldIds.key(worldIdHex);
     }
 
     /** One world this worker is keeping discoverable on the network. */

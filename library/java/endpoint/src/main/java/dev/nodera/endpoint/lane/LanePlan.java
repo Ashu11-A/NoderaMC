@@ -50,14 +50,6 @@ public record LanePlan(
         List<Resident> residents,
         List<RegionBase> bases) {
 
-    /** Backwards-compatible shape for a plan that names no bases. */
-    public LanePlan(long worldSeed, int rulesVersion, long registryFingerprint,
-                    String genesisRootB64, String actionSignerKeyB64, long gameTime,
-                    int committeeSize, List<Member> members, List<Resident> residents) {
-        this(worldSeed, rulesVersion, registryFingerprint, genesisRootB64, actionSignerKeyB64,
-                gameTime, committeeSize, members, residents, List.of());
-    }
-
     /**
      * The state a region's committee is being seated on.
      *

@@ -165,15 +165,23 @@ public final class ClientBootstrap {
      * auto-re-share — stays listed but never joinable.
      */
     private static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
-        dev.nodera.mod.common.NoderaHost.setClientPlayerReady(true);
-        // Being here means the gate, if there was one, let us through. Clearing the marker is what
-        // keeps a later, genuine host loss from being mistaken for a password refusal.
-        dev.nodera.endpoint.client.ClientJoinPasswords.passedGate();
-        // The takeover ends HERE, not when openWorld returns. `WorldOpenFlows.openWorld` chains
-        // through `thenAcceptAsync(..., minecraft)`, so it returns while `doWorldLoad` is still
-        // queued — clearing the flag around that call cleared it before the load had shown a single
-        // screen. This event fires inside `handleLogin`, with the level built and the player in it.
-        dev.nodera.mod.client.multiplayer.SeamlessTakeover.finish();
+        // This one fires inside `handleLogin`, on the client's network path: an escape here does
+        // not degrade a feature, it drops the player out of the world they just joined. NeoForge's
+        // bus rethrows listener exceptions (issue #39), so the catch is the only lever.
+        try {
+            dev.nodera.mod.common.NoderaHost.setClientPlayerReady(true);
+            // Being here means the gate, if there was one, let us through. Clearing the marker is
+            // what keeps a later, genuine host loss from being mistaken for a password refusal.
+            dev.nodera.endpoint.client.ClientJoinPasswords.passedGate();
+            // The takeover ends HERE, not when openWorld returns. `WorldOpenFlows.openWorld` chains
+            // through `thenAcceptAsync(..., minecraft)`, so it returns while `doWorldLoad` is still
+            // queued — clearing the flag around that call cleared it before the load had shown a
+            // single screen. This event fires inside `handleLogin`, with the level built and the
+            // player in it.
+            dev.nodera.mod.client.multiplayer.SeamlessTakeover.finish();
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: client login wiring failed: {}", e.toString());
+        }
     }
 
     /**
@@ -185,18 +193,47 @@ public final class ClientBootstrap {
      * unconditionally is a mod that hides why somebody was kicked.
      */
     private static void onScreenOpening(net.neoforged.neoforge.client.event.ScreenEvent.Opening event) {
-        if (dev.nodera.mod.client.multiplayer.SeamlessTakeover.shouldSuppress(event.getNewScreen())) {
-            event.setCanceled(true);
+        try {
+            if (dev.nodera.mod.client.multiplayer.SeamlessTakeover
+                    .shouldSuppress(event.getNewScreen())) {
+                event.setCanceled(true);
+            }
+        } catch (RuntimeException | LinkageError e) {
+            // Failing open is the right failure: the screen appears, which is what vanilla would
+            // have done. Failing closed here would crash the client on every screen change.
+            LOG.warn("Nodera: takeover screen suppression failed: {}", e.toString());
         }
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
-        dev.nodera.mod.common.NoderaHost.setClientPlayerReady(false);
-        dev.nodera.mod.client.entity.ClientValidationLane.stop();
-        NoderaPeerService.get().stopClient();
+        // Three teardown steps, three guards. Under one guard a throw from the lane stop took the
+        // peer runtime down with it — not by crashing it, but by never reaching the line that
+        // stops it, leaving a client peer serving and validating for a world its player has left.
+        try {
+            dev.nodera.mod.common.NoderaHost.setClientPlayerReady(false);
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: clearing the client-ready flag on logout failed: {}", e.toString());
+        }
+        try {
+            dev.nodera.mod.client.entity.ClientValidationLane.stop();
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: stopping the client validation lane on logout failed: {}",
+                    e.toString());
+        }
+        try {
+            NoderaPeerService.get().stopClient();
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: stopping the client peer runtime on logout failed — it stays alive "
+                    + "after the player has left the world: {}", e.toString());
+        }
     }
 
     private static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
-        NoderaClientCommand.register(event.getDispatcher());
+        try {
+            NoderaClientCommand.register(event.getDispatcher());
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: client command registration failed — /noderac is unavailable: {}",
+                    e.toString());
+        }
     }
 }

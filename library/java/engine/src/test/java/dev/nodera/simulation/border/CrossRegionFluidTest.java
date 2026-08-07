@@ -16,6 +16,7 @@ import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.simulation.rules.FlatWorldRules;
 import dev.nodera.simulation.rules.FluidRules;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -138,16 +139,10 @@ final class CrossRegionFluidTest {
         return engine.execute(new RegionExecutionRequest(ctx, base, batch, halo));
     }
 
+    /** As {@link EngineFixtures#blockAt}, but a column this region does not cover reads as air. */
     private static int blockAt(RegionSnapshot snapshot, NBlockPos pos) {
-        for (ChunkColumnState col : snapshot.chunks()) {
-            if (col.chunkX() == Math.floorDiv(pos.x(), 16)
-                    && col.chunkZ() == Math.floorDiv(pos.z(), 16)) {
-                return col.blockAt(Math.floorDiv(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.x(), 16), Math.floorMod(pos.y() - col.minY(), 16),
-                        Math.floorMod(pos.z(), 16));
-            }
-        }
-        return FlatWorldRules.AIR;
+        int found = EngineFixtures.blockAt(snapshot, pos);
+        return found < 0 ? FlatWorldRules.AIR : found;
     }
 
     @Test

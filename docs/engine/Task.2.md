@@ -80,6 +80,27 @@ disagrees with its own behaviour.
 bytes — and any rule that *conditionally* draws must draw a fixed number of times regardless of the
 branch, or the streams desynchronise. This constraint is load-bearing for tasks 10 and 11.
 
+**Why chunk freshness no longer runs through the consensus chain height (Plan 10).**
+`RegionChunkIndex`'s per-column `ChunkStamp`s used to carry `Hlc(tick, snapshotVersion, nil)` — a
+region's chain height (how many times its committee had committed) used directly as the merge clock.
+The justification given at the time was determinism: two peers packing the same snapshot had to
+produce the same index root, and `computeRoot` was thought to need the version to guarantee that. It
+did not — `computeRoot` excludes the clock entirely, so root determinism holds unconditionally and
+never needed anything from this reading.
+
+What the coupling did instead was make column-level merges resolve by chain height: two peers that
+had been apart counted their heights independently, so a region that happened to sit at height 900
+outranked a genuinely more recent column from a peer at height 3, and that peer's edits were silently
+discarded. A number that means "how many times my committee committed" cannot answer "which of these
+two columns is more recent", and it should never have been asked to. `RegionChunkIndex` now carries
+no version field at all (`ENCODING_VERSION` bumped to 2, a hard break — there was no frozen fixture
+and no consumer of the v1 shape); recency lives entirely in each column's `Hlc`, comparable across
+machines by construction, and identity lives in the content-only merkle `root()`. The one remaining
+per-region counter, `SnapshotVersion`, was demoted to a private chain-height field with no role in
+merge freshness. `ChunkStampBook.derivedFrom(tick)` — the reading a column gets when nothing in this
+process ever wrote it — keeps only the tick (a time-like quantity) and the nil origin, which sorts
+below every real node id, so an untouched column never outranks one somebody actually edited.
+
 ## Files
 
 - `library/java/engine/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`

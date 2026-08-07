@@ -84,14 +84,12 @@ pub async fn pump(control_addr: String, sink: Arc<dyn EventSink>) {
     // pause rather than a hole. Starting from 0 each time would replay the whole buffer and reopen
     // prompts the user already answered.
     let cursor = Arc::new(AtomicU64::new(0));
-    let mut backoff = MIN_BACKOFF;
+    let mut backoff = crate::backoff::Backoff::new(MIN_BACKOFF, MAX_BACKOFF);
     loop {
         if stream_once(&control_addr, &sink, &cursor).await {
-            backoff = MIN_BACKOFF; // the stream worked; a clean end is not a reason to slow down
-        } else {
-            backoff = (backoff * 2).min(MAX_BACKOFF);
+            backoff.reset(); // the stream worked; a clean end is not a reason to slow down
         }
-        tokio::time::sleep(backoff).await;
+        backoff.wait().await;
     }
 }
 

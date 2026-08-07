@@ -1,0 +1,99 @@
+{
+  "note": "Ratchet for `scripts/reference-check.py` — the Rust and TypeScript half of the question `./gradlew :peer:structureReport` has been asking of Java. `entries` are exported symbols that nothing outside their own file names, each with the reason it is still here; `limit` caps that list and it may only go DOWN. `test_only_limit` and `local_only_limit` are the other two counters: a symbol only a test names, and a symbol only its own file names. Those are budgets rather than lists for the same reason `budget.json` counts `test_only_methods` instead of enumerating them — the population is large and what matters is that it falls.",
+  "measured": "2026-08-06 on chore/error-rate-checks-round3, over 989 exported symbols in 1,735 searched files, after the fix that stopped the check searching this file. The first stamp of these numbers was taken while the allowlist was still part of the reference index, so writing an entry here gave its symbol a test reference and moved it out of `unreferenced` — the counts it recorded (1,017 symbols, 1,734 files) belong to a run that could not have been green. Every one of the 18 entries below was hand-verified by grepping the whole tree for its name: zero false positives. None is FIXED here, because all 18 sit in production sources this branch's territory does not include (app/ui/src, library/rust/**) and four other agents were working in parallel. They are the round's finding, not its debt: the list is the work item.",
+  "limit": 18,
+  "test_only_limit": 12,
+  "local_only_limit": 90,
+  "entries": [
+    {
+      "file": "library/rust/nodera-codec/src/repo.rs",
+      "symbol": "crate_dir",
+      "why": "Resolves a crate directory by name. Nothing calls it — `layout.properties` and `layout.rs` are how this tree answers that question, and this is the copy that lost."
+    },
+    {
+      "file": "library/rust/nodera-codec/src/wire.rs",
+      "symbol": "decode_discovery_body",
+      "why": "A `.map(|(m, _)| m)` wrapper over `decode_discovery_body_with_overlay`. Every caller in the tree — `messages.rs:362` included — uses the overlay form, because the overlay is the part that matters."
+    },
+    {
+      "file": "library/rust/nodera-codec/src/wire.rs",
+      "symbol": "decode_rendezvous_body",
+      "why": "Same wrapper, same overlay form at `rendezvous.rs:218`."
+    },
+    {
+      "file": "library/rust/nodera-codec/src/wire.rs",
+      "symbol": "decode_service_body",
+      "why": "Same wrapper, same overlay form at `service.rs:611`."
+    },
+    {
+      "file": "library/rust/nodera-codec/src/writer.rs",
+      "symbol": "write_i64",
+      "why": "No encoder in the tree writes an i64 through the builder. The canonical encoding has no signed 64-bit field, so this has never had a caller."
+    },
+    {
+      "file": "library/rust/nodera-codec/src/writer.rs",
+      "symbol": "write_raw",
+      "why": "No encoder writes an unframed run of bytes; every field goes through a length prefix, which is the property the canonical encoding is built on."
+    },
+    {
+      "file": "library/rust/nodera-service/src/env.rs",
+      "symbol": "set_non_empty",
+      "why": "Named exactly once more in the whole repository, in a doc comment a hundred lines below it at `env.rs:294`. That comment is the false-positive cause this check skips comment-only lines to defeat, and skipping it is what made the symbol visible."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "fetchNetworkState",
+      "why": "One of ten bindings kept alive only by `ux-honesty.test.mjs`'s rule that every registered Tauri command has a TypeScript caller. `ipc.ts:225` says so in its own words. The command's real front end is native Compose; the desktop React app never calls it, so the rule is satisfied by a wrapper nothing calls."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "fetchPeerStatus",
+      "why": "Same ten. `peer_status` is announced to every configured tracker from the Android front end."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "runPeerSelfTest",
+      "why": "Same ten. `peer_self_test` is reached from the native diagnostics screen."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "fetchSetupState",
+      "why": "Same ten. The first-run flow is Compose on the platform that has one."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "completeSetup",
+      "why": "Same ten, the other half of the first-run flow."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "fetchBatteryPolicy",
+      "why": "Same ten. Battery exemption is an Android concept and has no desktop screen."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "openBatterySettings",
+      "why": "Same ten."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "openBatteryHelp",
+      "why": "Same ten."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "pickStorageFolder",
+      "why": "Same ten. The system folder picker is Android's; the desktop uses the Tauri dialog."
+    },
+    {
+      "file": "app/ui/src/ipc.ts",
+      "symbol": "pickedFolder",
+      "why": "Same ten, the poll half of the picker."
+    },
+    {
+      "file": "app/ui/src/links.tsx",
+      "symbol": "ExternalLink",
+      "why": "A component wrapping the link ladder. Every screen reaches for the `useExternalLink` hook beside it instead — About, PlayScreen and TrackerStores all do — so the component has never been mounted."
+    }
+  ]
+}

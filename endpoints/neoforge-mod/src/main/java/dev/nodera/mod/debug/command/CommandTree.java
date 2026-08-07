@@ -38,28 +38,10 @@ public final class CommandTree {
         };
     }
 
-    /** @return an executor that renders {@code fn(snapshot)} as a full view. */
-    public static Command<CommandSourceStack> view(Supplier<TelemetrySnapshot> snap,
-                                                   Function<TelemetrySnapshot, DiagnosticsView> fn) {
-        return ctx -> {
-            TelemetrySnapshot s = snap.get();
-            if (s == null) {
-                return offline(ctx);
-            }
-            return sendView(ctx.getSource(), fn.apply(s));
-        };
-    }
-
     /** Render + send one panel; returns the row count (brigadier result). */
     public static int sendPanel(CommandSourceStack src, Panel panel) {
         src.sendSuccess(() -> ComponentRenderer.renderPanel(panel), false);
         return panel.rows().size();
-    }
-
-    /** Render + send a whole view; returns the panel count (brigadier result). */
-    public static int sendView(CommandSourceStack src, DiagnosticsView view) {
-        src.sendSuccess(() -> ComponentRenderer.renderView(view), false);
-        return view.panels().size();
     }
 
     /** The "diagnostics offline" guard (server runtime not started / no snapshot yet). */

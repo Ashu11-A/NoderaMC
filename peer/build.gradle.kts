@@ -14,8 +14,8 @@ plugins {
 //  - dev.nodera.distribution.*  — the torrent data plane (piece split/select/download/reassemble,
 //                                 encrypted manifests, ActivePlayerStream/EmergencyFlush).
 //  - dev.nodera.peer.*          — the peer runtime: membership/gossip, gateway election, TickSync,
-//                                 discovery (TrackerClient/BootstrapClient/PeerDirectory),
-//                                 archival placement/audit/repair, the loopback control endpoint
+//                                 discovery (PeerDiscoveryService/TrackerClient/RendezvousDirectory),
+//                                 archival placement, the loopback control endpoint
 //                                 (ControlProtocol v2 — the single wire the mod's CompanionClient
 //                                 and rust/nodera-app's control.rs mirror).
 //  - dev.nodera.diagnostics.*   — Minecraft-free telemetry + view models (consumed by the node,

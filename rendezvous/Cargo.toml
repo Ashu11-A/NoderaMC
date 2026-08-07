@@ -24,3 +24,8 @@ sha2 = { workspace = true }
 [dev-dependencies]
 ed25519-dalek = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+
+[build-dependencies]
+# The `VERSION` stamp, shared with the other services. No dependencies of its own, so it costs
+# nothing on a cross-compiled release build.
+nodera-build = { path = "../library/rust/nodera-service/build-version" }

@@ -240,6 +240,13 @@ build_rust() {
         # the root VERSION file is a mislabelled artifact, and the cheapest moment to notice is now.
         log "Version: scripts/version.sh --check"
         "$NODERA_ROOT/scripts/version.sh" --check
+        # The size ratchet, checked here for the same reason as the version mirrors: it is pure
+        # Python over git-tracked files, it takes under a second, and a tree that grew past its
+        # stamped baseline is something to see now rather than in review. Deliberate growth is
+        # re-stamped with `scripts/loc-metrics.py --baseline` in the same commit.
+        log "Size: scripts/loc-metrics.py --check"
+        python3 "$NODERA_ROOT/scripts/loc-metrics.py" --selftest
+        python3 "$NODERA_ROOT/scripts/loc-metrics.py" --check
         log "Rust: cargo test (workspace)"
         ( cd "$NODERA_CARGO_WS" && cargo test )
     fi

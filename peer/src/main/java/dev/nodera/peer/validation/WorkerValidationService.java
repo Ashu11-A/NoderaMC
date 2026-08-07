@@ -3,7 +3,6 @@ package dev.nodera.peer.validation;
 import dev.nodera.committee.CommitteeFailover;
 import dev.nodera.committee.CommitteeMember;
 import dev.nodera.consensus.Decision;
-import dev.nodera.consensus.EquivocationDetector;
 import dev.nodera.consensus.MajorityQuorumPolicy;
 import dev.nodera.consensus.ProposalKey;
 import dev.nodera.consensus.VoteCollector;
@@ -52,7 +51,6 @@ import dev.nodera.fallback.CrossRegionRouter;
 import dev.nodera.fallback.RoutingDecision;
 import dev.nodera.fallback.SoakMetrics;
 import dev.nodera.protocol.NoderaMessage;
-import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
@@ -92,7 +90,8 @@ import java.util.function.Consumer;
  * previously unconsumed {@code simulationmsg} wire family ({@link ActionBatchMsg},
  * {@link RegionProposal}, {@link ValidationVote}, {@link CommitAnnounce}) into the live worker.
  *
- * <p>Flow per batch (the headless {@code CommitteeMvpIT} pipeline, distributed):
+ * <p>Flow per batch (pinned end-to-end by {@code WorkerQuorumValidationIT}, which forms this
+ * committee out of three companion-only workers with no Minecraft process anywhere):
  * <ol>
  *   <li>the primary re-executes locally ({@link CommitteeMember#computeAndVote}), submits its own
  *       vote, and sends {@link ActionBatchMsg} + {@link RegionProposal} to every validator;</li>
@@ -325,18 +324,6 @@ public final class WorkerValidationService {
                 registryFingerprint, voteTimeoutMillis, VotePersistence.none(),
                 ActionAdmission.HEADLESS, new InMemoryWorldView(),
                 EntityTransferCoordinator.TransferJournal.NOOP);
-    }
-
-    /** Crash-safe/action-aware constructor used by live worker wiring. */
-    public WorkerValidationService(NodeIdentity identity, PeerTransport transport,
-                                   RegionEngine engine, HashService hashes,
-                                   CertificateStore certificates, long worldSeed,
-                                   int rulesVersion, long registryFingerprint,
-                                   long voteTimeoutMillis, VotePersistence persistence,
-                                   ActionAdmission actionAdmission) {
-        this(identity, transport, engine, hashes, certificates, worldSeed, rulesVersion,
-                registryFingerprint, voteTimeoutMillis, persistence, actionAdmission,
-                new InMemoryWorldView(), EntityTransferCoordinator.TransferJournal.NOOP);
     }
 
     /** Full live constructor with a server-backed canonical world and durable transfer journal. */
@@ -633,6 +620,18 @@ public final class WorkerValidationService {
      * <p>The announcement carries no authority. Acting on it can only <i>stop</i> validation of one
      * region, never commit anything, so a lying peer costs a region its validated lane and nothing
      * else — the same thing that peer could achieve by simply not participating.
+     *
+     * <p><b>No production caller, and that is two separate facts</b> (issue #236, 2026-08-06).
+     * {@code NON_DELEGABLE_ENTITY} used to arrive here from the entity lane; that refusal was
+     * retired on 2026-07-29 because it emptied the validated lane in any world containing animals,
+     * so this method will never be called with it again. The other five reasons
+     * {@link dev.nodera.protocol.simulationmsg.RegionRefusal.Reason} declares have simply never had
+     * an evaluator — {@code DelegabilityPolicy} is a rule table nothing drives — and this is the
+     * announcement path they would use when one is written, which is why the method stays.
+     *
+     * <p>It is not dead in the ratchet's sense: {@code RegionRefusalIT} drives it against the live
+     * receive half ({@link #onRegionRefusal}), which is what keeps a refusal from a peer on an
+     * older release working.
      *
      * @return {@code true} if this was the first refusal of the region (callers log once).
      */
@@ -1542,32 +1541,27 @@ public final class WorkerValidationService {
                 publicKey, certificate.signedPortion(), certificate.serverSignature());
     }
 
+    /**
+     * The proposer's own check on a transfer plan, before it broadcasts it — <b>the same check every
+     * remote member will run</b>, applied to both replicas this node holds.
+     *
+     * <p>It used to be a separate, hand-written list of clauses, and it was the weaker of the two
+     * (issue #233). {@link #validateTransferSide} additionally requires that the replica's region is
+     * the one the descriptor names, and that each delta's own {@code region}, {@code baseVersion} and
+     * {@code resultingRoot} agree with it. A proposer missing those could assemble a plan its whole
+     * committee would unanimously refuse, and it discovered that only when the quorum never arrived
+     * — a broadcast, a round trip and a vote timeout spent on something it could have known locally.
+     *
+     * <p>There are no cross-side clauses left to add here. Every clause the old body carried is one
+     * of the two sides', including {@code target.snapshot.tick() == descriptor.tick()}, which
+     * {@code validateTransferSide} applies on the target side only for the same reason it did here:
+     * the source delta is what moves the tick, so the source replica is a tick behind by
+     * construction.
+     */
     private boolean validateTransferPlan(
             EntityTransferPrepare prepare, Replica source, Replica target) {
-        EntityTransferDescriptor descriptor = prepare.descriptor();
-        if (!descriptor.sourceEpoch().equals(source.lease.epoch())
-                || !descriptor.targetEpoch().equals(target.lease.epoch())
-                || !descriptor.sourceBaseVersion().equals(source.snapshot.version())
-                || !descriptor.targetBaseVersion().equals(target.snapshot.version())
-                || !descriptor.sourcePrevRoot().equals(source.headRoot)
-                || !descriptor.targetPrevRoot().equals(target.headRoot)
-                || target.snapshot.tick() != descriptor.tick()
-                || !descriptor.sourceTransitionRoot().equals(
-                StateRoot.of(hashes.hash(prepare.sourceDelta())))
-                || !descriptor.targetTransitionRoot().equals(
-                StateRoot.of(hashes.hash(prepare.targetDelta())))) {
-            return false;
-        }
-        try {
-            RegionSnapshot sourceAfter = SnapshotDeltaApplier.apply(
-                    source.snapshot, prepare.sourceDelta(), descriptor.tick());
-            RegionSnapshot targetAfter = SnapshotDeltaApplier.apply(
-                    target.snapshot, prepare.targetDelta(), descriptor.tick());
-            return StateRoot.of(hashes.hash(sourceAfter)).equals(descriptor.sourceResultingRoot())
-                    && StateRoot.of(hashes.hash(targetAfter)).equals(descriptor.targetResultingRoot());
-        } catch (RuntimeException invalidDelta) {
-            return false;
-        }
+        return validateTransferSide(prepare, source, true)
+                && validateTransferSide(prepare, target, false);
     }
 
     private boolean validateTransferSide(
@@ -2033,14 +2027,6 @@ public final class WorkerValidationService {
 
     /** Set when a caller gives this lane somewhere durable to keep its view; may stay null. */
     private volatile DurableCoordinatorState durableState;
-
-    /**
-     * @return this node's reliability view, for diagnostics and for an assignment planner that
-     *         wants to skip a member below the floor. Never consensus state.
-     */
-    public dev.nodera.coordinator.ReliabilityLedger reliability() {
-        return reliability;
-    }
 
     /**
      * Give this lane a durable home for its epochs and reputations, and adopt whatever it already

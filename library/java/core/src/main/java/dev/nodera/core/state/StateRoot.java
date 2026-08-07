@@ -56,16 +56,12 @@ public record StateRoot(Bytes hash) implements Encodable {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.STATE_ROOT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.STATE_ROOT, ENCODING_VERSION);
         w.writeBytes(hash);
     }
 
     public static StateRoot decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.STATE_ROOT) {
-            throw new IllegalStateException("expected STATE_ROOT tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.STATE_ROOT, "STATE_ROOT", ENCODING_VERSION);
         return new StateRoot(r.readBytesValue());
     }
 }

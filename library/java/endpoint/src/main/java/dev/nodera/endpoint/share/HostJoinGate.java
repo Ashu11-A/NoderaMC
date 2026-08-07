@@ -258,13 +258,6 @@ public final class HostJoinGate {
         return Verdict.WRONG_PASSWORD;
     }
 
-    /** Drop a connection's outstanding challenge (it disconnected during configuration). */
-    public synchronized void forget(Object connection) {
-        if (connection != null) {
-            outstanding.remove(connection);
-        }
-    }
-
     /** @return the number of outstanding challenges (diagnostics/tests). */
     public synchronized int outstanding() {
         return outstanding.size();

@@ -40,7 +40,7 @@ public record PeerCandidate(CandidateKind kind, String address, int priority) im
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PEER_CANDIDATE).writeU16(Encodable.ENCODING_VERSION);
+        w.writeFrame(TypeTags.PEER_CANDIDATE, Encodable.ENCODING_VERSION);
         w.writeU8(kind.ordinal());
         w.writeString(address);
         w.writeU32(Integer.toUnsignedLong(priority));
@@ -55,10 +55,7 @@ public record PeerCandidate(CandidateKind kind, String address, int priority) im
      * @Thread-context one reader per decode call.
      */
     public static PeerCandidate decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.PEER_CANDIDATE) {
-            throw new IllegalStateException("expected PeerCandidate tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.PEER_CANDIDATE, "PeerCandidate");
         int version = r.readU16();
         if (version != Encodable.ENCODING_VERSION) {
             throw new IllegalStateException("unsupported PeerCandidate version " + version);

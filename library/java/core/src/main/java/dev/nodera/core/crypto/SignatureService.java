@@ -4,10 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.NoderaConstants;
 
 import java.security.KeyFactory;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
 import java.security.PublicKey;
-import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 
@@ -15,11 +12,12 @@ import java.security.spec.X509EncodedKeySpec;
  * Ed25519 signature <b>verification</b> and key utilities (Plan §3.7 / Task 2).
  *
  * <p>Signing lives on {@code dev.nodera.core.identity.NodeIdentity} — the private key never
- * leaves that object. This service performs verification plus key encoding/generation helpers
- * and deliberately has <b>no dependency on the {@code identity} package</b>, keeping the
- * {@code crypto} layer dependency-light and independently testable. {@link #generateKeyPair()}
- * is kept consistent with {@code NodeIdentity}'s own generation path (same algorithm, same
- * keysize hint, same {@link SecureRandom} source).
+ * leaves that object. This service performs verification plus public-key encoding and
+ * deliberately has <b>no dependency on the {@code identity} package</b>, keeping the
+ * {@code crypto} layer dependency-light and independently testable. Key GENERATION is not here:
+ * a duplicate {@code generateKeyPair} helper sat beside {@code NodeIdentity}'s own path with no
+ * caller and was deleted on 2026-08-06 (Plan 11 round 2, issue #210) — one generation path, not
+ * two kept "consistent" by review.
  *
  * <p>Public keys are exchanged and persisted in their X.509 subject-public-key-info encoding;
  * {@link #verify(Bytes, Bytes, Bytes)} rebuilds a {@link PublicKey} from those bytes on each call.
@@ -65,22 +63,6 @@ public final class SignatureService {
             return verifier.verify(signature);
         } catch (Exception e) {
             return false;
-        }
-    }
-
-    /**
-     * Generate a fresh Ed25519 {@link KeyPair}. Helper; {@code NodeIdentity} uses its own
-     * equivalent path internally. Uses a fresh {@link SecureRandom} — identity/key generation is
-     * explicitly outside the deterministic engine path.
-     */
-    public KeyPair generateKeyPair() {
-        try {
-            KeyPairGenerator kpg = KeyPairGenerator.getInstance(NoderaConstants.KEYPAIR_ALGORITHM);
-            // Ed25519 is fixed-size; the JDK rejects initialize(int,...). generateKeyPair()
-            // seeds itself from a cryptographically secure random source.
-            return kpg.generateKeyPair();
-        } catch (Exception e) {
-            throw new IllegalStateException("failed to generate Ed25519 key pair", e);
         }
     }
 

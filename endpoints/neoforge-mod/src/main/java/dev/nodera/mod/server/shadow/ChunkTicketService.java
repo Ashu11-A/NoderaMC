@@ -70,24 +70,9 @@ public final class ChunkTicketService {
         apply(level, holds.hold(region), simulate);
     }
 
-    /** As {@link #hold(ServerLevel, RegionId, boolean)}, simulating — the primary's hold. */
-    public void hold(ServerLevel level, RegionId region) {
-        hold(level, region, true);
-    }
-
     /** Drop this region's hold; a chunk another region still holds stays loaded. */
     public void release(ServerLevel level, RegionId region) {
         apply(level, holds.release(region), true);
-    }
-
-    /** Session shutdown: release everything exactly once. */
-    public void releaseAll(ServerLevel level) {
-        apply(level, holds.releaseAll(), true);
-    }
-
-    /** @return how many distinct chunks this service is currently holding. */
-    public int heldChunks() {
-        return holds.heldChunks();
     }
 
     private void apply(ServerLevel level, RegionChunkHolds.Delta delta, boolean simulate) {

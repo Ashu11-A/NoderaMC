@@ -7,8 +7,12 @@ import com.tngtech.archunit.lang.ArchRule;
 import dev.nodera.core.state.FixedVec3;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,53 +57,46 @@ final class ForbiddenApiTest {
                 .isGreaterThan(0);
     }
 
-    @Test
-    void noSystemCurrentTimeMillis() {
-        ArchRule rule = noClasses()
-                .should().callMethod(System.class, "currentTimeMillis")
-                .because("wall-clock reads break cross-replica determinism (Task 0 §6)");
-        rule.check(classes);
+    /**
+     * The one-line fences: six bans that are the same claim over a different forbidden API.
+     *
+     * <p>They were six methods whose bodies differed by one call and one sentence, and a seventh
+     * would have been a seventh method. As a parameter list the rule and its justification sit on
+     * one row, and JUnit still reports one test per row — so a ban that starts failing names
+     * itself.
+     *
+     * @return one row per banned API: the name JUnit reports, and the rule.
+     */
+    static Stream<Arguments> determinismFences() {
+        return Stream.of(
+                Arguments.of("System.currentTimeMillis", noClasses()
+                        .should().callMethod(System.class, "currentTimeMillis")
+                        .because("wall-clock reads break cross-replica determinism (Task 0 §6)")),
+                Arguments.of("System.nanoTime", noClasses()
+                        .should().callMethod(System.class, "nanoTime")
+                        .because("wall-clock reads break cross-replica determinism (Task 0 §6)")),
+                Arguments.of("Math.random", noClasses()
+                        .should().callMethod(Math.class, "random")
+                        .because("Math.random uses an unseeded entropy source (Task 0 §6)")),
+                Arguments.of("ThreadLocalRandom", noClasses()
+                        .should().accessClassesThat()
+                        .haveFullyQualifiedName("java.util.concurrent.ThreadLocalRandom")
+                        .because("ThreadLocalRandom is unseeded per-thread entropy; use "
+                                + "DeterministicRandom (Task 0 §6)")),
+                Arguments.of("UUID.randomUUID", noClasses()
+                        .should().callMethod(UUID.class, "randomUUID")
+                        .because("UUID.randomUUID uses SecureRandom entropy; use "
+                                + "DeterministicRandom (Task 0 §6)")),
+                Arguments.of("java.io / java.net / java.sql", noClasses()
+                        .should().accessClassesThat()
+                        .resideInAnyPackage("java.io..", "java.net..", "java.sql..")
+                        .because("IO/network/sql access breaks purity; execute must be a pure "
+                                + "function (Task 0 §6)")));
     }
 
-    @Test
-    void noSystemNanoTime() {
-        ArchRule rule = noClasses()
-                .should().callMethod(System.class, "nanoTime")
-                .because("wall-clock reads break cross-replica determinism (Task 0 §6)");
-        rule.check(classes);
-    }
-
-    @Test
-    void noMathRandom() {
-        ArchRule rule = noClasses()
-                .should().callMethod(Math.class, "random")
-                .because("Math.random uses an unseeded entropy source (Task 0 §6)");
-        rule.check(classes);
-    }
-
-    @Test
-    void noThreadLocalRandom() {
-        ArchRule rule = noClasses()
-                .should().accessClassesThat()
-                .haveFullyQualifiedName("java.util.concurrent.ThreadLocalRandom")
-                .because("ThreadLocalRandom is unseeded per-thread entropy; use DeterministicRandom (Task 0 §6)");
-        rule.check(classes);
-    }
-
-    @Test
-    void noUuidRandomUuid() {
-        ArchRule rule = noClasses()
-                .should().callMethod(UUID.class, "randomUUID")
-                .because("UUID.randomUUID uses SecureRandom entropy; use DeterministicRandom (Task 0 §6)");
-        rule.check(classes);
-    }
-
-    @Test
-    void noIoNetSqlPackages() {
-        ArchRule rule = noClasses()
-                .should().accessClassesThat()
-                .resideInAnyPackage("java.io..", "java.net..", "java.sql..")
-                .because("IO/network/sql access breaks purity; execute must be a pure function (Task 0 §6)");
+    @ParameterizedTest(name = "the simulation module never touches {0}")
+    @MethodSource("determinismFences")
+    void theEngineTouchesNoNonDeterministicApi(String api, ArchRule rule) {
         rule.check(classes);
     }
 

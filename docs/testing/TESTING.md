@@ -5,9 +5,25 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-07-29 · **25 unit tests · 0 failing** (module `testing`,
-from the `./gradlew check` XML reports) — the live scenarios themselves run in the `e2e-live`
-workflow nightly, and `scripts/nodera-test.sh list` is the smoke test that all twenty resolve.
+**Category:** testing · **Last run:** 2026-08-06, the nine-module run recorded in commit `44069df` ·
+**44 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
+scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
+the smoke test that all twenty resolve.
+
+Whole-tree Java total for that same run: **2,267 tests · 0 failed · 0 skipped**. That figure is the
+sum of the nine per-module counts README's module table carries — core 314, engine 444, transport
+188, storage 158, testing 44, peer 852, endpoint 114, neoforge-mod 133, paper-plugin 20 — which is
+where a reader should go for the per-module breakdown. To measure it rather than add it up, run
+`scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
+suite that skipped into green cannot contribute to the number.
+
+The **2,423 passed · 12 skipped** figure this file used to carry is the state the Plan 11 round
+*found and fixed*, not the state the tree is in. All twelve skips were real-binary suites waiting on
+something the `java` job had never built. The job builds them now, and a step named `Nothing skipped
+into green` in [`build.yml`](../../.github/workflows/build.yml) fails that job on any non-zero skip
+count. Zero is stamped there rather than derived, so a new skip is a decision somebody has to sign
+off on: build what the suite waits for, disable it with a reason, or move the number in the same
+commit.
 
 ```bash
 scripts/nodera-test.sh list                    # every scenario, its tags, what a pass proves
@@ -23,12 +39,74 @@ scripts/nodera-test.sh all                     # scenarios, then benchmarks, the
   --report DIR    where the report goes (default build/reports/nodera)
 ```
 
+The size ratchet is not a scenario and does not need a stack; it is a second-long Python pass over
+git-tracked source, and it runs in `scripts/dev.sh --test` and in the `build` workflow beside
+`scripts/version.sh --check`:
+
+```bash
+scripts/loc-metrics.py                         # per-language table
+scripts/loc-metrics.py --by-module             # per module, crate and package
+scripts/loc-metrics.py --check                 # fail if the tree grew past scripts/lib/loc-baseline.json
+scripts/loc-metrics.py --baseline              # re-stamp, when a growth is deliberate
+scripts/loc-metrics.py --selftest              # 18 lexer fixtures — runs before --check in the gate
+```
+
+`--selftest` runs first everywhere `--check` does. The ratchet is worth exactly as much as the lexer
+underneath it, and a regression that made the classifier read comments as code would otherwise
+present as a tree that shrank. The programme it serves is [`Plan.11.md`](../plans/Plan.11.md).
+
+`--check` gates the `*.code` limits only. Comment counts are measured, stamped and diffed — moving a
+specification out of a comment block is one of the programme's levers and has to be visible — but a
+rise in them prints a note and passes. The exclusion is not a softening: a gate that makes deleting
+documentation the cheapest way to go green is pointed at the wrong thing, and it demonstrably was.
+An agent extracting a collaborator from a god-class hit the comment bucket and trimmed comments to
+pay for the new file's header. That time the documentation had moved with the code and nothing was
+lost. The next time it would not have been.
+
+**`:testing` buckets as `java.test`, not `java.main`.** Everything in that module is test code; it
+compiles into `src/main` only because that is how one Gradle module exposes types to another
+module's tests. The classifier reads the exception from `layout.properties`, so relocating the
+module cannot silently un-fix it. Before that, extracting a shared fixture out of twenty-five tests
+reported as production growth and turned the gate red for doing exactly what its issue asked.
+
+---
+
+## 1a. The in-JVM mesh harness
+
+`scripts/nodera-test.sh` drives the LIVE scenarios. The in-JVM integration tests — the twenty-five
+`*IT.java` that boot peers over `LoopbackTransport` without a Minecraft process anywhere — use
+`dev.nodera.testkit.peer` instead, and run inside `./gradlew :peer:test`.
+
+| Type | What it is |
+|---|---|
+| `PeerTestHarness` | one `LoopbackNetwork` plus the teardown of everything built on it; `close()` unwinds in reverse creation order |
+| `SpawnedService` | one Rust service binary on an ephemeral port: locate, write a TOML, start, read the bound address off its own ready line, drain, stop. Existed four times before it existed once |
+| `EngineFixtures` | the batch/context/execute preamble, `blockAt`, and the uniform-world builders. `executeTicks` was an eight-line body in eighteen files |
+| `ValidationNode` | a committee member: identity, transport, optional `PeerRuntime`, `WorkerValidationService` over the real engine, certificate store |
+| `WorkerNode` | an always-on worker behind a real `ControlServer`, spoken to through `dev.nodera.testkit.harness.ControlClient` — the product's own client, so no assertion can pass on a state the product cannot read |
+| `MeshNode<S>` | a peer carrying one wire-speaking service, with the mutable membership list that service relays to |
+| `RegionFixtures` | the snapshot and signed-action values every committee test starts from |
+| `Await` | `until` (fails on expiry) and `quietly` (returns, so the test keeps its own failure message) |
+
+**The rule for extending it: where two tests disagree, the difference becomes a named parameter.** A
+default that quietly settles a disagreement leaves both tests green and one of them meaningless. The
+parameters that exist today because of exactly that are the committee vote timeout, the world seed
+and the control-socket timeout.
+
+**And the rule the structural report added: build a collaborator through the constructor that
+matches its shape, not through the widest one with `null`s.** They produce the same object, so it
+reads as equivalent — but a production type that publishes one overload per embedding loses a
+reference for every overload the harness stops calling, and `never_referenced_methods` only ratchets
+down. `PeerTestHarness` selects between `WorkerControlHandler`'s three constructors for that reason;
+`./gradlew :peer:structureReport` is what enforces it.
+
 Artefacts:
 
 | Path | What it is |
 |---|---|
 | `build/reports/nodera/TEST-REPORT.md` | scenarios, benchmarks and structure in one document |
 | `build/reports/nodera/test-report.json` | the same, machine-readable |
+| `build/reports/nodera/LOC-BASELINE.md` | source size by language and by component, from `--baseline` |
 | `run/results/<scenario>/<stamp>/` | that run's service logs, client logs, worker state snapshots |
 | `run/.e2e-suite.lock` | the exclusive lock live scenarios take — they run one at a time |
 
@@ -78,6 +156,41 @@ right.
   produces is built by the runner instead of being waited for. The three server-category shell
   suites used to skip on every machine including CI because nothing built the jar they looked for;
   a skip that is structural rather than circumstantial is a suite that never runs.
+
+  The twelve JUnit skips were the same failure in the unit gate: every one was "a cargo binary or
+  the peer distribution was not built", and the `java` job that runs `./gradlew check` was not the
+  job that built them. `dev.nodera.testkit.harness.SpawnedService` is the Java half of the fix — it
+  locates the binary, and when `nodera.test.requireServiceBinaries` (or
+  `NODERA_REQUIRE_SERVICE_BINARIES`) is set it **throws instead of letting the caller assume**, so a
+  job that promises to build them cannot silently stop. The workflow half is wired: the `java` job
+  now runs, before `./gradlew check`:
+
+  ```yaml
+  - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
+  - run: ./gradlew :peer:installDist
+  ```
+
+  and a `Nothing skipped into green` step fails the job on a non-zero skip count. To run the same
+  gate locally, promise the binaries explicitly:
+
+  ```bash
+  cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
+  ./gradlew :peer:installDist
+  ./gradlew check build -Dnodera.test.requireServiceBinaries=true
+  ```
+
+  **That `-D` works only because the build forwards it.** A launcher `-D` sets a property on the
+  Gradle *daemon*, and a `Test` task inherits the *daemon's* environment rather than the invoking
+  shell's, so neither the property nor the variable reaches a forked test worker on its own.
+  `library/java/build-logic/src/main/kotlin/NoderaServiceBinaries.kt` reads both through
+  `providers` and re-publishes the value as a system property on every `Test` task; the flag is a
+  task input, so flipping it re-runs the suites rather than restoring a cached green.
+  `SpawnedServiceRequirementTest` holds the Java half to it.
+
+  The skip guard and the promise flag overlap on purpose. `Nothing skipped into green` catches the
+  *outcome* — any skip, from any cause, including one nobody has thought of. The flag catches the
+  *cause*, at the suite that skipped, naming the binary and the directory it searched, and it works
+  on a developer's machine where no workflow step runs.
 - **Timeouts are written in plain seconds** and scaled once, centrally, by
   `NODERA_E2E_TIMEOUT_MULT`. CI runners are slower by a factor nobody can predict from the code, and
   scaling waits individually is how one stage ends up still timing out on the slow machine.

@@ -3,7 +3,6 @@ package dev.nodera.peer.tunnel;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.NoderaMessage;
-import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.tunnel.TunnelClose;
 import dev.nodera.protocol.tunnel.TunnelData;
@@ -349,11 +348,6 @@ public final class TunnelService implements AutoCloseable {
             return "127.0.0.1:" + port();
         }
 
-        /** @return the session this door leads to. */
-        public String sessionIdHex() {
-            return sessionIdHex;
-        }
-
         boolean isOpen() {
             return !server.isClosed();
         }
@@ -493,10 +487,5 @@ public final class TunnelService implements AutoCloseable {
 
     private static String shortNode(NodeId node) {
         return node == null ? "?" : node.value().toString().substring(0, 8);
-    }
-
-    /** @return this node's id (kept so a future self-dial guard has something to compare against). */
-    NodeId self() {
-        return self;
     }
 }

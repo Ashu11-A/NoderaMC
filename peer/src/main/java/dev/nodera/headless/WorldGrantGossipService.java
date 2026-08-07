@@ -13,7 +13,6 @@ import dev.nodera.storage.WorldPermissionGrant;
 import dev.nodera.storage.WorldPermissions;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
-import dev.nodera.transport.TransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,9 +49,8 @@ public final class WorldGrantGossipService {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
-    private final PeerTransport transport;
-    private final NodeId self;
-    private final Supplier<List<PeerEntry>> members;
+    /** The one flood loop this package shares; see {@link SignedGossipRelay}. */
+    private final SignedGossipRelay mesh;
 
     /** worldIdHex → the permission set this node maintains for that world. */
     private final Map<String, WorldPermissions> worlds = new ConcurrentHashMap<>();
@@ -77,9 +75,7 @@ public final class WorldGrantGossipService {
      */
     public WorldGrantGossipService(NodeId self, PeerTransport transport,
                                    Supplier<List<PeerEntry>> members) {
-        this.self = Objects.requireNonNull(self, "self");
-        this.transport = Objects.requireNonNull(transport, "transport");
-        this.members = Objects.requireNonNull(members, "members");
+        this.mesh = new SignedGossipRelay(self, transport, members);
     }
 
     /** Register the listener notified on every accepted grant; replaces any previous one. */
@@ -162,7 +158,8 @@ public final class WorldGrantGossipService {
             return false;
         }
         LOG.info("Applied {} grant for {} in world {} (v{})",
-                grant.role(), grant.subject().value(), shortId(worldIdHex), grant.grantVersion());
+                grant.role(), grant.subject().value(), WorldIds.shortId(worldIdHex),
+                grant.grantVersion());
         GrantListener l = listener;
         if (l != null) {
             l.onGrantAccepted(worldIdHex, grant);
@@ -175,22 +172,6 @@ public final class WorldGrantGossipService {
         grant.encode(w);
         byte[] frame = WireCodec.encode(
                 new WorldGrantGossip(Bytes.fromHex(worldIdHex), w.toBytes()));
-        for (PeerEntry member : members.get()) {
-            NodeId id = member.nodeId();
-            if (id.equals(self) || id.equals(excluding)) {
-                continue;
-            }
-            try {
-                transport.send(PeerAddress.of(id, member.route()), frame);
-            } catch (TransportException unreachable) {
-                // One unreachable co-host must not stop the grant reaching the others; it picks the
-                // grant up from any peer that has it the next time it is reachable.
-                LOG.debug("grant relay to {} failed: {}", id.value(), unreachable.getMessage());
-            }
-        }
-    }
-
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
+        mesh.flood(frame, excluding, "grant");
     }
 }

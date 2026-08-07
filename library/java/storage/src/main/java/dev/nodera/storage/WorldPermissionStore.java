@@ -91,7 +91,7 @@ public final class WorldPermissionStore {
      */
     public static void write(Path saveRoot, List<WorldPermissionGrant> grants) throws IOException {
         CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(TypeTags.WORLD_PERMISSION_SET).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_PERMISSION_SET, ENCODING_VERSION);
         w.writeU32(grants.size());
         for (WorldPermissionGrant g : grants) {
             g.encode(w);

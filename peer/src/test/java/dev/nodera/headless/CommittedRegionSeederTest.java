@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -103,12 +104,25 @@ final class CommittedRegionSeederTest {
     @Test
     @DisplayName("a seeding fault costs availability, never the commit that produced it")
     void aFailedSeedIsContained() {
+        // `doesNotThrowAnyException` alone would also pass if the seeder never called the sink —
+        // which is the opposite behaviour, and the one the "seed nothing when ambiguous" rule above
+        // produces. So the throwing sink counts its calls, and the test asserts the fault was
+        // actually raised before asserting that it was contained.
+        AtomicInteger attempts = new AtomicInteger();
         CommittedRegionSeeder seeder = new CommittedRegionSeeder(() -> List.of("w"),
                 (world, snapshot) -> {
+                    attempts.incrementAndGet();
                     throw new IllegalStateException("content store on fire");
                 });
 
         assertThatCode(() -> seeder.accept(snapshot(), ROOT)).doesNotThrowAnyException();
+        assertThat(attempts)
+                .as("the seed was attempted — a contained fault has to have happened first")
+                .hasValue(1);
+
+        // And the commit lane keeps working afterwards: a failure is not a latch.
+        seeder.accept(snapshot(), ROOT);
+        assertThat(attempts).hasValue(2);
     }
 
     @Test

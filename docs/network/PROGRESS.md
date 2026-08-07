@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-08-01 · Tasks completed: **12 / 15**
+**Category:** network · **Last audit:** 2026-08-06 · Tasks completed: **11 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -22,7 +22,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [4](Task.4.md) | Torrent data plane | ✅ COMPLETED | Production consumer live (world-continuity lane); L-33 render half remains |
 | [5](Task.5.md) | Discovery + multi-bootstrap + identity | ✅ COMPLETED | Serving role moved to the tracker service |
 | [6](Task.6.md) | Placement, replication, repair | ✅ COMPLETED | `WorldReplicationService` replicates real worlds and excludes synthetic commons presence |
-| [7](Task.7.md) | Reliability, quotas, retention | ✅ COMPLETED | Countdown network-visible on every announce |
+| [7](Task.7.md) | Reliability, quotas, retention | 🚧 IN PROGRESS — **the reliability half reopened** | Quotas and retention stand; the countdown is network-visible on every announce. **L-36 retired 2026-07-23 and REOPENED 2026-08-06**: `ReliabilityScorer`, `ReliabilityFactors`, `ReliabilityConfig` and `ReliabilityScorerTest` were deleted 2026-08-06 (`24e6f0e`, #210) as unreachable, and had never been reachable, so deliverables 1 and 2 are **withdrawn** — do not restore the deleted files before reading the decision note in [`Task.7.md`](Task.7.md) |
 | [8](Task.8.md) | Per-world content encryption | ✅ COMPLETED | Re-key now actually revokes (L-55) |
 | [9](Task.9.md) | Crash safety + active-player stream | ✅ COMPLETED | Continuous streaming + bounded final flush + freshness guard |
 | [10](Task.10.md) | Tick-lag + low-TPS handoff | ✅ COMPLETED | Gained a live call site 2026-07-25 |
@@ -35,6 +35,158 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-06 — L-36 REOPENED: the multi-factor score never ran in a shipped build
+
+A validation pass over PR #222 noticed that L-36 was filed as retired on `ReliabilityScorer` blending
+five factors, while the only reliability class left in the tree — `ReliabilityLedger` — computes
+`score ← (1-α)·score + α·outcome` over proposal outcomes, which is word for word the state the retired
+row described as the limitation. The scorer, its two supporting records and its test had been deleted
+in commit `24e6f0e` (issue #210).
+
+That shape has two very different explanations and the difference decides everything, so it was
+settled before anything was written. Either a feature was removed — in which case this programme's
+governing constraint says it must be restored — or the retirement was staged on code nothing ran, in
+which case the deletion was right and the row simply goes back to the open register. It is the second,
+and the check is on `24e6f0e^`, the commit immediately before the deletion, not on HEAD where the
+classes do not exist. A whole-tree search there for `ReliabilityScorer`, `ReliabilityFactors` and
+`ReliabilityConfig` returned nine paths: the three implementation files, the one test, and five
+documents. No other Java file in the repository named any of them. The indirect shapes were checked
+separately and none applies — the repository's only two `Class.forName` call sites are a Paper
+dependency probe and an Argon2 availability probe, its single `META-INF/services` file registers test
+scenarios, and no Gradle or NeoForge entry point constructed a scorer. The deleting commit's own
+transitive closure from the three real production entry points could not reach the classes, and the
+profiled run of the real `nodera-headless` worker never loaded them.
+
+So peers never scored each other on five factors in a shipped build, and deleting the code degraded
+nothing. **No code was restored and none should be.** What changed is the paperwork: L-36 is back in
+[`LIMITATIONS.md`](LIMITATIONS.md) §B with an exit test that names what has to exist first, its
+evidence is preserved verbatim under "Withdrawn retirement" in
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md), and [`Task.7.md`](Task.7.md) withdraws deliverables 1
+and 2 and unticks the two acceptance criteria that rested on them.
+
+One finding from the same pass, recorded rather than acted on: `ReliabilityLedger` is **not** the same
+shape one level down. Its write side is genuinely wired — `WorkerValidationService` folds every
+committed round's agreement into it through `CommitteeScoring.apply`, the lag path writes its penalty
+through `CommitteeFailover`, and `DurableCoordinatorState` persists it across restarts, attached by
+the mod's `LiveEntityLaneSession`. Its **read** side is not: `eligibleForAssignment` has no non-test
+caller and the only production read of `score` formats a log line, so the product maintains a
+reputation it never consults. `NodeCapabilities.reliability` is the other half of the same gap — a
+wire field `GatewayElection` weights, which no production code ever sets. Both are named in the
+reopened row's exit test, because they are what a real multi-factor score would have to be joined to.
+
+### 2026-08-06 — One frame helper, and four codecs that were never checked against Java (Plan.11 round 2)
+
+**`CanonicalReader#expectFrame` / `CanonicalWriter#writeFrame`.** The five-line tag guard that opens
+every `Encodable.decode` — `int tag = r.readU16(); if (tag != TypeTags.X) throw …` — was written out
+59 times in `library/java/core` and `library/java/transport`, and the tag+version write 66 times. Both
+are now one call. The wire is byte-identical: no `TypeTags` value, no `WireRegistry` row and no record
+component changed, and `git diff -- fixtures/` shows no byte difference. `java.main.code` −204.
+
+The exception type and message are preserved exactly, which is why `expectFrame` takes the type *name*
+rather than reverse-looking it up: three transport records spell theirs in camel case
+(`ServiceScore`, `SignedPeerRecord`, `PeerCandidate`) and a lookup would have silently reworded three
+dozen exceptions. Two call sites are deliberately **not** converted — `SessionDelegation` throws a
+differently-worded message, and the `GameAction`/`RegionEvent` dispatchers read the tag to *switch* on
+rather than to reject. Five tolerant readers (`RegionSnapshot`, `RegionDelta`, `SignedVote`,
+`ServerAuthorityCertificate`, `ChunkColumnState`) use the two-argument overload and keep their own
+range check, because folding it in would turn a tolerated older body into a decode failure.
+
+Writing the helper found a live trap: `writeFrame` has **no** one-argument overload defaulting to
+`Encodable.ENCODING_VERSION`, because `RegionChunkIndex` declares its own `ENCODING_VERSION = 2` that
+shadows the interface constant. A defaulting overload would have rewritten that type's second wire
+byte from 2 to 1 with every test still green.
+
+**Four Rust codecs on live tracker paths had never been held to the Java bytes.**
+`nodera-codec`'s `SUPPORTED_MESSAGE_TAGS` declares `TrackerCatalogQuery` (44), `TrackerCatalogResponse`
+(45), `TrackerRoutesQuery` (49) and `TrackerRoutesResponse` (50), and `wire.rs` implements all four —
+but their golden bytes sat in `fixtures/wire/java-only/`, which `tests/fixtures.rs` does not read.
+Neither guard saw it: `tag_mirror.rs` only asserts a supported tag is not above the highest assigned
+one, and `WireFixtureTest` named five tags by hand. The four fixtures moved into the shared corpus
+(bytes untouched — the same `MessageSamples` entries, reused rather than re-typed) and all four
+round-trip byte-exactly in Rust. The hand-written list is replaced by a rule **parsed out of
+`tags.rs` itself**, with a cardinality assertion first so a parse that matches nothing fails loudly
+instead of passing vacuously.
+
+**`WorldRevivalGossip` (76) was skipped by every mutation.** `mutation.rs` special-cased 66 only, and
+76 is not 66, not in the rendezvous range and not in the service range — so every mutated
+`world-revival-gossip.bin` fell through to `DiscoveryMessage`, returned `UnknownTag(76)`, and was
+discarded by an `if let Ok(…)`. Same shape as the magic-bytes bug already fixed in the same file.
+Fixed with the routing *and* the swallow: the test now asserts its corpus is non-empty, asserts each
+unmutated golden frame decodes at all (a routing proof), and counts the mutations that actually
+decoded — so a regression making `round_trip_as` always-`Err` can no longer pass having examined zero
+frames.
+
+**`StableHashTest` could not fail.** It computed `EXPECTED_NODERA` by calling the function under test
+at class-init and then asserted equality with it — `x == x`, true for every possible implementation
+including one with different mixing constants, under a Javadoc claiming it "detects any accidental
+change to the mixing algorithm". Replaced with thirteen literal golden vectors covering
+`of(long…)`, `of(long,long)`, `of(String)` (including a two-byte UTF-8 input, which pins the
+"bytes, not chars" half of the contract), `of(UUID)` and `mix`. There is no second implementation of
+`StableHash` in the tree; a future port asserts against exactly these numbers.
+
+Evidence: `:core:test` 320 passed / 0 failed, `:transport:test` 189 passed / 0 failed / 1 skipped,
+`cargo test -p nodera-codec` 79 passed / 0 failed. `git diff --exit-code -- fixtures/` clean.
+
+### 2026-08-05 — Default-services history moved to REFERENCE.md; a comment-duplication finding logged (Plan.11 phase 2)
+
+`NoderaSettings.defaults()`'s Javadoc carried the history of why the built-in tracker/rendezvous
+defaults stopped being localhost-always (invisible in a checkout, fatal everywhere else) and why
+`DefaultServices` is now the one compiled-in copy. Moved to [`REFERENCE.md`](REFERENCE.md) §Ports and
+defaults, with a pointer left at the call site. Separately, a full census of `library/java/transport`
+(excluding `protocol/codec`/`protocol/wire`) found the `SealedRecord`-family records
+(`PeerCandidate`, `SignedPeerRecord`, `ServiceDirectoryEntry`, `ServiceObservation`, `ServiceRecord`,
+`ServiceScore`) repeat three Javadoc one-liners verbatim — logged in [`REFACTORING.md`](REFACTORING.md)
+as confirmation of, not an addition to, the existing `SealedRecord` duplication rows: jscpd's clone
+detector does not strip comments, so those lines are already inside the reported `%`. No code
+changed; `:core:compileJava`/`:endpoint:compileJava` verified green (the settled call site is in
+`library/java/endpoint`).
+### 2026-08-05 — Retiring v1 orphaned a constructor, and the structural ratchet caught it
+
+`SessionKeepAlive(NodeId, long)` — the two-argument form, documented as the "legacy convenience
+constructor" — had exactly one production caller: the v1 decode arm, which built its result there.
+Retiring v1 removed that caller and the constructor fell to test-only, taking
+`fixtures/structure/budget.json`'s `test_only_methods` from 415 to 416. The budget only ratchets
+down, so the build was correctly red.
+
+It is not leftover, though, and deleting it would have been the wrong reading. "A keep-alive with no
+regional view" is a live production concept: it is what `PeerSession.shapeForEmit` emits for a peer
+that did not negotiate `KEEP_ALIVE_REGION_PROGRESS`. That method was open-coding
+`new SessionKeepAlive(from, seq, List.of())` three lines under a comment saying "identity and
+sequence only" — a second spelling of a constructor that already names the shape. It now calls the
+constructor, and the constructor's Javadoc no longer calls itself legacy: the shape outlived the
+body version that introduced it. `test_only_methods` is back to 415 with `unreachable_methods`,
+`never_referenced_methods` and every other counter unmoved. The budget was not raised.
+
+Evidence: `./gradlew :peer:structureReport` — `test_only_methods = 415`, and the diff of
+`structure.json` against the red run is exactly one method gone and none added.
+
+### 2026-08-05 — One codec dispatch, one keep-alive version, and the 0.2.0 bump
+
+`MessageCodec` dispatched twice: a chain of 76 `instanceof` arms for encoding and a 76-case
+`switch` for decoding, seven hundred lines apart in one 1,585-line file. That distance was the
+defect — a message could gain a field on one side and not the other, or an encode arm and no decode
+arm, and nothing in the language said so. The pair is now one row in `CodecRegistry`, the same shape
+`InfrastructureCodec`'s `shape(...)` rows already used for the TLV plane, and a kind the schema
+declares but the registry cannot encode fails at class initialisation rather than at the first send.
+The per-tag version chain in `decode` went with it: each row states the closed range of body
+versions it accepts.
+
+**No byte changed.** `fixtures/wire/*.bin` is unchanged in this commit and `WireFixtureTest` passed
+without `-Dnodera.fixtures.regenerate`; `WireSchemaGeneratorTest` passed without
+`-Dnodera.wire.regenerate`, so the generated Rust kind table needed no regeneration either — the
+schema this refactor dispatches through was never touched.
+
+`SessionKeepAlive` body version 1 is retired, which is the one thing in this change a version bump
+had to authorise (`AGENTS.md` §"Frozen contracts"). It is verifiable without a mixed-release run:
+kind 23 is on the **infrastructure** plane, so on the `NDR2` wire a keep-alive travels as a TLV body
+and never reaches this codec; nothing in the tree has emitted a v1 body since that flag day — the
+negotiated demotion in `PeerSession.shapeForEmit` empties the progress list rather than downgrading
+the version — and `nodera-codec` does not list tag 23 in `SUPPORTED_MESSAGE_TAGS` at all, so there is
+no second implementation to keep in step. A v1 frame is now refused at the version, before a byte of
+body is read. Evidence: `SessionKeepAliveCodecTest.refusesTheRetiredV1FrameRatherThanReadingItAsEmptyProgress`
+and `rejectsVersionsEitherSideOfTwoAndTrailingData`, `MessageCodecTypeTagTest` (76/76 dispatch and
+round-trip), `WireFixtureTest` (5), `cargo test -p nodera-codec` (79 tests) — all green.
 
 ### 2026-08-01 — Android storage inspection and commons catalog entries are handled explicitly
 

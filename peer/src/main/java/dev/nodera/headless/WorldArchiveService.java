@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * The worker's <b>world-archive lane</b> (the world-continuity increment): it seeds the canonical
@@ -549,73 +550,6 @@ public final class WorldArchiveService implements AutoCloseable {
                 encrypted.manifest().manifestRoot().toShortHex(6));
         trimToRetention(worldIdHex, versions);
         return encrypted.manifest();
-    }
-
-    /**
-     * Seed one committed <b>region snapshot</b> of a world's validated lane (L-41).
-     *
-     * <p>The archive lane carries the save's bytes; this carries the engine's canonical state for
-     * one region, split at chunk-column boundaries by {@link RegionSnapshotSplitter} so a joiner
-     * can fetch the region it is standing in without pulling a whole world. Both lanes ride the
-     * same piece plane and the same announce, which is the point of the row: what keeps a world
-     * <i>available</i> should not depend on whose game is open.
-     *
-     * <p><b>What is seeded is what was committed.</b> The snapshot's own {@code version} is the
-     * ladder key — not a counter this class invents — so re-seeding a version already held is
-     * idempotent and cannot fork the ladder. The manifest carries the region and the region root,
-     * so a fetcher can check the bytes against a certificate it verified independently; nothing
-     * here asks anyone to trust this node.
-     *
-     * @param worldIdHex the world, hex-encoded (as the control verbs carry it).
-     * @param snapshot   the committed region snapshot.
-     * @return the manifest now seeded — the one already held if this version was seeded before.
-     * @Thread-context any thread.
-     */
-    /**
-     * Seed one <b>save region</b> of a world — the bytes of one {@code r.X.Z.mca}, or the world
-     * bucket that names the world itself.
-     *
-     * <p>This is the archive lane addressed by place instead of by offset. A world seeded this way
-     * is a set of region blobs, each announced under its own region and fetchable on its own, so
-     * "hold the part of the world I am in" and "serve the region somebody just walked into" become
-     * things a peer can actually do. Under the single-blob archive neither was expressible: piece
-     * 137 of 209 is not anywhere, so every peer held all of a world or none of it, and one player
-     * exploring re-issued the whole thing to everybody.
-     *
-     * <p>Idempotent per (region, version): re-seeding a version already held returns the manifest
-     * already there. A region whose files did not change packs to the same bytes, so a version bump
-     * that did not touch it costs nothing to seed and nothing to re-fetch.
-     *
-     * @param worldIdHex the world, hex-encoded.
-     * @param region     the save region these bytes belong to.
-     * @param version    the archive snapshot version.
-     * @param blob       that region's canonical archive blob.
-     * @return the manifest now seeded.
-     * @Thread-context any thread.
-     */
-    public PieceManifest seedSaveRegion(String worldIdHex, dev.nodera.distribution.SaveRegion region,
-                                        long version, byte[] blob) {
-        Objects.requireNonNull(worldIdHex, "worldIdHex");
-        Objects.requireNonNull(region, "region");
-        Objects.requireNonNull(blob, "blob");
-        RegionId id = region.toRegionId();
-        NavigableMap<Long, PieceManifest> versions = regionManifests
-                .computeIfAbsent(worldIdHex, k -> new ConcurrentHashMap<>())
-                .computeIfAbsent(id, r -> new ConcurrentSkipListMap<>());
-        PieceManifest held = versions.get(version);
-        if (held != null) {
-            return held;
-        }
-        PieceManifest manifest = WorldArchive.manifestFor(id, version, blob);
-        content.publish(manifest, Bytes.unsafeWrap(blob));
-        pin(manifest);
-        versions.put(version, manifest);
-        record(worldIdHex, manifest);
-        LOG.info("Seeding save region {} of {} v{} — {} piece(s), {} byte(s), root {}…",
-                region, shortId(worldIdHex), version, manifest.pieceCount(),
-                manifest.totalLength(), manifest.manifestRoot().toShortHex(6));
-        trimRegionToRetention(worldIdHex, id, versions);
-        return manifest;
     }
 
     public PieceManifest seedRegion(String worldIdHex,
@@ -2214,10 +2148,6 @@ public final class WorldArchiveService implements AutoCloseable {
         if (ownsTracker) {
             tracker.close();
         }
-    }
-
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
     }
 
     /** FsContentStore is thread-confined by contract; the piece plane calls from many threads. */

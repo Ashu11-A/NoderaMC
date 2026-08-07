@@ -90,9 +90,4 @@ public final class GatewayHandoverListener implements PeerEventListener {
         replay.accept(pending);
         return pending.size();
     }
-
-    /** @return the handover this listener drives. */
-    public GatewayHandover handover() {
-        return handover;
-    }
 }

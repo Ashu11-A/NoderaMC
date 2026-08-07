@@ -1,0 +1,18 @@
+{
+  "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing.",
+  "measured": "2026-08-06 on the round-3 tree after the five-validator pass, re-measured by `scripts/loc-metrics.py --baseline` on the merge commit rather than merged from any branch. Round 3 was a correctness round, not a reduction round, and this file is the honest record of what that cost: total code 158,551 -> 159400, a deliberate rise, which the note above permits only when it is stamped in the same commit that causes it.\n\nWhat the rise bought, in the order it accrued. The path-containment guard that closed a live symlink traversal hole -- an attack no purely lexical check can catch, because by the time the second entry is resolved the escape is a fact about the disk rather than about the name. The self-catch wrapping that stops a throwing game-bus handler from crashing the integrated server, since NeoForge's EventBus does not isolate listener exceptions. The vacuity guard and the component audit, checks whose entire purpose is to fail. A restored test for `CommitteeMember`, which `WorkerValidationService` constructs on the live validation path and which had lost every test reference in the tree when `CommitteeSession` was deleted around it. A `test-counts.sh` that derives its frontend package list from `layout.properties` instead of a hardcoded pair, proved necessary by a probe package whose failing suite the gate reported as `skipped` and exited 0 on. A `SpawnedService` whose 20-second ready deadline was consulted only between blocking reads, so it could never fire. And the teardown-guard split: one try/catch around six steps of `ServerBootstrap.onPlayerLoggedOut` meant a throw in the first step jumped past `PlayerNodeRegistry.forget` -- the tree's only caller -- leaving a disconnected player's node in the ownership plan holding regions nobody was present to hold, while the handler logged one warning and returned as though it had cleaned up.\n\nOffset by the fixture consolidation (-457 java.test) and by deleting `SessionParams`, a class this programme itself orphaned by deleting both of its production callers.\n\nProgramme total against the 167,711 starting line: -8,311, -4.96%.\n\nA note for whoever stamps this next: `--baseline` writes the measured value, so every bucket sits exactly on its limit after every stamp and there is never any headroom. That is the ratchet working -- a deliberate rise, stamped in the same commit, is the documented path -- but it does mean a one-line bug fix and its test cost a baseline edit, and the pressure that creates is what turns a ratchet into a rubber stamp. Read this field before assuming a rise was lazy.",
+  "limits": {
+    "java.main.code": 56456,
+    "java.main.comment": 33610,
+    "java.test.code": 55039,
+    "java.test.comment": 12165,
+    "rust.main.code": 19576,
+    "rust.main.comment": 7742,
+    "rust.test.code": 12197,
+    "rust.test.comment": 1116,
+    "ts.main.code": 12588,
+    "ts.main.comment": 4260,
+    "ts.test.code": 3544,
+    "ts.test.comment": 1677
+  }
+}
