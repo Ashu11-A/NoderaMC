@@ -1,0 +1,30 @@
+{
+  "measuredAt": "2026-08-08T16:39:49.877Z",
+  "measuredBy": "GitHub Actions",
+  "attempts": 3,
+  "connectTimeoutMs": 4000,
+  "probes": [
+    {
+      "kind": "tracker",
+      "name": "noderamc.org",
+      "endpoint": "tcp://150.230.84.206:6969",
+      "state": "reachable",
+      "rttMs": 116,
+      "attempts": 3,
+      "succeeded": 3,
+      "peerClosed": false,
+      "error": null
+    },
+    {
+      "kind": "rendezvous",
+      "name": "noderamc.org",
+      "endpoint": "tcp://150.230.84.206:7500",
+      "state": "reachable",
+      "rttMs": 116,
+      "attempts": 3,
+      "succeeded": 3,
+      "peerClosed": false,
+      "error": null
+    }
+  ]
+}
