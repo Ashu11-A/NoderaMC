@@ -198,6 +198,22 @@ fn external_candidates(_data_dir: &Path) -> Vec<(PathBuf, &'static str, &'static
 /// app-specific folder on an unmounted SD card exists as a path and fails on the first write, and
 /// discovering that when a peer tries to store a world is far too late.
 fn describe(path: &Path, label: &str, detail: &str) -> StorageOption {
+    // A folder the user picked with Android's file manager is a `content://` document tree, not a
+    // path, and the peer reaches it through the Storage Access Framework (frontend M-1). Probing it
+    // with `std::fs` would create a directory literally called `content:` beside the process's
+    // working directory and then report the folder the user chose as unwritable. The write proof
+    // for a document tree is `NoderaSafBlobs.probe`, which runs whenever the folder is picked;
+    // free space is not a question a document provider answers at all, and `None` is how this type
+    // already says "could not be measured".
+    if is_document_tree(path) {
+        return StorageOption {
+            path: path.display().to_string(),
+            label: label.to_owned(),
+            detail: detail.to_owned(),
+            free_bytes: None,
+            writable: true,
+        };
+    }
     let writable = std::fs::create_dir_all(path)
         .and_then(|_| {
             let probe = path.join(".nodera-write-probe");
@@ -212,6 +228,15 @@ fn describe(path: &Path, label: &str, detail: &str) -> StorageOption {
         free_bytes: free_space(path),
         writable,
     }
+}
+
+/// Whether a configured location is an Android document tree rather than a filesystem directory.
+///
+/// The same test the worker makes in `dev.nodera.headless.ArchiveDirectories`: the scheme is the
+/// whole signal, because a document tree URI has no other property a path could not also have.
+fn is_document_tree(path: &Path) -> bool {
+    path.to_str()
+        .is_some_and(|text| text.starts_with("content://"))
 }
 
 #[cfg(unix)]
@@ -303,6 +328,41 @@ mod tests {
         assert!(!std::path::Path::new(&app.path)
             .join(".nodera-write-probe")
             .exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_picked_document_tree_is_never_probed_as_a_filesystem_path() {
+        // frontend M-1. The chosen folder on Android 11+ is a `content://` tree that the peer
+        // writes through SAF. Running the `std::fs` probe over it created a directory literally
+        // called `content:` beside the working directory and then reported the folder the user had
+        // just chosen — and successfully written to — as unwritable.
+        let dir = std::env::temp_dir().join("nodera-storage-test-5");
+        let tree = "content://com.android.externalstorage.documents/tree/primary%3ADocuments";
+        // A previous RED run of this very test left one behind in the crate directory, and a stale
+        // one would make the fixed tree fail. Cleared before the act, never after.
+        let _ = std::fs::remove_dir_all("content:");
+
+        let info = storage_info(tree, &dir);
+
+        assert_eq!(info.current, tree);
+        let chosen = info
+            .options
+            .first()
+            .expect("the chosen folder is listed first");
+        assert_eq!(chosen.path, tree);
+        assert!(
+            chosen.writable,
+            "a document tree is reached through SAF, not std::fs"
+        );
+        assert!(
+            chosen.free_bytes.is_none(),
+            "a document provider does not report free space; None is how that is said"
+        );
+        assert!(
+            !std::path::Path::new("content:").exists(),
+            "the probe must not have created a directory out of the URI's scheme"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

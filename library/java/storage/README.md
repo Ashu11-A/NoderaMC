@@ -25,9 +25,10 @@ dev.nodera.storage            the WorldStore seam + ContentId/Checkpoint/Genesis
 ├── io/                       `AtomicFileWriter`: atomic replacement, owner-only secure mode,
 │                             temp cleanup with suppressed cleanup failures
 ├── event/                    in-memory event-sourced impl, EventReplayer, PeerSyncFlow
+├── fs/                       FsContentStore — content-addressed blobs — over the
+│                             BlobDirectory seam; PathBlobDirectory is the filesystem one
 ├── rocksdb/                  RocksWorldStore over WAL-backed column families
 │                             (events / checkpoints / certificates / regions / meta)
-│                             + FsContentStore — content-addressed blobs
 └── client/                   BoundedClientWorldStore, StorageQuotaManager,
                               ArchiveEvictionPolicy (a player's byte budget)
 ```
@@ -58,6 +59,16 @@ closed. Every failed write/move attempts temp deletion, preserving cleanup error
 a test wants memory. Writing consumers once against `WorldStore` means the durability tests run
 against the real tier.
 
+**The content store owns the policy; a `BlobDirectory` owns the bytes.** Content addressing,
+pinning and the byte budget are not filesystem knowledge, and the filesystem is the only part of the
+store a platform can refuse. Android 11+ refuses it for every folder outside app-specific storage, so
+a folder the user picks with the system file manager reaches the peer as a `content://` tree with no
+path behind it (frontend M-1). Splitting `BlobDirectory` out is what lets the same store — same
+budget, same pins, same hash checks — write through Android's Storage Access Framework:
+`dev.nodera.headless.SafBlobDirectory` implements the seam, and `:storage` stays JDK-only with no
+`android.*` anywhere near it. A back end that cannot offer a true atomic replace must say so; the
+name is the hash and every read re-hashes, so a torn write is refused rather than served.
+
 **One hard eviction rule.** The client tier may evict anything **except** the current state of an
 assigned region — the one thing whose loss the committee cannot repair from elsewhere. When only
 pinned data remains it raises a loud error rather than quietly evicting what matters, and every
@@ -65,11 +76,13 @@ eviction signals repair so redundancy is restored elsewhere.
 
 ## Tests
 
-157 tests: durable seam parity across close and reopen (including head-recovery-fed validation),
+167 tests: durable seam parity across close and reopen (including head-recovery-fed validation),
 checkpoint ordering, content-addressed certificate idempotency, corrupt-blob read rejection, the
 forced-kill `RocksCrashRecoveryIT`, certified forward sync with an uncertified tail refused, and
-`FsContentStoreRelocationTest` (blobs survive relocation and a **reopened** store finds them), plus
-`AtomicFileWriterTest` owner-only creation and failure cleanup.
+`FsContentStoreRelocationTest` (blobs survive relocation and a **reopened** store finds them),
+`FsContentStoreBlobDirectoryTest` (9 — the whole store contract over a directory that is not a
+filesystem, including relocation in both directions), plus `AtomicFileWriterTest` owner-only creation
+and failure cleanup.
 
 ```bash
 ./gradlew :storage:test

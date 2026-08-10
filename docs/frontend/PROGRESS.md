@@ -8,7 +8,7 @@
      verbatim; only task NUMBERS inside them were rewritten by the 2026-08-05 merge (mobile N is now
      frontend N+11). -->
 
-**Category:** frontend · **Last audit:** 2026-08-05 · Tasks completed: **10 / 20**
+**Category:** frontend · **Last audit:** 2026-08-10 · Tasks completed: **10 / 20**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md) · refactoring
@@ -71,6 +71,35 @@ that category's own sub-deliverable ledger, preserved because the milestone note
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The peer can write into a folder somebody picked (M-1, worker half)
+
+The folder picker has worked since Task 13's first-run screen. What did not work was the peer using
+what came back: Android 11+ withholds raw `File` access to shared storage regardless of the SAF
+grant, and every worker path went through `java.nio.file`. So a folder could be chosen and then
+honestly reported as unusable — better than silently storing nothing, and still a dead end.
+
+`FsContentStore` now writes through a `BlobDirectory` seam: one content store, one byte budget, one
+pin set, one hash check, with the filesystem knowledge moved into `PathBlobDirectory`. A second
+implementation, `dev.nodera.headless.SafBlobDirectory`, reaches `dev.nodera.app.NoderaSafBlobs` **by
+name** across the `DexClassLoader` boundary (the worker is a dexed asset, so a shared interface
+cannot exist), and `ArchiveDirectories` decides from the string alone whether
+`storage.peer_worlds_dir` names a directory or a `content://` tree. `NoderaStorage` prefers a real
+path where Android allows one and falls back to a SAF probe instead of a refusal. Only the archive
+lane moves: identity, the world registry and RocksDB stay in app-private storage, deliberately.
+
+Evidence, all on the ordinary gate:
+`ControlVerbsIT.ConfigVerbIT.aFolderPickedWithAndroidsFileManagerBecomesTheArchive` pushes the tree
+URI over the real control socket and asserts the hosted world's archive bytes land in the picked
+folder — with the fix removed it reports that the worker instead created a directory literally
+called `content:` under its working directory and stored the world there. `SafBlobDirectoryTest` (9)
+drives the reflective bridge by name, so a drifted signature fails here rather than as a
+`NoSuchMethodError` on a phone; `FsContentStoreBlobDirectoryTest` (9) holds the whole store contract
+over a non-filesystem directory; `a_picked_document_tree_is_never_probed_as_a_filesystem_path` stops
+the Rust side reporting the chosen folder as unwritable.
+
+**M-1 stays `OPEN`.** Its exit test names a device, no handset was attached, and nothing here has
+touched a real `DocumentsContract`. The manual acceptance script is [`TESTING.md`](TESTING.md) §4.8.
 
 ### 2026-08-05 — The enforcement table reads as a table, and four buttons become one
 

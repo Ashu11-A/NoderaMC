@@ -510,7 +510,7 @@ still the dex script — but it is what caught the M-5 regression's rewrite site
 | System back goes up, not out | Settings › Appearance, press back | Returns to the list; the app stays running |
 | The bar hides in a sub-screen | same | Gone on the sub-screen, back on the list |
 | The picker is the system's | Settings › Storage › Choose a folder… | The device's file manager, with **USE THIS FOLDER** |
-| A picked folder is verified | pick one, read the card | A path and a tick, or Android's refusal in words |
+| A picked folder is verified | pick one, read the card | A tick — a path where Android still allows one, otherwise the `content://` tree the peer writes through (M-1) — or Android's refusal in words |
 | A choice survives leaving the screen | pick, save, go back, return | Listed first, marked **In use** |
 | Battery restriction is surfaced | launch with optimisation on | Dialog naming the vendor, linking dontkillmyapp.com |
 | No tracker reachable | clear the tracker list | Centred message with a button to Settings › Network |
@@ -519,7 +519,54 @@ still the dex script — but it is what caught the M-5 regression's rewrite site
 Driving these with `adb shell input tap` is possible but fragile: coordinates drift between builds,
 and a stray tap lands in whatever app happens to be in front. Prefer tapping the phone.
 
-#### 4.8 The M-2 exit test — does the node survive an hour with the screen off?
+#### 4.8 The M-1 exit test — does a world archive land in the folder the user picked?
+
+**Status: NOT RUN. No handset was attached when the lane landed (2026-08-10).** Everything below is
+the script somebody with a phone runs; nothing here has been executed on a device, and M-1 stays
+`OPEN` in [`LIMITATIONS.md`](LIMITATIONS.md) until it has. A green host build is not this test.
+
+What the automated half already proves, on the ordinary `./gradlew check`, is the worker's side:
+`ControlVerbsIT.ConfigVerbIT.aFolderPickedWithAndroidsFileManagerBecomesTheArchive` pushes a
+`content://` tree over the real control socket as `storage.peer_worlds_dir` and asserts a hosted
+world's archive bytes move into it; `SafBlobDirectoryTest` resolves the app-side bridge **by name**,
+so a drifted method signature fails on the gate rather than as a `NoSuchMethodError` on a phone.
+What none of it touches is a real `DocumentsContract` — the tree is a JVM stand-in. That is exactly
+the gap this section exists to close.
+
+```bash
+scripts/android-apk.sh --install              # a release-mode APK, so R8 has really run
+adb shell pm clear dev.nodera.app             # start from first run
+adb shell monkey -p dev.nodera.app 1
+```
+
+1. Onboarding → **Choose a folder…** → in the system file manager pick
+   `Internal storage › Documents` — a folder **outside** app-specific storage, which is the whole
+   point. Tap **USE THIS FOLDER**.
+2. The card must show the folder with a tick, not Android's refusal. A refusal here means
+   `NoderaSafBlobs.probe` failed and the words on the card are the platform's own; report them.
+3. Host or join a world so the node actually holds one, then confirm the worker agrees the folder is
+   its archive:
+
+   ```bash
+   adb shell 'echo "NODERA-CONFIG-GET 2" | nc 127.0.0.1 25610'
+   ```
+
+   `storage.peer_worlds_dir` must read back as the `content://…` tree, not a path.
+4. The decisive check — the archive's blobs are in the folder, seen from outside the app:
+
+   ```bash
+   adb shell ls -l /storage/emulated/0/Documents | head
+   ```
+
+   Expect one or more files whose names are 64 hex characters (the content hash IS the file name).
+   Zero files with a tick on the card is the failure this row is about, in its newest form.
+5. Restart the app and re-read `NODERA-STATE`: the node must still advertise what it holds, which is
+   what proves the folder was re-opened from the persisted grant rather than re-seeded.
+
+Record the phone, the Android version, the folder, the blob count from step 4 and the state answer
+from step 5. Only then does M-1 move to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+
+#### 4.9 The M-2 exit test — does the node survive an hour with the screen off?
 
 The one check no script drives, and the one that decides whether a phone is a peer other nodes can
 plan around. Before the foreground service, an app holding committee seats was killed roughly 25

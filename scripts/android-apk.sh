@@ -547,7 +547,11 @@ fi
 #
 #   java.lang.NoSuchMethodError: no static method "Ldev/nodera/app/NoderaStorage;.pick()V"
 #
-# Only these four types are reachable from native code; everything else stays minifiable.
+# Only these types are reachable by name; everything else stays minifiable. `NoderaSafBlobs` is the
+# one that is NOT called from Rust: the Java worker loads it through the DexClassLoader's parent
+# (`dev.nodera.headless.SafBlobDirectory`) so it can write archive blobs into a folder the user
+# picked. R8 cannot see that call either, and the failure is identical — the class survives, every
+# member is stripped, and the peer's first blob write throws NoSuchMethodError on the device.
 #
 # Checked ONE AT A TIME, and this is not fussiness. The block used to be guarded by a single
 # `grep -q NoderaStorage`: add a fourth class to the list and, on any tree where `gen/` survived an
@@ -558,10 +562,11 @@ fi
 # than no guard, because it looks like one.
 PROGUARD="$APP_DIR/gen/android/app/proguard-rules.pro"
 if [[ -f "$PROGUARD" ]]; then
-  JNI_CLASSES=(NoderaStorage NoderaWorker NoderaBridge NoderaBrowser NoderaCore NoderaEvents)
+  JNI_CLASSES=(NoderaStorage NoderaWorker NoderaBridge NoderaBrowser NoderaCore NoderaEvents \
+    NoderaSafBlobs)
   for CLASS in "${JNI_CLASSES[@]}"; do
     if ! grep -q "dev.nodera.app.$CLASS" "$PROGUARD"; then
-      say "proguard   keeping dev.nodera.app.$CLASS (called from Rust over JNI)"
+      say "proguard   keeping dev.nodera.app.$CLASS (called by name, not by a visible reference)"
       printf '\n# Called from Rust over JNI — invisible to R8'"'"'s reachability analysis.\n-keep class dev.nodera.app.%s { *; }\n' \
         "$CLASS" >> "$PROGUARD"
     fi

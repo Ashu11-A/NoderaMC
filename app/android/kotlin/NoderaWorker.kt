@@ -109,6 +109,13 @@ object NoderaWorker {
             // Environment variables cannot be set for our own process from Java, so the properties
             // are what steer it — every path it derives hangs off `user.home`.
             System.setProperty("user.home", home.absolutePath)
+            // The archive location may be a `content://` document tree rather than a directory —
+            // the folder the user picked, which has no path at all (frontend M-1). The worker
+            // reaches it by loading `NoderaSafBlobs` by name through this class loader's parent, so
+            // the bridge must have a context before the worker's first blob write. Attached here
+            // rather than lazily because "before main runs" is the only moment that is certainly
+            // early enough.
+            NoderaSafBlobs.attach(context)
             System.setProperty(
                 "NODERA_ALLOWED_STORAGE_ROOTS",
                 NoderaStorage.workerRoots(context).joinToString(File.pathSeparator) { it.absolutePath },

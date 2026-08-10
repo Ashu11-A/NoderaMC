@@ -334,10 +334,15 @@ public final class WorldArchiveService implements AutoCloseable {
         this.self = identity.nodeId();
         this.stampClock = new HybridClock(this.self);
         this.pins = store instanceof dev.nodera.storage.PinnableContentStore p ? p : null;
-        // Where this node writes down what it is holding. Only a store that can say where it keeps
-        // its blobs gets one: an in-memory store has nothing to survive a restart with, and a
-        // manifest index beside blobs that vanish would describe content this node does not have.
+        // Where this node writes down what it is holding. Only a store that can say where on the
+        // FILESYSTEM it keeps its blobs gets one: an in-memory store has nothing to survive a
+        // restart with, and a manifest index beside blobs that vanish would describe content this
+        // node does not have. An Android document tree answers null here for the same reason — it
+        // is a `content://` URI, not a path, so there is no sibling directory to resolve
+        // (frontend M-1) — and the node then relearns its holdings from the swarm on the next
+        // start, which is the position an in-memory store has always been in.
         this.index = store instanceof dev.nodera.storage.fs.FsContentStore fs
+                && fs.contentRoot() != null
                 ? new ManifestIndexStore(fs::contentRoot) : null;
         this.transport = Objects.requireNonNull(transport, "transport");
         // Bulk bounds: the archive lane moves whole saves worker-to-worker, so the in-game
