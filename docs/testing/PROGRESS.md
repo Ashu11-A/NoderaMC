@@ -5,7 +5,7 @@
      note naming the EVIDENCE (a scenario id, a report path, a command), then reconcile
      ../ROADMAP.md and the root README. Never rewrite an old note — append a new one. -->
 
-**Category:** testing · **Last audit:** 2026-08-05 · Tasks completed: **1 / 1**
+**Category:** testing · **Last audit:** 2026-08-10 · Tasks completed: **1 / 1**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -21,6 +21,34 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The nightly live lane had been dead for twelve days, and short by six scenarios before that
+
+`e2e-live` last executed a suite on 2026-07-29. Every nightly from 2026-07-30 to 2026-08-10 failed
+in the `plan` job in about ninety seconds
+([run 31357132763](https://github.com/Ashu11-A/NoderaMC/actions/runs/31357132763)), with
+`Execution failed for task ':core:compileJava' … error: release version 21 not supported`. The job
+runs one command — `scripts/nodera-test.sh list` — and the script builds the tool it lists, so the
+job compiles Java; it had `actions/checkout` and nothing else. The `suite` job had installed Temurin
+21 since it was written. `plan` now does too, plus `gradle/actions/setup-gradle` so it stops
+cold-building `:core` nightly to print a list of names.
+Issue: [#142](https://github.com/Ashu11-A/NoderaMC/issues/142).
+
+The same job carried a second defect that a green plan job would have hidden. Its matrix was a
+hand-kept `all=(…)` array of thirteen ids, validated against the tool — which proves every id in the
+array exists and proves nothing about the ids missing from it. Six registered, listed, unattended
+scenarios had never been dispatched by any nightly: `telemetry`, `churn`, `ownership`, `endpoint`,
+`folia`, `plugins`. `nodera-test list` grew `--ids` (bare ids, one per line) and `--exclude-tag`, and
+the workflow now derives the matrix from `list --ids --exclude-tag hardware` — nineteen suites,
+equal to `ScenarioRegistry.defaultBatch()` by construction. `ScenarioRegistry.excludingTag` is the
+general form `defaultBatch()` now delegates to, and `nodera-test.sh`'s build note moved to stderr so
+the id list is parseable.
+
+Evidence: `NoderaTestListTest` (5 tests, new — `theRealRegistryYieldsEveryUnattendedScenarioToTheNightlyMatrix`
+names the six by hand rather than by a count) and `ScenarioToolTest` (11, +2), both green under
+`./gradlew :testing:test`; and the real command, `scripts/nodera-test.sh list --ids --exclude-tag
+hardware` → 19 ids, exit 0. This does not retire **T-1**: the row asks for a *green* full-matrix
+nightly, and this commit is what makes a full matrix exist to be green.
 
 ### 2026-08-05 — Twenty-five integration tests stopped building their own mesh (Plan 11 phase 3)
 

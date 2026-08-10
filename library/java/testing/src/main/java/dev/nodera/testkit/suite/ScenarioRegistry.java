@@ -69,7 +69,19 @@ public final class ScenarioRegistry {
 
     /** Every scenario that is safe to run unattended: everything not tagged {@code hardware}. */
     public List<Scenario> defaultBatch() {
-        return byId.values().stream().filter(s -> !s.tags().contains("hardware")).toList();
+        return excludingTag("hardware");
+    }
+
+    /**
+     * Every scenario NOT carrying a tag — the complement of {@link #withTag(String)}.
+     *
+     * <p>{@link #defaultBatch()} is this with {@code "hardware"}, and it stays as its own name
+     * because "what runs unattended" is a decision, not a filter. What needed the general form is a
+     * caller outside the JVM: the {@code e2e-live} workflow used to carry a hand-kept array of the
+     * ids it dispatches, which drifted six scenarios behind this registry.
+     */
+    public List<Scenario> excludingTag(String tag) {
+        return byId.values().stream().filter(s -> !s.tags().contains(tag)).toList();
     }
 
     /** Scenarios carrying a tag. */

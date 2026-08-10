@@ -8,9 +8,10 @@
      test mode is a COMMAND-LINE flag and nothing else — it opens a remote-control surface, so no
      config file, environment variable or peer may enable it. Keep this header accurate. -->
 
-**Status:** ✅ DONE — twenty scenarios, one harness, one report, one command; the live matrix is
-carried over stage for stage and awaits its first full green nightly (row T-1)
-**Category:** testing · **Owns:** T-1, T-2, T-3 · **Last audit:** 2026-07-29
+**Status:** ✅ DONE — twenty-two scenarios, one harness, one report, one command; the live matrix is
+carried over stage for stage, is now derived from the registry rather than hand-kept in CI, and
+awaits its first full green nightly (row T-1)
+**Category:** testing · **Owns:** T-1, T-2, T-3 · **Last audit:** 2026-08-10
 **Depends on:** [worker 1](../peer/Task.1.md), [minecraft 5](../minecraft/Task.5.md),
 [server 1](../server/Task.1.md), [network 15](../network/Task.15.md)
 **Consumed by:** every category with a live acceptance claim
@@ -146,6 +147,7 @@ scripts/nodera-test.sh
 
 ```bash
 scripts/nodera-test.sh list                     # the registry resolves and every scenario constructs
+scripts/nodera-test.sh list --ids --exclude-tag hardware   # what e2e-live dispatches, as ids
 scripts/nodera-test.sh run telemetry            # the headless scenario, no display needed
 scripts/nodera-test.sh run --tag live           # the live matrix, one at a time
 ./gradlew check                                 # unchanged in scope: the tool compiles with the tree
@@ -153,13 +155,18 @@ scripts/nodera-test.sh run --tag live           # the live matrix, one at a time
 
 The `e2e-live` workflow validates every dispatched scenario name against `nodera-test list` rather
 than against a list kept in the workflow, so a renamed scenario cannot leave CI dispatching
-something that no longer exists.
+something that no longer exists — and since 2026-08-10 it also **derives** its default matrix from
+that command. It used to validate a hand-kept array of thirteen ids, which proved the array's
+contents existed and said nothing about the six unattended scenarios missing from it. Both jobs
+install Temurin 21: the plan job compiles Java too, because listing the scenarios builds the tool
+that knows them, and for twelve nightlies it did so without a JDK
+([#142](https://github.com/Ashu11-A/NoderaMC/issues/142)).
 
 ## Acceptance criteria
 
 | # | Criterion | Evidence |
 |---|---|---|
-| 1 | Every `scripts/e2e-*.sh` exists as a Java scenario with its stages carried over | `dev.nodera.testkit.scenario`, 20 classes |
+| 1 | Every `scripts/e2e-*.sh` exists as a Java scenario with its stages carried over | `dev.nodera.testkit.scenario`, 20 classes at conversion, 22 today (`chunk-continuity` and `mobile-continuity` added 2026-08-04) |
 | 2 | A run produces a report of results and failures, not stdout | `build/reports/nodera/TEST-REPORT.md` + `test-report.json` |
 | 3 | Workers take a CLI flag for debug/test mode and a player role | `nodera-headless --test-mode --role player2`; `NODERA-TEST ROLE` |
 | 4 | Roles address nodes in assertions | `stack.worker(PlayerRole.PLAYER_TWO)` |

@@ -85,6 +85,11 @@ class ScenarioToolTest {
         assertThat(registry.defaultBatch()).extracting(Scenario::id).containsExactly("crash");
         assertThat(registry.withTag("hardware")).extracting(Scenario::id)
                 .containsExactly("android-mesh");
+        // defaultBatch is excludingTag("hardware") named for the decision it encodes; the general
+        // form is what `nodera-test list --exclude-tag` and the e2e-live matrix are built on.
+        assertThat(registry.excludingTag("hardware")).isEqualTo(registry.defaultBatch());
+        assertThat(registry.excludingTag("live")).extracting(Scenario::id)
+                .containsExactly("android-mesh");
     }
 
     @Test
