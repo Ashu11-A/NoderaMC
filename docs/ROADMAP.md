@@ -174,7 +174,7 @@ older issue or commit message is [frontend 14](frontend/Task.14.md).
 | [1](frontend/Task.1.md) | Tauri scaffold + worker supervisor | ✅ | worker 1 |
 | [2](frontend/Task.2.md) | Live metrics dashboard | ✅ | worker 2 |
 | [3](frontend/Task.3.md) | Per-OS packaging + CI | 🚧 | frontend 1 |
-| [4](frontend/Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ | worker 3, minecraft 1 |
+| [4](frontend/Task.4.md) | End-to-end acceptance + cross-machine continuity | 🚧 | worker 3, minecraft 1 |
 | [5](frontend/Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 | worker 5, frontend 2 |
 | [6](frontend/Task.6.md) | Dashboard API + live worker link | ✅ | frontend 2, worker 2, worker 6 |
 | [7](frontend/Task.7.md) | The client becomes the way in | ✅ | frontend 6, worker 7 |

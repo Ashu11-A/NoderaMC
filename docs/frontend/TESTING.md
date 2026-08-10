@@ -127,10 +127,26 @@ Checks:
 
 ### A5. CI
 
-The companion job builds the app end to end from a clean checkout (UI build plus cargo release, with
-the worker distribution staged and bundled) and runs the gate in both directions. Its clean-checkout
-property is the point: the four packaging gaps it found on its first run were all files that worked
-locally and were gitignored.
+The companion job builds the app end to end from a clean checkout (UI build plus the real installer,
+with the worker distribution staged and bundled) and runs the gate in both directions. Its
+clean-checkout property is the point: the four packaging gaps it found on its first run were all files
+that worked locally and were gitignored.
+
+**It installs rather than runs from the build tree.** `scripts/install-app.sh` builds the `.deb`
+through `scripts/release.sh --component app`, installs it with `apt-get`, and exports
+`NODERA_E2E_WORKER_BIN` / `NODERA_E2E_APP_BIN` from what `dpkg -L` says the package put on disk — the
+asset name from the one release naming table, the installed paths from the package itself, neither of
+them written into workflow YAML. `TestPaths` honours those two variables, so the live stack launches
+the installed binaries.
+
+**The cross-machine half runs in `e2e-live`, not here.** `cross-machine` is one job that installs the
+app, runs the gate both ways, hosts a world from a real Minecraft client under Xvfb, closes it, and
+has a peer on a *second Docker network* pull the world across a router — with a negative stage that
+stops the router and requires the far peer to lose all reach. That is L-47's exit sentence in one job
+rather than four green ticks a reader has to combine. It needs a **rootful** Docker daemon: under
+rootless Docker the bridge gateways live in a user namespace and a container cannot reach a service
+the host is running, so the scenario skips with that reason rather than timing out on a routing
+assertion.
 
 ### A6. The launch lane
 
