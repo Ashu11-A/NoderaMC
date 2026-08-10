@@ -8,7 +8,7 @@
      headless tests before the plugin consumes it. Keep this header accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** server · **Owns:** L-62 (retired 2026-07-28, REOPENED 2026-08-06 — its exit test was deleted; L-63 RETIRED 2026-07-26) · **Last audit:** 2026-08-06
+**Category:** server · **Owns:** L-62 (retired 2026-07-28, REOPENED 2026-08-06 — its exit test was deleted; L-63 RETIRED 2026-07-26) · **Last audit:** 2026-08-10
 **Depends on:** [server 2](Task.2.md), [engine 5](../engine/Task.5.md), [network 6](../network/Task.6.md)
 **Consumed by:** [server 4](Task.4.md), [server 5](Task.5.md), [server 6](Task.6.md)
 
@@ -30,8 +30,9 @@ both suites were **deleted on 2026-08-06** (commit `0b02aa5`, issue #210) becaus
 entry point reached them. See the decision note under Deliverables: the custody half of this task
 (2, 3, 4) is one blocked item pending a decision on whether proactive verification is wanted at all,
 not three separate pieces of remaining work. What remains that is actually actionable is the
-Minecraft side: the custody tiebreak in the plan (6), and
-`NoderaFoliaRegionMap` (7–8). `ViewOwnershipPlanner` takes one `PlayerView` per node
+Minecraft side: the custody tiebreak in the plan (6), and the operator-facing half of the region map
+(8) — the map itself (7) landed on 2026-08-10 with [4](Task.4.md)'s cross-region gate, which is what
+needed it. `ViewOwnershipPlanner` takes one `PlayerView` per node
 (**L-63**, retired 2026-07-26 — `planMultiView` takes a node's whole set of views and ranks it by its nearest one), and no custody claim is checkable by anyone
 
 ## Dependencies
@@ -51,7 +52,7 @@ Minecraft side: the custody tiebreak in the plan (6), and
 | 4 | Spot-check: any peer samples a region and downgrades a failing claim to `VIEW` | ↩️ **WITHDRAWN 2026-08-06** — same note |
 | 5 | `ViewOwnershipPlanner` multi-view overload (`Map<NodeId, Collection<PlayerView>>`, min distance) | ⬜ |
 | 6 | Custody-class tiebreak, **after** distance, **before** the `NodeId` tiebreak | ⬜ |
-| 7 | `NoderaFoliaRegionMap` — `RegionId` → owning Folia region, with the ALIGN-1 assertion live | ⬜ |
+| 7 | `NoderaFoliaRegionMap` — `RegionId` → owning Folia region, with the ALIGN-1 assertion live | 🚧 landed 2026-08-10 in `dev.nodera.endpoint.paper.world`, consumed by [4](Task.4.md)'s cross-region gate. It answers `shareExecutionThread(a, b)` rather than naming a Folia region id: Folia's regions merge and split and have no stable identity (§C), so the answerable question is which regions one thread writes. Same section ⇒ ALIGN-1 arithmetic, no runtime call; wider ⇒ `FoliaOwnershipProbe` (reflection over `Server#isOwnedByCurrentRegion`); unanswerable ⇒ refusal. Built at enable, logged, and — this is the "ALIGN-1 assertion live" half — **exercised** at enable: the plugin asks the gate about a pair inside one section and a pair a section apart and logs what it got, so a platform that disagreed with our arithmetic is visible at startup instead of days later. On real Folia 1.21.4 the second one refuses. `e2e-folia` F1 asserts all three lines. `NoderaFoliaRegionMapTest` (7) |
 | 8 | `/nodera regions --folia` — the live mapping, for the suites to assert against | ⬜ |
 
 > ### Decision — the custody half of this task, 2026-08-06 (issue #210)
