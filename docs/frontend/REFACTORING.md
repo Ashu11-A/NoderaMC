@@ -20,11 +20,12 @@ and `scripts/android-*.sh`. `web/` is not yet in scope — [task 18](Task.18.md)
 
 | File | Lines | % duplicated | Duplicated-with | Refactor plan |
 |---|---:|---|---|---|
-| `library/rust/nodera-core/src/core.rs` | 1245 | — | — | `NoderaCore` is the shared façade but now also contains full launch orchestration. Extract launch execution into `launch/coordinator.rs` while preserving one public handle. |
+| `library/rust/nodera-core/src/core.rs` | 1245 | — | self, 3× | `NoderaCore` is the shared façade but now also contains full launch orchestration. Extract launch execution into `launch/coordinator.rs` while preserving one public handle. **Added 2026-08-05**: `start_play`'s failure paths repeat `close the tunnel → read `closed_or_absent` → clear `session_id` → publish a failure with a remedy → return` three times. "A launch failure always closes its tunnel" is a rule with three copies; a `fail_and_close(...)` helper states it once. Not taken this round — it sits inside the observation loop where `state` and `tunnel` are moved, and the reduction is not worth doing untested against a live launch. |
 | `app/src/lib.rs` | 1121 | — | — | Shell still combines command delegates, plugin registration, tray, setup and generated handler list. Extract command modules without moving shared behavior back out of `nodera-core`. |
 | `app/android/kotlin/ui/Settings.kt` | 1077 | 0.0 | — | Highest Kotlin debt: extract each settings destination and a typed settings repository; preserve preview-before-trust in one owner. |
 | `library/rust/nodera-core/src/launch/mod.rs` | 856 | — | — | Types, coordinator, cancellation-safe tunnel lease and tests share one file. Split types/coordinator/lease after launch ABI settles; do not split the state transitions across owners. |
 | `app/ui/src/components.tsx` | 842 | — | — | Controls, data displays, pagination, dialogs and world art are one primitive catalogue. Split by controls/data/overlays without duplicating token strings. |
+| `app/ui/src/TrackerStores.tsx` | 1127 | — | self, 4× | **Added 2026-08-05.** The screen carries its own button family — `PrimaryButton`, `SecondaryButton`, `GhostButton`, `DangerButton` — four components differing only in a class string, over 27 call sites. `components.tsx`'s own `Button` docstring already records that "TrackerStores.tsx carried a seventh set of its own"; that consolidation was never finished. **It cannot be finished by deleting them**: the four carry `--tracker-store-*` custom properties, and `app/ui/tests/tracker-stores-style.test.mjs` asserts each of those declarations reaches the built CSS from a class selector. Collapsing the four into one variant-taking component keeps every declaration and is what landed. Adopting `components.tsx`'s `Button` outright needs that test rewritten in the same change. |
 | `app/ui/src/Settings.tsx` | 793 | — | — | Settings orchestration and all basic configuration sections remain coupled. Extract one component per section while retaining a single settings document owner. |
 | `scripts/android-apk.sh` | 729 | — | Generated-project patching, Compose dependencies and source guards now dominate; overlaps toolchain/e2e preamble and pins | Commit a conventional Android host or factor generated-project patch functions before adding more source-text guards. |
 | `app/android/kotlin/ui/Screens.kt` | 322 | 0.0 | — | Home/Worlds/Activity can split when each gains independent tests. |
@@ -61,7 +62,10 @@ order across both, and the reasoning that produced each item is preserved.
 4. **Split the launch coordinator/types/lease** only after physical launcher acceptance freezes the
    states.
 5. **Extract the desktop Settings sections** around one shared document owner.
-6. **Split the UI primitives** into controls, data and overlays without changing tokens.
+6. **Split the UI primitives** into controls, data and overlays without changing tokens. The
+   `TrackerStores.tsx` button family is the same item seen from the other end: the screen should
+   eventually consume `components.tsx`'s `Button`, and the blocker is the style test rather than the
+   code.
 7. **Extract the ANSI logging helpers** (`say`/`die`/`log`/`warn`/`ok`/`bad`) into
    `scripts/lib/android-common.sh`. The largest repeated block (3 functions × 3 scripts, and the same
    pattern is in `scripts/check-android-bytecode.sh` and `scripts/e2e-android-mesh.sh`). Purely
@@ -77,6 +81,13 @@ order across both, and the reasoning that produced each item is preserved.
 11. **Re-run jscpd and the line counts** after those moves, and extend the filter to `web/` once
     [task 19](Task.19.md) has decided what shares a tree with what. The current zero-clone result
     predates all of it.
+
+## Completed
+
+| Refactor | Evidence | Completed |
+|---|---|---|
+| Collapse the `ENFORCEMENT` table in `settings.rs` | `const fn live/local/never` constructors used by 23 rows; the table is 74 lines shorter and every row's intent is now on one line beside its key. The four `Enforcement` variants and `resolve(...)` are unchanged, so `setting_status` reports exactly what it did | 2026-08-05 |
+| Collapse the `TrackerStores.tsx` button family | One `StoreButton` with a `variant`; the four former components are its four class strings. Every `--tracker-store-*` declaration `app/ui/tests/tracker-stores-style.test.mjs` asserts on is preserved verbatim | 2026-08-05 |
 
 > Debt remains shape, not copied blocks. This register deliberately does not recommend recombining
 > native Compose and desktop React components: shared behaviour belongs in `nodera-core`, not in a

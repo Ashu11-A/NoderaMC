@@ -14,7 +14,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * The ghost-mob lane: capture where it is allowed, revoke where it is not (L-50).
+ * The ghost-mob lane: capture what the engine models, leave the rest to vanilla (L-50).
  *
  * <ol>
  *   <li>G0 the standard topology plus a clean-slate dedicated server with both players in-world and
@@ -25,15 +25,15 @@ import java.util.regex.Pattern;
  *       holding a mob, not giving up on one.</li>
  *   <li>G2 Into the NETHER, which opted nothing in, for the two halves that only separate there.
  *       G2a: the ZOMBIE is captured anyway, because the engine owns that species' behaviour — the
- *       per-species default (L-24). G2b: a CREEPER is not, so the node that SEES it refuses the
- *       region, names the reason, and announces the refusal to the mesh whether or not it holds a
- *       seat (L-60). The world keeps playing.</li>
+ *       per-species default (L-24). G2b: a CREEPER is not, so it is left to vanilla and the region
+ *       goes on validating blocks and modelled entities — it is <b>not</b> refused (issue #236).
+ *       The world keeps playing.</li>
  *   <li>G3 transcripts and worker state snapshots collected.</li>
  * </ol>
  *
  * <p>Why the nether rather than a config flip and a restart: capture is decided per DIMENSION, so
- * the un-opted-in dimension is a revocation trigger that costs one teleport instead of two client
- * boots.
+ * the un-opted-in dimension exercises the unmodelled-species path for one teleport instead of two
+ * client boots.
  *
  * <p>Thread-context: run on the runner's thread; stateless between runs.
  */
@@ -52,6 +52,21 @@ public final class MobsScenario implements Scenario {
 
     private static final int MOB_COUNT = 3;
 
+    /**
+     * The one line G2b is about, anchored on enough of it to name only that line.
+     *
+     * <p>{@code "stays vanilla"} alone is emitted by three places in
+     * {@code EntityCaptureBridge}: the {@code LANE:} line this stage waits for, and the two
+     * {@code catch} blocks that report a drop or a pickup falling back to vanilla after a
+     * submission failed. The stage takes the <b>last</b> match, so in a run where the item lane is
+     * also failing the anchor resolves to a different event and the assertions below then complain
+     * that the lane did not say the region survives — blaming a log collision on the product. The
+     * same rule {@code SpawnedService} follows for {@code name + ": listening on "}: anchor on
+     * enough of the message that only its producer can write it.
+     */
+    private static final String LEFT_TO_VANILLA =
+            "modelled by this build's engine and stays vanilla";
+
     /** A first-capture line that names a hostile rather than an ambient animal. */
     private static final Pattern HOSTILE_GHOST =
             Pattern.compile("GHOST:.*minecraft:(zombie|skeleton|creeper|spider)");
@@ -63,7 +78,7 @@ public final class MobsScenario implements Scenario {
 
     @Override
     public String title() {
-        return "the ghost lane captures where a dimension opted in and refuses where it did not";
+        return "the ghost lane captures what the engine models and leaves the rest to vanilla";
     }
 
     @Override
@@ -130,10 +145,10 @@ public final class MobsScenario implements Scenario {
             // This used to skip. Revocation was gated on `runtime.delegated(region)` — the node's
             // OWN lane — and under field-of-view ownership a dedicated server owns nothing ("no
             // regions fall to this node"), so the one node that could see the mob was the one node
-            // forbidden from acting on it. L-60's fix evaluates the dimension's opt-in BEFORE the
-            // ownership gate and announces a `RegionRefusal` (tag 61), so the observer refuses and
-            // the owners drop the region. The assertion is therefore the same on every topology,
-            // which is what makes it worth running.
+            // forbidden from acting on it. L-60's fix moved the species/dimension decision ahead of
+            // the ownership gate, so the node that SEES the entity is the node that classifies it.
+            // The classification is the same on every topology, which is what makes this assertion
+            // worth running; what the classification then DOES changed in issue #236 — see G2b.
             netherMark[0] = serverLog.lineCount();
             rcon.teleport("JoinerDev", 0, 100, 0, "minecraft:the_nether");
             context.settle(Duration.ofSeconds(15));  // let the nether chunks + the re-plan settle
@@ -158,31 +173,42 @@ public final class MobsScenario implements Scenario {
                     "=== G2a: " + MOB + " captured in the nether on the species default alone");
         });
 
-        context.stage("G2b", "the region is released, the reason is named, the refusal reaches the "
-                + "mesh, and the session plays on", () -> {
+        context.stage("G2b", "an unmodelled species is left to vanilla, the region keeps validating, "
+                + "and the session plays on", () -> {
             summonAt(context, rcon, "JoinerDev", MOB_UNKNOWN);
 
+            // THIS STAGE ASSERTED THE OPPOSITE UNTIL 2026-08-06 (issue #236), and it is worth
+            // saying why in the file rather than only in a register. It demanded the lines
+            // "entity lane revoked … non-delegable entity … refusal announced to the mesh", which
+            // `LiveEntityLaneRuntime.revokeForEntity` wrote — and that method's caller was deleted
+            // on 2026-07-29 in the SAME commit that carried these assertions over from
+            // `e2e-mobs.sh`, so from that day the stage asserted a string production can no longer
+            // emit. (`docs/minecraft/live-suites-assert-stale-log-strings` is this exact shape.)
+            //
+            // Refusing the region was a product DEFECT, recorded as one in Task.10.md: capture
+            // defaults to zombies alone, so the first cow, bat or item frame permanently deleted
+            // the region from the validated lane on every node — "in a real world every region is
+            // revoked within seconds". The rule now is the one Task.10 deliverable 7 asks for: an
+            // entity the engine does not model is left to vanilla, nothing is captured, nothing is
+            // refused, and the region goes on validating blocks and modelled entities.
+            //
             // The mark is the NETHER ENTRY, not the summon, and the creeper is not required to be
-            // the entity named in the refusal. Both were wrong before, and a live run showed why:
-            // the nether is full of striders, magma cubes and piglins, every one of them a species
-            // the engine does not own, so the region is refused seconds after the player arrives —
-            // correctly, and by the same rule this stage is about. A refusal is permanent per
-            // region, so by the time the creeper lands there is nothing left to announce. Asserting
-            // on the creeper specifically was asserting that it won a race against the nether's own
-            // mobs.
-            if (!serverLog.pollFor("entity lane revoked", Duration.ofSeconds(180), netherMark[0])) {
-                // Self-diagnosing: the summon is proven above, so a missing revoke is genuinely the
-                // lane's silence. Say WHICH silence it is — the three candidates read very
-                // differently.
+            // the species named: the nether is full of striders, magma cubes and piglins, every one
+            // of them unmodelled, so the line fires seconds after the player arrives — correctly,
+            // and by the rule this stage is about. It is emitted once per region.
+            if (!serverLog.pollFor(LEFT_TO_VANILLA, Duration.ofSeconds(180), netherMark[0])) {
+                // Self-diagnosing: the summon is proven above, so silence here is genuinely the
+                // lane's. Say WHICH silence it is — the candidates read very differently.
                 HostWorldSupport.transcript(context, "mobs.log",
-                        "=== G2b: no revoke within the window. What the log did show:");
+                        "=== G2b: nothing was left to vanilla within the window. What the log did "
+                                + "show:");
                 HostWorldSupport.transcript(context, "mobs.log",
                         "--- lane activity since the nether entry ---");
                 List<String> since = HostWorldSupport.readLines(serverLogFile);
                 List<String> laneActivity = since
                         .subList(Math.min(netherMark[0], since.size()), since.size()).stream()
-                        .filter(line -> line.contains("GHOST:") || line.contains("entity lane")
-                                || line.contains("REGION:"))
+                        .filter(line -> line.contains("GHOST:") || line.contains("LANE:")
+                                || line.contains("entity lane") || line.contains("REGION:"))
                         .toList();
                 tail(laneActivity, 20)
                         .forEach(line -> HostWorldSupport.transcript(context, "mobs.log", line));
@@ -190,31 +216,34 @@ public final class MobsScenario implements Scenario {
                         "--- did the nether region ever appear? ---");
                 tail(HostWorldSupport.matchesAfter(serverLogFile, 0, "the_nether"), 10)
                         .forEach(line -> HostWorldSupport.transcript(context, "mobs.log", line));
-                context.fail(MOB_UNKNOWN + " was summoned but no region was refused — see the lane "
-                        + "transcript in " + stack.resultsDir().resolve("mobs.log")
+                context.fail(MOB_UNKNOWN + " was summoned but the lane never reported an unmodelled "
+                        + "species — see the lane transcript in "
+                        + stack.resultsDir().resolve("mobs.log")
                         + " (the summon itself is asserted, so this is the lane's silence, not a "
                         + "missing mob)");
             }
 
-            String revoked = HostWorldSupport
-                    .lastMatchAfter(serverLogFile, netherMark[0], "entity lane revoked").orElse("");
-            HostWorldSupport.transcript(context, "mobs.log", "=== revocation: " + revoked);
-            context.checkContains(revoked, "non-delegable entity",
-                    "the region revoked without stating the reason");
-            context.checkContains(revoked, "minecraft:",
-                    "the revocation names no species at all");
-            // Revoking is a controlled retreat, not a failure: the server keeps running and the
-            // player keeps playing. A revoke that takes the session down would be worse than never
-            // delegating at all.
+            String vanilla = HostWorldSupport
+                    .lastMatchAfter(serverLogFile, netherMark[0], LEFT_TO_VANILLA).orElse("");
+            HostWorldSupport.transcript(context, "mobs.log", "=== left to vanilla: " + vanilla);
+            context.checkContains(vanilla, "keeps validating",
+                    "the lane reported an unmodelled species without saying the region survives it");
+            context.checkContains(vanilla, "minecraft:",
+                    "the line names no species at all");
+            // The point of the whole change: meeting a species the engine does not model must not
+            // cost the region its validated lane. A revoke naming that reason would mean the
+            // retired behaviour came back.
+            boolean revokedForTheEntity = HostWorldSupport
+                    .matchesAfter(serverLogFile, netherMark[0], "entity lane revoked").stream()
+                    .anyMatch(line -> line.contains("non-delegable entity"));
+            context.check(!revokedForTheEntity, "a region was revoked for a non-delegable entity — "
+                    + "the refusal retired on 2026-07-29 is back, and a default install validates "
+                    + "nothing in any world that has animals in it (issue #236)");
+            // The session keeps running and the player keeps playing.
             String alive = rcon.send("list").orElse("");
-            context.checkContains(alive, "JoinerDev", "the player is gone after the revocation");
+            context.checkContains(alive, "JoinerDev", "the player is gone after the nether crossing");
             HostWorldSupport.requireNoErrors(serverLogFile, netherMark[0],
-                    "G2: the revocation left errors in the log");
-            // L-60: the whole point is that the refusal LEAVES this node. A revoke that stopped at
-            // the observer would leave every owning lane still validating the region it just
-            // refused.
-            context.checkContains(revoked, "refusal announced to the mesh",
-                    "the region was revoked locally but no refusal was announced");
+                    "G2: the nether crossing left errors in the log");
         });
 
         context.stage("G3", "worker state snapshots and logs are collected",

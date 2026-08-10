@@ -1320,16 +1320,19 @@ public final class NoderaHost {
                             manifest.genesisRoot().toShortHex(4));
                 } else {
                     // L-60: no seats here, but this node still SEES the world — and until now that
-                    // meant the capture bridge kept a disabled runtime and nothing was captured,
-                    // forwarded or refused, silently. An observer runtime costs nothing to install
-                    // (no store, no journals, no replicas — the full session was tried and stalled
-                    // the server for 720 s on every crossing) and can do the one thing a seatless
-                    // node is entitled to do: say that a region cannot be validated.
+                    // meant the capture bridge kept a disabled runtime, indistinguishable in a log
+                    // from a lane that never activated. An observer runtime costs nothing to
+                    // install (no store, no journals, no replicas — the full session was tried and
+                    // stalled the server for 720 s on every crossing) and makes the bridge's
+                    // once-per-region `LANE: … observed (… runtime=…)` line name this branch.
+                    //
+                    // It refuses nothing: the non-delegable-entity refusal was retired on
+                    // 2026-07-29 (issue #236 records the decision), because refusing a region for
+                    // an entity this build's engine does not model deleted every region from the
+                    // validated lane within seconds of a real world loading. An unmodelled entity
+                    // is left to vanilla in `EntityCaptureBridge.captureJoin` instead.
                     dev.nodera.mod.server.entity.EntityCaptureBridge.get().runtime(
-                            new dev.nodera.mod.server.entity.ObserverLaneRuntime(
-                                    new dev.nodera.peer.validation.ObserverRefusals(
-                                            host.transport(),
-                                            () -> host.runtime().sessionView().members())));
+                            new dev.nodera.mod.server.entity.ObserverLaneRuntime());
                     // `seats` is reported here as well as on the owning branch, and the omission
                     // was costing real diagnosis: this is the branch a dedicated or host server
                     // takes under field-of-view ownership, so it is the only place a live run can
@@ -1340,8 +1343,8 @@ public final class NoderaHost {
                     LOG.info("Nodera: no regions fall to this node in the new plan "
                                     + "({} member node(s), {} resident peer(s) holding {} "
                                     + "committee seat(s)) — broadcasting it for the owners, and "
-                                    + "observing: this node can still refuse what nobody here can "
-                                    + "validate (L-60)",
+                                    + "observing: this node validates nothing here and captures "
+                                    + "nothing here (L-60)",
                             views.size(), residents.size(), seats);
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that

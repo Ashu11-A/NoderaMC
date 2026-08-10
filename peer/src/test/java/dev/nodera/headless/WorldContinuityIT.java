@@ -1,6 +1,6 @@
 package dev.nodera.headless;
 
-import dev.nodera.testkit.harness.LayoutManifest;
+import dev.nodera.testkit.harness.SpawnedService;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeCapabilities;
@@ -30,7 +30,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -40,7 +39,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
@@ -65,8 +63,7 @@ final class WorldContinuityIT {
 
     private static final HashService HASHES = new HashService();
 
-    private final List<Process> services = new ArrayList<>();
-    private final List<Path> configFiles = new ArrayList<>();
+    private final List<SpawnedService> services = new ArrayList<>();
     private final List<WorkerNode> workers = new ArrayList<>();
 
     @AfterEach
@@ -74,28 +71,15 @@ final class WorldContinuityIT {
         for (WorkerNode worker : workers) {
             worker.closeQuietly();
         }
-        for (Process p : services) {
-            p.destroy();
-            if (!p.waitFor(10, TimeUnit.SECONDS)) {
-                p.destroyForcibly();
-            }
-        }
-        for (Path f : configFiles) {
-            Files.deleteIfExists(f);
+        for (SpawnedService service : services) {
+            service.close();
         }
     }
 
     @Test
     void worldSurvivesHostDisconnectAndHostWorkerDeath(@TempDir Path tmp) throws Exception {
-        Optional<Path> trackerBin = binary("nodera-tracker");
-        Optional<Path> rendezvousBin = binary("nodera-rendezvous");
-        assumeThat(trackerBin)
-                .as("nodera-tracker binary (run: cd rust && cargo build --release)").isPresent();
-        assumeThat(rendezvousBin)
-                .as("nodera-rendezvous binary (run: cd rust && cargo build --release)").isPresent();
-
-        TrackerClient.Endpoint tracker = startTracker(trackerBin.get());
-        RendezvousEndpoint rendezvous = startRendezvous(rendezvousBin.get());
+        TrackerClient.Endpoint tracker = startTracker(binary("nodera-tracker"));
+        RendezvousEndpoint rendezvous = startRendezvous(binary("nodera-rendezvous"));
 
         // Two players, each with their own always-on peer worker.
         WorkerNode host = WorkerNode.start("host", tmp.resolve("host"), tracker, rendezvous);
@@ -275,87 +259,41 @@ final class WorldContinuityIT {
         }
     }
 
-    // --- service spawning (the TrackerServiceIT / RendezvousRelayIT pattern) --------------------
+    // --- service spawning -----------------------------------------------------------------------
 
-    private static Path repoRoot() {
-        Path dir = Paths.get("").toAbsolutePath();
-        while (dir != null && !Files.exists(dir.resolve("settings.gradle.kts"))) {
-            dir = dir.getParent();
-        }
-        if (dir == null) {
-            throw new IllegalStateException("repo root not found");
-        }
-        return dir;
-    }
-
-    private static Optional<Path> binary(String name) {
-        Path root = LayoutManifest.load().dir("cargoTarget");
-        for (String profile : new String[] {"release", "debug"}) {
-            Path candidate = root.resolve(profile).resolve(name);
-            if (Files.isExecutable(candidate)) {
-                return Optional.of(candidate);
-            }
-        }
-        return Optional.empty();
+    /** The binary, or an assumption failure describing how to build it. */
+    private static Path binary(String name) {
+        Optional<Path> found = SpawnedService.binary(name);
+        assumeThat(found).as(SpawnedService.buildHint(name)).isPresent();
+        return found.orElseThrow();
     }
 
     private TrackerClient.Endpoint startTracker(Path binary) throws IOException {
-        Path config = Files.createTempFile("nodera-tracker-continuity", ".toml");
-        configFiles.add(config);
-        Files.writeString(config, """
+        return TrackerClient.Endpoint.parse(spawn(binary, """
                 bind_addr = "127.0.0.1:0"
                 announce_interval_seconds = 1
                 peer_ttl_seconds = 30
                 healthy_seeder_floor = 1
                 sample_size = 10
                 seeder_floor = 5
-                """, StandardCharsets.UTF_8);
-        return TrackerClient.Endpoint.parse(spawn(binary, config));
+                """));
     }
 
     private RendezvousEndpoint startRendezvous(Path binary) throws IOException {
-        Path config = Files.createTempFile("nodera-rendezvous-continuity", ".toml");
-        configFiles.add(config);
-        Files.writeString(config, """
+        return RendezvousEndpoint.parse(spawn(binary, """
                 bind_addr = "127.0.0.1:0"
                 registration_ttl_seconds = 60
                 refresh_interval_seconds = 30
                 reservation_max_bytes = 1048576
                 per_ip_request_quota = 0
                 reservation_hmac_key_hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-                """, StandardCharsets.UTF_8);
-        return RendezvousEndpoint.parse(spawn(binary, config));
+                """));
     }
 
-    /** Start a service binary, wait for its "listening on" line, and drain its output. */
-    private String spawn(Path binary, Path config) throws IOException {
-        ProcessBuilder builder = new ProcessBuilder(binary.toString(), "--config", config.toString());
-        builder.redirectErrorStream(true);
-        Process process = builder.start();
-        services.add(process);
-        BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
-        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
-        String line;
-        while (System.nanoTime() < deadline && (line = reader.readLine()) != null) {
-            int idx = line.indexOf("listening on ");
-            if (idx >= 0) {
-                String addr = line.substring(idx + "listening on ".length()).trim();
-                Thread drain = new Thread(() -> {
-                    try {
-                        while (reader.readLine() != null) {
-                            // service log output is irrelevant to the test
-                        }
-                    } catch (IOException ignored) {
-                        // process exiting
-                    }
-                }, "service-drain");
-                drain.setDaemon(true);
-                drain.start();
-                return addr;
-            }
-        }
-        throw new IOException(binary.getFileName() + " did not report a listening address");
+    private String spawn(Path binary, String configToml) throws IOException {
+        SpawnedService service = SpawnedService.start(binary, configToml);
+        services.add(service);
+        return service.endpoint();
     }
 
     // --- tracker helpers ------------------------------------------------------------------------

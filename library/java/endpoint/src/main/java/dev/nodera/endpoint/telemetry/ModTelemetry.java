@@ -43,12 +43,6 @@ public final class ModTelemetry {
     }
 
     /**
-     * Bind the façade to a worker and read the consent state from it.
-     *
-     * <p>Called once when the mod connects to the companion. Reading rather than assuming is the
-     * point: the decision lives on the node, and the game is one of several things that may ask.
-     */
-    /**
      * Bind this façade to {@link CompanionLink} so it follows the linked worker automatically.
      *
      * <p>Called once by an endpoint's bootstrap. The link used to call {@code attach}/{@code detach}
@@ -201,22 +195,6 @@ public final class ModTelemetry {
                 .build());
     }
 
-    /** A play session started, with the environment that shaped it. */
-    public static void sessionStarted(String modVersion, String mcVersion, String loaderVersion,
-                                      boolean companionPresent) {
-        if (!collects()) {
-            return;
-        }
-        submit(TelemetryEvent.named(TelemetryRegistry.SESSION_START, now())
-                .enumeration("mod_version", modVersion)
-                .enumeration("mc_version", mcVersion)
-                .enumeration("loader_version", loaderVersion)
-                .number("java_major", javaMajor())
-                .flag("companion_present", companionPresent)
-                .flag("headless", false)
-                .build());
-    }
-
     /** A play session ended. */
     public static void sessionEnded(long durationMillis, boolean clean) {
         if (!collects()) {
@@ -292,16 +270,6 @@ public final class ModTelemetry {
         int end = statusJson.indexOf('"', start);
         return end < 0 ? TelemetryConsent.UNANSWERED
                 : TelemetryConsent.parse(statusJson.substring(start, end));
-    }
-
-    private static long javaMajor() {
-        String version = System.getProperty("java.version", "0");
-        int dot = version.indexOf('.');
-        try {
-            return Long.parseLong(dot > 0 ? version.substring(0, dot) : version);
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 
     private static long now() {

@@ -44,7 +44,7 @@ public record Checkpoint(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.CHECKPOINT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CHECKPOINT, ENCODING_VERSION);
         region.encode(w);
         version.encode(w);
         root.encode(w);
@@ -61,11 +61,7 @@ public record Checkpoint(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static Checkpoint decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CHECKPOINT) {
-            throw new IllegalStateException("expected CHECKPOINT tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.CHECKPOINT, "CHECKPOINT", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);
         StateRoot root = StateRoot.decode(r);

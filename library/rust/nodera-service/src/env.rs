@@ -144,7 +144,7 @@ impl<'a> EnvOverlay<'a> {
     /// Snapshot the environment for one service prefix.
     ///
     /// `prefix` includes its trailing underscore (`"NODERA_TRACKER_"`).
-    pub fn new(prefix: &'a str, env: &impl EnvSource) -> Self {
+    pub fn new(prefix: &'a str, env: &dyn EnvSource) -> Self {
         let present = env
             .keys_with_prefix(prefix)
             .into_iter()
@@ -273,6 +273,33 @@ impl<'a> EnvOverlay<'a> {
             self.failure = Some(error);
         }
     }
+}
+
+/// Declare a configuration's environment overlay as a table of field names.
+///
+/// One `overlay.set("field", &mut self.field)` per field is already the minimum an overlay can be
+/// told, but written out longhand across three services it was 73 calls in 157 lines — because the
+/// call is long enough that a field with a descriptive name wraps onto four. The name is the only
+/// varying part, so the table names fields and the macro writes the calls.
+///
+/// ```ignore
+/// nodera_service::env_overlay!(overlay, self,
+///     set: bind_addr, max_frame_bytes, telemetry_endpoint;
+///     set_list: advertised_routes;
+///     set_optional_path: persist_dir;
+/// );
+/// ```
+///
+/// The method names are [`EnvOverlay`]'s own, so a field that needs the empty string to mean
+/// "unset" says `set_non_empty` here and the reader can see which rule each field is under —
+/// exactly what the longhand showed, at a quarter of the lines.
+#[macro_export]
+macro_rules! env_overlay {
+    ($overlay:expr, $config:expr, $($method:ident: $($field:ident),+ $(,)? ;)+) => {
+        $($(
+            $overlay.$method(stringify!($field), &mut $config.$field);
+        )+)+
+    };
 }
 
 /// A configuration field that can be read from one environment string.

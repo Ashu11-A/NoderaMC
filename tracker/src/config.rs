@@ -171,46 +171,15 @@ impl Default for Config {
     }
 }
 
-/// Why a configuration was refused.
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    /// The file could not be read.
-    #[error("cannot read config {path}: {source}")]
-    Io {
-        /// Path that failed.
-        path: String,
-        /// Underlying IO error.
-        #[source]
-        source: std::io::Error,
-    },
-    /// The file was not valid TOML, or had unknown/mistyped keys.
-    #[error("invalid config {path}: {source}")]
-    Parse {
-        /// Path that failed.
-        path: String,
-        /// Underlying parse error.
-        #[source]
-        source: toml::de::Error,
-    },
-    /// A value was structurally valid but unusable.
-    #[error("invalid config value: {0}")]
-    Invalid(String),
-    /// An environment variable was unusable, or named nothing this service has.
-    #[error("invalid environment configuration: {0}")]
-    Env(#[from] nodera_service::env::EnvError),
-}
+/// Why a configuration was refused. One definition for all three services.
+pub use nodera_service::config::ConfigError;
+
+nodera_service::service_config!(Config);
 
 impl Config {
     /// Load and validate a config file.
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
-        let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
-            path: path.display().to_string(),
-            source,
-        })?;
-        let config: Config = toml::from_str(&text).map_err(|source| ConfigError::Parse {
-            path: path.display().to_string(),
-            source,
-        })?;
+        let config: Config = nodera_service::config::load_toml(path)?;
         config.validate()?;
         Ok(config)
     }
@@ -223,68 +192,26 @@ impl Config {
     /// value must be allowed to.
     pub fn apply_env(
         &mut self,
-        env: &impl EnvSource,
+        env: &dyn EnvSource,
     ) -> Result<nodera_service::env::Applied, ConfigError> {
         let mut overlay = EnvOverlay::new(ENV_PREFIX, env);
         // Read by the Java peer/worker (`HeadlessPeerMain`), which is a client of trackers, not a
         // tracker. A shell holding both must be able to start both.
         overlay.ignore("NODERA_TRACKER_ENDPOINTS");
 
-        overlay.set("bind_addr", &mut self.bind_addr);
-        overlay.set(
-            "announce_interval_seconds",
-            &mut self.announce_interval_seconds,
+        nodera_service::env_overlay!(overlay, self,
+            set: bind_addr, announce_interval_seconds, peer_ttl_seconds,
+                 announce_clock_skew_seconds, max_worlds, max_peers_per_world, sample_size,
+                 seeder_floor, healthy_seeder_floor, per_ip_announce_quota, max_frame_bytes,
+                 udp_enabled, udp_max_request_bytes, udp_max_reply_bytes, udp_max_amplification,
+                 telemetry_endpoint, telemetry_interval_seconds, max_services,
+                 service_directory_page_limit, service_report_max_age_seconds,
+                 service_report_max_reporters, per_ip_report_quota, update_channel,
+                 update_feed_base_url, update_check_interval_seconds, update_release_public_key,
+                 drain_grace_seconds, identity_file;
+            set_list: peer_tracker_endpoints, advertised_routes;
+            set_optional_path: persist_dir;
         );
-        overlay.set("peer_ttl_seconds", &mut self.peer_ttl_seconds);
-        overlay.set(
-            "announce_clock_skew_seconds",
-            &mut self.announce_clock_skew_seconds,
-        );
-        overlay.set("max_worlds", &mut self.max_worlds);
-        overlay.set("max_peers_per_world", &mut self.max_peers_per_world);
-        overlay.set("sample_size", &mut self.sample_size);
-        overlay.set("seeder_floor", &mut self.seeder_floor);
-        overlay.set("healthy_seeder_floor", &mut self.healthy_seeder_floor);
-        overlay.set("per_ip_announce_quota", &mut self.per_ip_announce_quota);
-        overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
-        overlay.set_optional_path("persist_dir", &mut self.persist_dir);
-        overlay.set("udp_enabled", &mut self.udp_enabled);
-        overlay.set("udp_max_request_bytes", &mut self.udp_max_request_bytes);
-        overlay.set("udp_max_reply_bytes", &mut self.udp_max_reply_bytes);
-        overlay.set("udp_max_amplification", &mut self.udp_max_amplification);
-        overlay.set("telemetry_endpoint", &mut self.telemetry_endpoint);
-        overlay.set(
-            "telemetry_interval_seconds",
-            &mut self.telemetry_interval_seconds,
-        );
-        overlay.set("max_services", &mut self.max_services);
-        overlay.set(
-            "service_directory_page_limit",
-            &mut self.service_directory_page_limit,
-        );
-        overlay.set(
-            "service_report_max_age_seconds",
-            &mut self.service_report_max_age_seconds,
-        );
-        overlay.set(
-            "service_report_max_reporters",
-            &mut self.service_report_max_reporters,
-        );
-        overlay.set("per_ip_report_quota", &mut self.per_ip_report_quota);
-        overlay.set("update_channel", &mut self.update_channel);
-        overlay.set("update_feed_base_url", &mut self.update_feed_base_url);
-        overlay.set(
-            "update_check_interval_seconds",
-            &mut self.update_check_interval_seconds,
-        );
-        overlay.set(
-            "update_release_public_key",
-            &mut self.update_release_public_key,
-        );
-        overlay.set("drain_grace_seconds", &mut self.drain_grace_seconds);
-        overlay.set_list("peer_tracker_endpoints", &mut self.peer_tracker_endpoints);
-        overlay.set_list("advertised_routes", &mut self.advertised_routes);
-        overlay.set("identity_file", &mut self.identity_file);
 
         Ok(overlay.finish()?)
     }

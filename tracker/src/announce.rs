@@ -7,8 +7,7 @@
 use crate::config::Config;
 use nodera_codec::messages::TrackerAnnounce;
 use nodera_codec::sig;
-use nodera_codec::types::NodeId;
-use std::collections::HashMap;
+pub use nodera_service::admission::{within_window, IdentityBindings};
 
 /// Why an announce was refused. The string form is what goes on the wire in the ack, so these
 /// codes are stable and machine-readable — a peer can act on them without parsing prose.
@@ -55,48 +54,6 @@ impl Rejection {
     }
 }
 
-/// Remembers which public key first claimed each `NodeId`.
-///
-/// Nodera's `NodeId` is random, not derived from the key (`NodeIdentity.generate`), so the tracker
-/// cannot check a binding cryptographically. Trust-on-first-use is the honest substitute: the
-/// first key to claim an id keeps it for as long as the tracker remembers it, so an attacker
-/// cannot hijack a live peer's id — while a fresh tracker, like any fresh observer, has to take
-/// the first claim at face value. That is a directory-level protection, not an authority claim:
-/// peers still verify world state by hash and certificate chain.
-#[derive(Debug, Default)]
-pub struct IdentityBindings {
-    bindings: HashMap<NodeId, Vec<u8>>,
-}
-
-impl IdentityBindings {
-    /// An empty binding table.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Check the claim, recording it when the id is new.
-    pub fn accept(&mut self, peer: NodeId, public_key: &[u8]) -> bool {
-        match self.bindings.get(&peer) {
-            Some(known) => known.as_slice() == public_key,
-            None => {
-                self.bindings.insert(peer, public_key.to_vec());
-                true
-            }
-        }
-    }
-
-    /// Forget a binding (used when a peer leaves gracefully).
-    pub fn forget(&mut self, peer: &NodeId) {
-        self.bindings.remove(peer);
-    }
-
-    /// How many identities are remembered.
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.bindings.len()
-    }
-}
-
 /// Validate an announce against the raw frame it arrived in.
 ///
 /// `signed_portion` must be the byte range taken from the *received* frame
@@ -123,15 +80,6 @@ pub fn admit(
         return Err(Rejection::IdentityMismatch);
     }
     Ok(())
-}
-
-/// Whether an announce timestamp is inside the accepted window in either direction.
-///
-/// Both directions matter: a captured announce from the past must not resurrect a departed peer,
-/// and a far-future timestamp must not buy a record extra life.
-pub fn within_window(announce_millis: u64, now_millis: u64, skew_millis: u64) -> bool {
-    let delta = announce_millis.abs_diff(now_millis);
-    delta <= skew_millis
 }
 
 #[cfg(test)]

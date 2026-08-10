@@ -79,7 +79,9 @@ verb; nothing password-shaped is logged or serialized.
 ## Files
 
 - `peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (verb table + `STATE` snapshot)
-- `peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java`
+- `peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` — full wire grammar and rationale
+  moved to [`REFERENCE.md`](REFERENCE.md) (docs/plans/Plan.11.md phase 2); the constants stay the
+  single source of truth
 - Mirrors: `endpoints/neoforge-mod/.../common/CompanionProtocol.java`, `app/src/control.rs`
 
 ## Testing

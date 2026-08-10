@@ -30,7 +30,7 @@ public record EntityUpdatedEvent(PersistedEntityState entity) implements RegionE
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_UPDATED_EVENT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_UPDATED_EVENT, ENCODING_VERSION);
         entity.encode(w);
     }
 

@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * Makes a shared world <b>the network's</b>, not its author's.
@@ -429,16 +430,6 @@ public final class WorldReplicationService implements AutoCloseable {
         return adopted;
     }
 
-    /**
-     * The name the tracker directory published for a world this node replicates.
-     *
-     * @param worldIdHex the world.
-     * @return the name, or {@code null} when no sweep has seen this world listed.
-     */
-    public String nameFor(String worldIdHex) {
-        return catalogNames.get(worldIdHex);
-    }
-
     static boolean isReplicableWorld(Bytes worldId) {
         return !CommonsPresence.WORLD_ID.equals(worldId);
     }
@@ -731,7 +722,4 @@ public final class WorldReplicationService implements AutoCloseable {
         return false;
     }
 
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
-    }
 }

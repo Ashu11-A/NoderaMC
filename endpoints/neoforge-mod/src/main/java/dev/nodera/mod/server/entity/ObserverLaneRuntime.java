@@ -3,10 +3,8 @@ package dev.nodera.mod.server.entity;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NetworkEntityId;
 import dev.nodera.core.state.PersistedEntityState;
-import dev.nodera.peer.validation.ObserverRefusals;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 
 /**
@@ -14,9 +12,9 @@ import net.minecraft.world.entity.item.ItemEntity;
  *
  * <p>Under field-of-view ownership a dedicated server routinely owns nothing, and it is also the
  * only process that sees the world. The lane used not to open at all in that case, so the bridge
- * kept {@code Runtime.DISABLED} — which answers every method by doing nothing — and the node that
- * could see a mob nobody can validate had no way to say so. Eight dispatched `e2e-mobs.sh` runs read
- * that as "the lane said nothing"; the line that named it was
+ * kept {@code Runtime.DISABLED} — which answers every method by doing nothing — and a live drive
+ * could not tell an observer that had nothing to do from a lane that had never booted. Eight
+ * dispatched `e2e-mobs.sh` runs read that as "the lane said nothing"; the line that named it was
  * {@code LANE: … (capture=false, runtime=DISABLED)}.
  *
  * <p><b>Why this is not a session.</b> Opening a full {@code LiveEntityLaneSession} instead was
@@ -25,26 +23,33 @@ import net.minecraft.world.entity.item.ItemEntity;
  * session holding nothing. This runtime holds no store, no journals and no replicas, so installing
  * and replacing it costs nothing.
  *
- * <p><b>It refuses; it never validates.</b> {@link #delegated} is always false, so nothing here can
- * become validated state, and every capture entry point is a deliberate no-op. The single thing it
- * does is announce that a region cannot be validated — which is all a node with no seat is entitled
- * to do, and exactly what the owners need to hear.
+ * <p><b>What it is for now: being nameable.</b> Every method here is a deliberate no-op and
+ * {@link #delegated} is always false, so nothing on a seatless node can become validated state.
+ * That is behaviourally the same as {@code Runtime.DISABLED} and it is <b>not</b> the same
+ * diagnostically: {@code EntityCaptureBridge.captureJoin} prints the runtime's class in its
+ * once-per-region {@code LANE: … observed} line, so "no seats fell to this node, and the bridge
+ * knows it" and "the lane never activated" are two different log lines instead of one. Five live
+ * runs could not tell those apart, which is why the class exists.
+ *
+ * <p><b>It no longer refuses anything, and that is the decision rather than the gap</b> (issue
+ * #236, decided 2026-08-06). This class was written to do one further thing — announce that a
+ * region cannot be validated — and the announcement lane was retired on 2026-07-29 in {@code
+ * f4ad09e}, ten days before the dead-code sweep that removed its last orphaned method. Refusing a
+ * region for an entity this build's engine does not model was a **product defect**, recorded as one
+ * in {@code docs/minecraft/Task.10.md}: {@code mobCaptureSpecies} defaults to zombies alone, so the
+ * first cow, bat, squid or item frame to walk into a region deleted it from the validated lane, on
+ * every node, for the rest of the session — "in a real world every region is revoked within
+ * seconds". The replacement is in {@code EntityCaptureBridge.captureJoin}: an unmodelled entity is
+ * left to vanilla and the region goes on validating blocks and modelled entities. Nothing is
+ * announced because nothing is refused.
+ *
+ * <p>So {@code ObserverRefusals} is gone, {@code RegionRefusal.Reason.NON_DELEGABLE_ENTITY} (wire
+ * code 1) is reserved-with-no-sender in {@code WireEnums}, and no field here is stored unread. See
+ * {@code docs/network/REFACTORING.md} under `RegionDelegabilityGate` and minecraft L-60.
  *
  * @Thread-context server main thread, like every other bridge runtime.
  */
 public final class ObserverLaneRuntime implements EntityCaptureBridge.Runtime {
-
-    private static final org.slf4j.Logger LOG =
-            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane");
-
-    private final ObserverRefusals refusals;
-
-    public ObserverLaneRuntime(ObserverRefusals refusals) {
-        if (refusals == null) {
-            throw new IllegalArgumentException("refusals must not be null");
-        }
-        this.refusals = refusals;
-    }
 
     /** Always false: an observer holds no replica, so it delegates nothing. */
     @Override
@@ -88,18 +93,6 @@ public final class ObserverLaneRuntime implements EntityCaptureBridge.Runtime {
     }
 
     @Override
-    public void revokeForEntity(RegionId region, Entity entity) {
-        boolean first = refusals.refuse(
-                region, dev.nodera.protocol.simulationmsg.RegionRefusal.Reason.NON_DELEGABLE_ENTITY);
-        if (first) {
-            LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep "
-                            + "it); refusal announced to the mesh",
-                    region, entity.getType().builtInRegistryHolder().key().location());
-        }
-        EntityCaptureBridge.get().releaseRegion(region);
-    }
-
-    @Override
     public void pearlTeleported(ServerPlayer player, RegionId destination) {
         // Evidence for the pearl drive belongs to the owning lane, which this is not.
     }
@@ -109,8 +102,4 @@ public final class ObserverLaneRuntime implements EntityCaptureBridge.Runtime {
         // No committer, no metrics, no lag window: there is nothing here that ticks.
     }
 
-    /** @return how many regions this observer has refused (diagnostics). */
-    public int refusedCount() {
-        return refusals.refusedCount();
-    }
 }

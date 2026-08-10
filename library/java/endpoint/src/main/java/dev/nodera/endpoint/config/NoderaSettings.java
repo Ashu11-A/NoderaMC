@@ -49,15 +49,9 @@ public interface NoderaSettings {
      * compiled into the jar and read
      * through {@link dev.nodera.core.services.DefaultServices} — so a fresh install announces to a
      * network that exists. In {@linkplain dev.nodera.core.services.DefaultServices#developmentMode()
-     * development mode} they are the localhost services {@code scripts/dev.sh} runs instead.
-     *
-     * <p>They used to be localhost <em>always</em>, which was invisible in a checkout (where the dev
-     * stack is on those ports) and fatal everywhere else: a player's own machine has no tracker on
-     * 25600, so the node announced nowhere and reported that no tracker was answering.
-     *
-     * <p>These are the ONLY copy. {@code NoderaConfig} used to declare them and
-     * {@code HeadlessPeerMain} hardcoded the same two strings with a comment promising they matched
-     * — a comment is not a mechanism.
+     * development mode} they are the localhost services {@code scripts/dev.sh} runs instead. Why
+     * this is the one compiled-in copy, and what it replaced: {@code docs/network/REFERENCE.md}
+     * §Ports and defaults.
      */
     static NoderaSettings defaults() {
         return Defaults.INSTANCE;

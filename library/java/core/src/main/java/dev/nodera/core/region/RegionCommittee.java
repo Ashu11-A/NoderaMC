@@ -103,7 +103,7 @@ public record RegionCommittee(
      */
     @Override
     public void encode(CanonicalWriter writer) {
-        writer.writeU16(TypeTags.REGION_COMMITTEE).writeU16(ENCODING_VERSION);
+        writer.writeFrame(TypeTags.REGION_COMMITTEE, ENCODING_VERSION);
         writer.writeEncodable(region);
         writer.writeEncodable(epoch);
         writer.writeEncodable(primary);
@@ -122,10 +122,7 @@ public record RegionCommittee(
      * @Thread-context any thread; one reader per decode call (not thread-safe).
      */
     public static RegionCommittee decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_COMMITTEE) {
-            throw new IllegalStateException("expected REGION_COMMITTEE tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.REGION_COMMITTEE, "REGION_COMMITTEE");
         int version = r.readU16();
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_COMMITTEE encoding version " + version);

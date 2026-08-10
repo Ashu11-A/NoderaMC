@@ -270,26 +270,33 @@ public final class WorkerControlHandler implements ControlHandler {
         // real per-peer throughput. The membership view supplies identity/route/agent; the
         // per-peer meter supplies the bytes actually moved with each of them.
         List<String> peerJson = new ArrayList<>();
+        // Read the meter ONCE per state poll rather than once per member. Beyond the obvious, this
+        // is the meter's production readout (issue #218): its idle sweep is driven by the recording
+        // side, but nothing ever asked it for a table, so the class shipped with a reader that was
+        // never read.
+        java.util.Map<NodeId, PeerTrafficMeter.PeerTraffic> perPeer =
+                peerMeter == null ? java.util.Map.of() : peerMeter.byNode();
         for (dev.nodera.protocol.membership.PeerEntry member : runtime.sessionView().members()) {
             if (member.nodeId().equals(self)) {
                 continue;
             }
-            PeerTrafficMeter.PeerTraffic traffic =
-                    peerMeter == null ? null : peerMeter.forNode(member.nodeId());
+            PeerTrafficMeter.PeerTraffic traffic = perPeer.get(member.nodeId());
             // The route the peer publishes is where we dial it; the meter's route is where bytes
             // actually crossed. Prefer the published one and fall back to the observed one.
             String route = member.route();
             if ((route == null || route.isBlank()) && traffic != null) {
                 route = traffic.route();
             }
-            peerJson.add("{\"node_id\":\"" + escape(member.nodeId().value().toString()) + "\","
-                    + "\"route\":\"" + escape(nullToEmpty(route)) + "\","
-                    + "\"path\":\"" + escape(pathOf(route)) + "\","
-                    + "\"client\":\"" + escape(clientOf(member)) + "\","
-                    + "\"up_bytes_per_sec\":" + (traffic == null ? 0 : traffic.txBytesPerSec()) + ","
-                    + "\"down_bytes_per_sec\":" + (traffic == null ? 0 : traffic.rxBytesPerSec()) + ","
-                    + "\"total_up_bytes\":" + (traffic == null ? 0 : traffic.totalTxBytes()) + ","
-                    + "\"total_down_bytes\":" + (traffic == null ? 0 : traffic.totalRxBytes()) + "}");
+            peerJson.add(Json.object()
+                    .str("node_id", member.nodeId().value().toString())
+                    .str("route", route)
+                    .str("path", pathOf(route))
+                    .str("client", clientOf(member))
+                    .num("up_bytes_per_sec", traffic == null ? 0 : traffic.txBytesPerSec())
+                    .num("down_bytes_per_sec", traffic == null ? 0 : traffic.rxBytesPerSec())
+                    .num("total_up_bytes", traffic == null ? 0 : traffic.totalTxBytes())
+                    .num("total_down_bytes", traffic == null ? 0 : traffic.totalRxBytes())
+                    .end());
         }
 
         // Worlds this worker keeps discoverable. Beyond the identity fields the multiplayer UI
@@ -319,58 +326,33 @@ public final class WorkerControlHandler implements ControlHandler {
             // player most needs to see that help exists is the one where the report is null, so
             // the question has to be asked of the tracker directly.
             int holders = archive == null ? 0 : archive.holdersFor(world.worldIdHex()).size();
-            worldJson.add("{\"world_id\":\"" + escape(world.worldIdHex()) + "\",\"name\":\""
-                    + escape(world.name()) + "\",\"players\":" + world.players()
-                    + ",\"mc_route\":\"" + (mc == null ? "" : escape(mc)) + "\""
-                    + ",\"added_at\":" + world.addedAtEpochMillis()
-                    + ",\"updated_at\":" + world.updatedAtEpochMillis()
-                    + ",\"total_bytes\":" + (report == null ? 0 : report.totalBytes())
-                    + ",\"checksum\":\""
-                    + (report == null ? "" : escape(report.manifestRoot().toHex())) + "\""
-                    + ",\"version\":" + (report == null ? 0 : report.version())
-                    + ",\"piece_count\":" + (report == null ? 0 : report.pieceCount())
-                    + ",\"pieces_held\":" + (report == null ? 0 : report.heldCount())
-                    + ",\"seeders\":" + holders
-                    // The backup picture, as arithmetic rather than as a feeling. `copies` counts
-                    // this node's own full copy plus every peer known to hold pieces; `wanted` is
-                    // what ReplicationTarget asks of a network this size — capped by that size, so
-                    // a small swarm is told to put a full copy on every peer; and the risk is
-                    // (1-availability)^copies, which is what makes the target arguable on screen
-                    // instead of asserted.
-                    + ",\"backup_copies\":" + backupCopies(report, holders)
-                    + ",\"backup_copies_wanted\":" + BACKUP_TARGET.replicasFor(holders + 1)
-                    + ",\"loss_risk_permille\":"
-                    + BACKUP_TARGET.lossRiskPermille(backupCopies(report, holders))
+            worldJson.add(content(Json.object()
+                            .str("world_id", world.worldIdHex())
+                            .str("name", world.name())
+                            .num("players", world.players())
+                            .str("mc_route", mc)
+                            .num("added_at", world.addedAtEpochMillis())
+                            .num("updated_at", world.updatedAtEpochMillis()),
+                    world.worldIdHex(), report, holders)
                     // Whether any tracker actually took this world's last announce. A world can be
                     // hosted, seeded and complete here and still be invisible to everyone else;
                     // without these two numbers the app can only report what this node INTENDED.
-                    + ",\"listed_on_trackers\":" + world.listedOnTrackers()
-                    + ",\"announced_to_trackers\":" + world.announcedToTrackers()
-                    + ",\"seeding\":" + world.seeding()
+                    .num("listed_on_trackers", world.listedOnTrackers())
+                    .num("announced_to_trackers", world.announcedToTrackers())
+                    .bool("seeding", world.seeding())
                     // The third, independent fact: is somebody on THIS machine playing in it right
                     // now. Neither "seeding" nor "owned" can answer that — a player joins worlds
                     // they neither run nor authored, which is the ordinary case and was the one the
                     // companion app had no way to show.
-                    + ",\"connected\":" + world.connected()
+                    .bool("connected", world.connected())
                     // Ownership. "seeding" says what this node DOES with the world; "owned" says
                     // whether it may speak for it. They are independent: a node can host a world it
                     // did not create (it fetched and re-shared it), and can administer a world it is
                     // currently only seeding. The app renders them as two different lists, so
                     // collapsing them into one flag here would make that impossible.
-                    + ",\"owned\":" + world.owned()
-                    // What this node PROCESSES, as distinct from what it stores. The archive
-                    // counters above describe a copy of somebody's save; this counts the regions
-                    // of the live world whose validated snapshots are committed and seeded here —
-                    // the chunks this machine is actually answerable for.
-                    //
-                    // Without it the app could only ever describe a node as a file host, so two
-                    // players sharing a world both read as "Supporting for the network" whatever
-                    // the ownership plan had actually given them, and "is anybody but the host
-                    // doing any work?" had no answer anywhere on screen.
-                    + ",\"regions_held\":"
-                    + (archive == null ? 0 : archive.heldRegions(world.worldIdHex()).size())
-                    + ",\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\""
-                    + "}");
+                    .bool("owned", world.owned())
+                    .base64("world_public_key", world.worldPublicKey())
+                    .end());
         }
 
         // Archive-only worlds are replicated for the network, not hosted or joinable here.
@@ -389,41 +371,32 @@ public final class WorkerControlHandler implements ControlHandler {
                 totalPieces += report.pieceCount();
                 totalHeldPieces += report.heldCount();
                 int holders = archive.holdersFor(worldIdHex).size();
-                worldJson.add("{\"world_id\":\"" + escape(worldIdHex) + "\",\"name\":\""
-                        + escape(worldIdHex) + "\""
-                        // -1 is the worker's "nobody in that world has reported to me", which is
-                        // always true here: a replication peer has no game in the world.
-                        + ",\"players\":-1"
-                        + ",\"mc_route\":\"\""
-                        + ",\"added_at\":0"
-                        + ",\"updated_at\":0"
-                        + ",\"total_bytes\":" + report.totalBytes()
-                        + ",\"checksum\":\"" + escape(report.manifestRoot().toHex()) + "\""
-                        + ",\"version\":" + report.version()
-                        + ",\"piece_count\":" + report.pieceCount()
-                        + ",\"pieces_held\":" + report.heldCount()
-                        + ",\"seeders\":" + holders
-                        + ",\"backup_copies\":" + backupCopies(report, holders)
-                        + ",\"backup_copies_wanted\":" + BACKUP_TARGET.replicasFor(holders + 1)
-                        + ",\"loss_risk_permille\":"
-                        + BACKUP_TARGET.lossRiskPermille(backupCopies(report, holders))
+                worldJson.add(content(Json.object()
+                                .str("world_id", worldIdHex)
+                                .str("name", worldIdHex)
+                                // -1 is the worker's "nobody in that world has reported to me",
+                                // which is always true here: a replication peer has no game in it.
+                                .num("players", -1)
+                                .str("mc_route", "")
+                                .num("added_at", 0)
+                                .num("updated_at", 0),
+                        worldIdHex, report, holders)
                         // This node never announced it, so it can say nothing about whether a
                         // tracker took an announce for it.
-                        + ",\"listed_on_trackers\":0"
-                        + ",\"announced_to_trackers\":0"
-                        + ",\"seeding\":true"
-                        + ",\"connected\":false"
-                        + ",\"owned\":false"
-                        + ",\"regions_held\":" + archive.heldRegions(worldIdHex).size()
-                        + ",\"world_public_key\":\"\""
-                        + "}");
+                        .num("listed_on_trackers", 0)
+                        .num("announced_to_trackers", 0)
+                        .bool("seeding", true)
+                        .bool("connected", false)
+                        .bool("owned", false)
+                        .str("world_public_key", "")
+                        .end());
             }
         }
 
         // The worker's declared roles (BOOTSTRAP / FULL_ARCHIVE / REGION_VALIDATOR …).
-        List<String> roleJson = new ArrayList<>();
+        List<String> roleNames = new ArrayList<>();
         for (PeerRole role : capabilities.roles()) {
-            roleJson.add("\"" + role.name() + "\"");
+            roleNames.add(role.name());
         }
 
         long uptimeSeconds = Math.max(0, (System.currentTimeMillis() - startedAtMillis) / 1000);
@@ -434,48 +407,90 @@ public final class WorkerControlHandler implements ControlHandler {
         // started worker: the dashboard and the mod must never be able to tell the difference
         // between "no role" and "not in a run", because there is none.
         TestMode mode = testMode;
-        String roleField = mode == null || !mode.enabled() ? "" : mode.stateFragment() + ",";
 
-        return "{"
-                + roleField
-                + "\"node_id\":\"" + escape(self.value().toString()) + "\","
-                + "\"worker_version\":\"" + escape(version) + "\","
-                + "\"client\":\"" + escape(dev.nodera.core.NoderaConstants.CLIENT_AGENT) + "\","
-                + "\"uptime_seconds\":" + uptimeSeconds + ","
-                + "\"is_gateway\":" + runtime.isGateway() + ","
-                + "\"self_route\":\"" + escape(nullToEmpty(runtime.selfRoute())) + "\","
-                + "\"roles\":[" + String.join(",", roleJson) + "],"
-                + "\"maintained_pieces\":" + (archive == null ? 0 : archive.maintainedPieces()) + ","
-                + "\"maintained_bytes\":" + (archive == null ? 0 : archive.maintainedBytes()) + ","
-                + "\"total_sent_bytes\":" + sent + ","
-                + "\"total_received_bytes\":" + received + ","
-                + "\"total_chunks\":" + totalPieces + ","
+        return Json.object()
+                .fields(mode == null || !mode.enabled() ? "" : mode.stateFragment())
+                .str("node_id", self.value().toString())
+                .str("worker_version", version)
+                .str("client", dev.nodera.core.NoderaConstants.CLIENT_AGENT)
+                .num("uptime_seconds", uptimeSeconds)
+                .bool("is_gateway", runtime.isGateway())
+                .str("self_route", runtime.selfRoute())
+                .strings("roles", roleNames)
+                .num("maintained_pieces", archive == null ? 0 : archive.maintainedPieces())
+                .num("maintained_bytes", archive == null ? 0 : archive.maintainedBytes())
+                .num("total_sent_bytes", sent)
+                .num("total_received_bytes", received)
+                .num("total_chunks", totalPieces)
                 // Ratio and availability are permille integers so every consumer renders the same
                 // number — no float formatting drift between the Rust UI and the Minecraft HUD.
-                + "\"share_ratio_permille\":" + shareRatioPermille(sent, received) + ","
-                + "\"availability_permille\":" + availabilityPermille(totalHeldPieces, totalPieces) + ","
-                + "\"peers\":[" + String.join(",", peerJson) + "],"
-                + "\"connected_worlds\":[" + String.join(",", worldJson) + "],"
-                + "\"trackers\":[" + endpointArray(hosting.trackerHealth()) + "],"
-                + "\"rendezvous\":[" + endpointArray(hosting.rendezvousHealth()) + "],"
-                + validationJson()
+                .num("share_ratio_permille", shareRatioPermille(sent, received))
+                .num("availability_permille", availabilityPermille(totalHeldPieces, totalPieces))
+                .array("peers", peerJson)
+                .array("connected_worlds", worldJson)
+                .array("trackers", endpointRows(hosting.trackerHealth()))
+                .array("rendezvous", endpointRows(hosting.rendezvousHealth()))
+                .fields(validationJson())
                 // Whether this node is currently moving content bytes at all. Without it a paused
                 // node — battery rule, tray toggle, manual pause — looks exactly like a broken one:
                 // zero throughput and no explanation. The app renders it as a "Paused" pill.
-                + "\"transfers_paused\":" + transfersPaused() + ","
+                .bool("transfers_paused", transfersPaused())
                 // Inbound sockets turned away by the connection cap. A climbing value is the only
                 // signal that distinguishes "my cap is too low" from "nobody is connecting".
-                + "\"refused_connections\":" + refusedConnections() + ","
+                .num("refused_connections", refusedConnections())
                 // The LAN block rides STATE so the companion app learns about a world being opened
                 // on the same push that carries everything else — a modal that needed its own poll
                 // would appear seconds after the player pressed the button.
-                + "\"lan\":" + lanBlock() + ","
-                + "\"daemon_up\":true,"
+                .raw("lan", lanBlock())
+                .bool("daemon_up", true)
                 // The consent state travels with the metrics so the app and the mod both read one
                 // source of truth for it. A worker with no emitter reports "unanswered" rather than
                 // omitting the block — an absent field would be indistinguishable from a denial.
-                + "\"telemetry\":" + telemetryJson()
-                + "}";
+                .raw("telemetry", telemetryJson())
+                .end();
+    }
+
+    /**
+     * The fields a world row carries about the <b>content</b> behind it, for the two callers that
+     * both emit one — the worlds this node hosts, and the worlds it only replicates.
+     *
+     * <p>These twenty-two fields were written out twice, and the copies had already drifted: the
+     * replication row's name was escaped by a different route and its {@code checksum} was rendered
+     * even when the report was absent. A row is one shape or it is two APIs.
+     *
+     * <p>The backup picture is arithmetic rather than a feeling. {@code backup_copies} counts this
+     * node's own full copy plus every peer known to hold pieces; {@code wanted} is what
+     * {@code ReplicationTarget} asks of a network this size — capped by that size, so a small swarm
+     * is told to put a full copy on every peer; and the risk is {@code (1-availability)^copies},
+     * which is what makes the target arguable on screen instead of asserted.
+     *
+     * <p>{@code regions_held} is what this node PROCESSES, as distinct from what it stores. The
+     * archive counters describe a copy of somebody's save; this counts the regions of the live world
+     * whose validated snapshots are committed and seeded here — the chunks this machine is actually
+     * answerable for. Without it the app could only ever describe a node as a file host, so two
+     * players sharing a world both read as "Supporting for the network" whatever the ownership plan
+     * had actually given them.
+     *
+     * @param row        the row so far, with the caller's own identity fields already on it.
+     * @param worldIdHex the world.
+     * @param report     the piece report, or {@code null} when this node holds no manifest for it.
+     * @param holders    how many other peers are known to hold it.
+     * @return the same row, for chaining.
+     */
+    private Json content(Json row, String worldIdHex, WorldArchiveService.PieceReport report,
+                         int holders) {
+        return row
+                .num("total_bytes", report == null ? 0 : report.totalBytes())
+                .str("checksum", report == null ? "" : report.manifestRoot().toHex())
+                .num("version", report == null ? 0 : report.version())
+                .num("piece_count", report == null ? 0 : report.pieceCount())
+                .num("pieces_held", report == null ? 0 : report.heldCount())
+                .num("seeders", holders)
+                .num("backup_copies", backupCopies(report, holders))
+                .num("backup_copies_wanted", BACKUP_TARGET.replicasFor(holders + 1))
+                .num("loss_risk_permille",
+                        BACKUP_TARGET.lossRiskPermille(backupCopies(report, holders)))
+                .num("regions_held", archive == null ? 0 : archive.heldRegions(worldIdHex).size());
     }
 
     /**
@@ -487,10 +502,11 @@ public final class WorkerControlHandler implements ControlHandler {
      */
     private String lanBlock() {
         String json = lanJson();
-        return json == null
-                ? "{\"supported\":false,\"reason\":\"" + escape(lanUnavailableReason())
-                        + "\",\"sessions\":[]}"
-                : json;
+        return json != null ? json : Json.object()
+                .bool("supported", false)
+                .str("reason", lanUnavailableReason())
+                .array("sessions", List.of())
+                .end();
     }
 
     /** Why this worker is not watching for LAN worlds. Empty is not an answer, so there is a default. */
@@ -504,10 +520,7 @@ public final class WorkerControlHandler implements ControlHandler {
     /** The {@code telemetry} block of the state JSON. */
     private String telemetryJson() {
         WorkerTelemetryService service = telemetry;
-        return service == null
-                ? "{\"consent\":\"unanswered\",\"endpoint\":\"\",\"queued\":0,\"dropped\":0,"
-                        + "\"sent\":0,\"last_attempt\":0,\"last_error\":\"\"}"
-                : service.stateJson();
+        return service == null ? WorkerTelemetryService.NO_EMITTER_JSON : service.stateJson();
     }
 
     @Override
@@ -619,21 +632,21 @@ public final class WorkerControlHandler implements ControlHandler {
         if (report == null) {
             return null;
         }
-        List<String> holderJson = new ArrayList<>();
+        List<String> holders = new ArrayList<>();
         for (NodeId holder : report.holders()) {
-            holderJson.add("\"" + escape(holder.value().toString()) + "\"");
+            holders.add(holder.value().toString());
         }
-        return "{"
-                + "\"world_id\":\"" + escape(report.worldIdHex()) + "\","
-                + "\"manifest_root\":\"" + escape(report.manifestRoot().toHex()) + "\","
-                + "\"version\":" + report.version() + ","
-                + "\"piece_count\":" + report.pieceCount() + ","
-                + "\"held_count\":" + report.heldCount() + ","
-                + "\"total_bytes\":" + report.totalBytes() + ","
-                + "\"held_bitmap\":\""
-                + Base64.getEncoder().encodeToString(report.held().toByteArray()) + "\","
-                + "\"holders\":[" + String.join(",", holderJson) + "]"
-                + "}";
+        return Json.object()
+                .str("world_id", report.worldIdHex())
+                .str("manifest_root", report.manifestRoot().toHex())
+                .num("version", report.version())
+                .num("piece_count", report.pieceCount())
+                .num("held_count", report.heldCount())
+                .num("total_bytes", report.totalBytes())
+                .str("held_bitmap",
+                        Base64.getEncoder().encodeToString(report.held().toByteArray()))
+                .strings("holders", holders)
+                .end();
     }
 
     /**
@@ -645,17 +658,17 @@ public final class WorkerControlHandler implements ControlHandler {
             return "";
         }
         var s = validation.snapshot();
-        return "\"validation\":{"
-                + "\"active_regions\":" + s.activeRegions() + ","
-                + "\"proposals_sent\":" + s.proposalsSent() + ","
-                + "\"votes_cast\":" + s.votesCast() + ","
-                + "\"votes_received\":" + s.votesReceived() + ","
-                + "\"committee_commits\":" + s.committeeCommits() + ","
-                + "\"fallback_commits\":" + s.fallbackCommits() + ","
+        return "\"validation\":" + Json.object()
+                .num("active_regions", s.activeRegions())
+                .num("proposals_sent", s.proposalsSent())
+                .num("votes_cast", s.votesCast())
+                .num("votes_received", s.votesReceived())
+                .num("committee_commits", s.committeeCommits())
+                .num("fallback_commits", s.fallbackCommits())
                 // Issue #5's Phase-1 gate is a NUMBER, and this is where a scripted soak reads it.
-                + "\"divergences\":" + s.divergences() + ","
-                + "\"region_roots\":{" + regionRootsJson() + "}"
-                + "},";
+                .num("divergences", s.divergences())
+                .raw("region_roots", "{" + regionRootsJson() + "}")
+                .end();
     }
 
     /**
@@ -680,8 +693,10 @@ public final class WorkerControlHandler implements ControlHandler {
                 long version = validation.currentSnapshot(region)
                         .map(snapshot -> snapshot.version().value())
                         .orElse(-1L);
-                rows.add("\"" + escape(regionKey(region)) + "\":{\"root\":\""
-                        + root.hash().toHex() + "\",\"version\":" + version + "}");
+                rows.add("\"" + Json.escape(regionKey(region)) + "\":" + Json.object()
+                        .str("root", root.hash().toHex())
+                        .num("version", version)
+                        .end());
             });
         }
         return String.join(",", rows);
@@ -1110,15 +1125,17 @@ public final class WorkerControlHandler implements ControlHandler {
     public String worldsJson() {
         List<String> rows = new ArrayList<>();
         for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
-            rows.add("{\"world_id\":\"" + escape(world.worldIdHex()) + "\","
-                    + "\"name\":\"" + escape(world.name()) + "\","
-                    + "\"role\":\"" + (world.seeding() ? "supported" : "shared") + "\","
-                    + "\"owned\":" + world.owned() + ","
-                    + "\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\","
-                    + "\"added_at\":" + world.addedAtEpochMillis() + ","
-                    + "\"updated_at\":" + world.updatedAtEpochMillis() + "}");
+            rows.add(Json.object()
+                    .str("world_id", world.worldIdHex())
+                    .str("name", world.name())
+                    .str("role", world.seeding() ? "supported" : "shared")
+                    .bool("owned", world.owned())
+                    .base64("world_public_key", world.worldPublicKey())
+                    .num("added_at", world.addedAtEpochMillis())
+                    .num("updated_at", world.updatedAtEpochMillis())
+                    .end());
         }
-        return "{\"worlds\":[" + String.join(",", rows) + "]}";
+        return Json.object().array("worlds", rows).end();
     }
 
     @Override
@@ -1359,11 +1376,6 @@ public final class WorkerControlHandler implements ControlHandler {
             lanUnavailable = lanUnavailable == null ? "" : lanUnavailable;
         }
 
-        /** Backwards-compatible constructor for an embedding with a working LAN lane. */
-        public LiveLanes(LanSessionService lan, dev.nodera.peer.tunnel.TunnelService tunnel,
-                         dev.nodera.peer.discovery.TrackerClient tracker, List<String> rendezvous) {
-            this(lan, tunnel, tracker, rendezvous, "");
-        }
     }
 
     @Override
@@ -1373,13 +1385,19 @@ public final class WorkerControlHandler implements ControlHandler {
         }
         List<String> rows = new ArrayList<>();
         for (LanSessionService.Session session : lanes.lan().sessions()) {
-            rows.add("{\"session_id\":\"" + escape(session.sessionIdHex()) + "\","
-                    + "\"name\":\"" + escape(session.name()) + "\","
-                    + "\"port\":" + session.port() + ","
-                    + "\"state\":\"" + session.state().name().toLowerCase(java.util.Locale.ROOT) + "\","
-                    + "\"detected_at\":" + session.detectedAtEpochMillis() + "}");
+            rows.add(Json.object()
+                    .str("session_id", session.sessionIdHex())
+                    .str("name", session.name())
+                    .num("port", session.port())
+                    .str("state", session.state().name().toLowerCase(java.util.Locale.ROOT))
+                    .num("detected_at", session.detectedAtEpochMillis())
+                    .end());
         }
-        return "{\"supported\":true,\"reason\":\"\",\"sessions\":[" + String.join(",", rows) + "]}";
+        return Json.object()
+                .bool("supported", true)
+                .str("reason", "")
+                .array("sessions", rows)
+                .end();
     }
 
     @Override
@@ -1405,20 +1423,21 @@ public final class WorkerControlHandler implements ControlHandler {
             String worldId = entry.genesisHash().toHex();
             // A world this node is itself hosting is still listed: a player with two machines is a
             // real case, and hiding your own worlds from the browser would look like a bug.
-            rows.add("{\"session_id\":\"" + escape(worldId) + "\","
-                    + "\"name\":\"" + escape(entry.worldName()) + "\","
+            rows.add(Json.object()
+                    .str("session_id", worldId)
+                    .str("name", entry.worldName())
                     // The tracker counts live ANNOUNCING PEERS for a swarm; it never learns who
                     // is inside a world. Sent under its real name so no screen can render it as a
                     // player count again — which is what "3 players" over three seeders of an empty
                     // world was.
-                    + "\"peers\":" + entry.worldPlayerCount() + ","
-                    + "\"pieces\":" + entry.storedChunks() + ","
-                    + "\"health\":\"" + entry.health().name().toLowerCase(java.util.Locale.ROOT) + "\","
-                    + "\"mine\":" + hosting.hostedWorlds().stream()
-                            .anyMatch(w -> w.worldIdHex().equalsIgnoreCase(worldId))
-                    + "}");
+                    .num("peers", entry.worldPlayerCount())
+                    .num("pieces", entry.storedChunks())
+                    .str("health", entry.health().name().toLowerCase(java.util.Locale.ROOT))
+                    .bool("mine", hosting.hostedWorlds().stream()
+                            .anyMatch(w -> w.worldIdHex().equalsIgnoreCase(worldId)))
+                    .end());
         }
-        return "{\"worlds\":[" + String.join(",", rows) + "]}";
+        return Json.object().array("worlds", rows).end();
     }
 
     @Override
@@ -1532,24 +1551,14 @@ public final class WorkerControlHandler implements ControlHandler {
         private final dev.nodera.storage.fs.FsContentStore contentStore;
 
         /**
-         * @param content     the piece plane (upload/download bounds, the pause flag); nullable.
-         * @param replication the replication lane (byte budget, sweep cadence); nullable.
-         * @param transport   the socket transport (connection cap); nullable.
-         * @param tracker     the node's shared tracker client (endpoint list); nullable.
-         */
-        public ConfigSeams(dev.nodera.distribution.ContentTransferService content,
-                           WorldReplicationService replication,
-                           dev.nodera.transport.socket.SocketPeerTransport transport,
-                           dev.nodera.peer.discovery.TrackerClient tracker) {
-            this(content, replication, transport, tracker, null);
-        }
-
-        /**
-         * As above, plus the relocatable blob store behind {@code storage.peer_worlds_dir} (L-58).
-         *
-         * @param contentStore the on-disk content store, or {@code null} when this embedding has
-         *                     none — the archive-directory key is then {@code rejected} with a
-         *                     reason rather than silently reported as applied.
+         * @param content      the serve/download lane (byte budgets); nullable.
+         * @param replication  the replication lane (byte budget, sweep cadence); nullable.
+         * @param transport    the socket transport (connection cap); nullable.
+         * @param tracker      the node's shared tracker client (endpoint list); nullable.
+         * @param contentStore the relocatable blob store behind {@code storage.peer_worlds_dir}
+         *                     (L-58), or {@code null} when this embedding has none — the
+         *                     archive-directory key is then {@code rejected} with a reason rather
+         *                     than silently reported as applied.
          */
         public ConfigSeams(dev.nodera.distribution.ContentTransferService content,
                            WorldReplicationService replication,
@@ -1807,9 +1816,9 @@ public final class WorkerControlHandler implements ControlHandler {
         if (config.tracker != null) {
             List<String> routes = new ArrayList<>();
             for (var e : config.tracker.endpoints()) {
-                routes.add("\"" + escape(e.toString()) + "\"");
+                routes.add(e.toString());
             }
-            fields.add("\"" + K_TRACKERS + "\":[" + String.join(",", routes) + "]");
+            fields.add("\"" + K_TRACKERS + "\":[" + Json.strings(routes) + "]");
         }
         return "{" + String.join(",", fields) + "}";
     }
@@ -1860,21 +1869,11 @@ public final class WorkerControlHandler implements ControlHandler {
     /** Render the outcome the app badges its settings from. Empty collections are still emitted. */
     private static String outcomeJson(List<String> applied, List<String> restartRequired,
                                       Map<String, String> rejected) {
-        List<String> appliedJson = new ArrayList<>(applied.size());
-        for (String key : applied) {
-            appliedJson.add("\"" + escape(key) + "\"");
-        }
-        List<String> restartJson = new ArrayList<>(restartRequired.size());
-        for (String key : restartRequired) {
-            restartJson.add("\"" + escape(key) + "\"");
-        }
-        List<String> rejectedJson = new ArrayList<>(rejected.size());
-        for (Map.Entry<String, String> e : rejected.entrySet()) {
-            rejectedJson.add("\"" + escape(e.getKey()) + "\":\"" + escape(e.getValue()) + "\"");
-        }
-        return "{\"applied\":[" + String.join(",", appliedJson) + "],"
-                + "\"restart_required\":[" + String.join(",", restartJson) + "],"
-                + "\"rejected\":{" + String.join(",", rejectedJson) + "}}";
+        return Json.object()
+                .strings("applied", applied)
+                .strings("restart_required", restartRequired)
+                .map("rejected", rejected)
+                .end();
     }
 
     /**
@@ -2039,15 +2038,18 @@ public final class WorkerControlHandler implements ControlHandler {
                 ? v.substring(1, v.length() - 1) : v;
     }
 
-    private static String endpointArray(List<WorldHostingService.EndpointHealth> health) {
+    private static List<String> endpointRows(List<WorldHostingService.EndpointHealth> health) {
         List<String> rows = new ArrayList<>(health.size());
         for (WorldHostingService.EndpointHealth e : health) {
-            rows.add("{\"host\":\"" + escape(e.host()) + "\",\"port\":" + e.port()
-                    + ",\"scheme\":\"" + escape(e.scheme()) + "\""
-                    + ",\"reachable\":" + e.reachable()
-                    + ",\"latency_ms\":" + e.latencyMillis() + "}");
+            rows.add(Json.object()
+                    .str("host", e.host())
+                    .num("port", e.port())
+                    .str("scheme", e.scheme())
+                    .bool("reachable", e.reachable())
+                    .num("latency_ms", e.latencyMillis())
+                    .end());
         }
-        return String.join(",", rows);
+        return rows;
     }
 
     private static Bytes decodeBytes(String b64) {
@@ -2093,36 +2095,4 @@ public final class WorkerControlHandler implements ControlHandler {
         }
     }
 
-    private static String nullToEmpty(String s) {
-        return s == null ? "" : s;
-    }
-
-    /** Base64 for a JSON string field; empty bytes render as {@code ""}, never as a placeholder. */
-    private static String base64(Bytes bytes) {
-        return bytes == null || bytes.isEmpty()
-                ? "" : Base64.getEncoder().encodeToString(bytes.toArray());
-    }
-
-    /** Minimal JSON string escaping for the hand-written state payload. */
-    private static String escape(String s) {
-        StringBuilder b = new StringBuilder(s.length() + 8);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '"' -> b.append("\\\"");
-                case '\\' -> b.append("\\\\");
-                case '\n' -> b.append("\\n");
-                case '\r' -> b.append("\\r");
-                case '\t' -> b.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        b.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        b.append(c);
-                    }
-                }
-            }
-        }
-        return b.toString();
-    }
 }

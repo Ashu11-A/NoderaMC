@@ -122,7 +122,7 @@ public record ChunkStamp(int chunkX, int chunkZ, Bytes contentHash, Hlc stamp)
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.CHUNK_STAMP).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CHUNK_STAMP, ENCODING_VERSION);
         w.writeU32(Integer.toUnsignedLong(chunkX));
         w.writeU32(Integer.toUnsignedLong(chunkZ));
         w.writeBytes(contentHash);
@@ -138,11 +138,7 @@ public record ChunkStamp(int chunkX, int chunkZ, Bytes contentHash, Hlc stamp)
      * @Thread-context any thread.
      */
     public static ChunkStamp decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CHUNK_STAMP) {
-            throw new IllegalStateException("expected CHUNK_STAMP tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.CHUNK_STAMP, "CHUNK_STAMP", ENCODING_VERSION);
         int chunkX = (int) r.readU32();
         int chunkZ = (int) r.readU32();
         Bytes hash = r.readBytesValue();

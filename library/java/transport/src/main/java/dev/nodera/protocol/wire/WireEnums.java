@@ -103,9 +103,21 @@ public final class WireEnums {
      * stand-in, which is what removes the one canonicality exception the conformance fuzz had to
      * allow: {@code UNKNOWN} used to re-encode as its own ordinal, so a decode-then-encode produced
      * different bytes from the ones it was handed.
+     *
+     * <p><b>Code 1 is reserved and has no sender in this build.</b> {@code NON_DELEGABLE_ENTITY}
+     * was the reason a node with no seat announced when it met an entity the engine does not
+     * model; that refusal was retired on 2026-07-29 (issue #236) because it deleted every region
+     * from the validated lane within seconds of a real world loading — an unmodelled entity is
+     * left to vanilla now, and there is nothing to announce. <b>The code stays assigned to this
+     * constant for ever.</b> Builds shipped before that date do send it, this build still decodes
+     * and re-checks it on the receive path ({@code WorkerValidationService.onRegionRefusal}), and a
+     * renumbering or a reuse would make an old peer's refusal read as a different condition
+     * entirely — which is a network split, not a cleanup. Nothing about "unused" applies here: the
+     * assignment is a promise to every peer that ever sent it.
      */
     public static final WireEnum<RegionRefusal.Reason> REGION_REFUSAL_REASON =
             WireEnum.builder(RegionRefusal.Reason.class)
+                    // Reserved, no sender since 2026-07-29 — see the javadoc above. Never reuse.
                     .code(1, RegionRefusal.Reason.NON_DELEGABLE_ENTITY)
                     .code(2, RegionRefusal.Reason.UNSUPPORTED_PALETTE)
                     .code(3, RegionRefusal.Reason.CHUNKS_NOT_LOADED)

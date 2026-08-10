@@ -6,7 +6,14 @@
      capability regresses, open a bug issue and add a NEW row to LIMITATIONS.md; do not edit history
      here. -->
 
-**Category:** network · **Last audit:** 2026-07-28 · Retired rows: **18**
+**Category:** network · **Last audit:** 2026-08-06 · Retired rows: **17**
+
+> 2026-08-06 — **L-36's retirement is withdrawn and the row is open again** in
+> [`LIMITATIONS.md`](LIMITATIONS.md) §B. Its evidence is preserved verbatim under "Withdrawn
+> retirement" at the foot of this file and is not counted in the total above. The short version: the
+> classes the row retired on were deleted in commit `24e6f0e` (issue #210) because no production
+> entry point could reach them, and a check on the commit before that deletion confirms they never
+> had a production caller in the first place. See the section itself for the evidence.
 
 > 2026-07-28 — **L-86 and L-89 retired** (issue #97). Their stated exit tests are all headless and all
 > green at the last gate, so by the binding rule ("retire when the stated exit test is green, not when
@@ -27,9 +34,8 @@
 | L-29 | Gateway election was rendezvous-hash only; capabilities were carried but not weighted | Within a tier, the peer with the highest bounded pure-integer weight (cores, memory, inverse latency, reliability, each clamped to a bucket) wins; the rendezvous score only spreads duty among equal-weight peers. Bootstrap preference and the deterministic tie-break are unchanged, so the order-independence property test still holds. `GatewayElectionTest.capabilityWeightIsBoundedPureIntegerMath`, `mostCapablePeerWins*` | [2](Task.2.md) | 2026-07-18 |
 | L-30 (first form) | The continuity beta meshed peers with gossiped membership but ran **no** committee re-execution or certified sync on the P2P lane | Both halves landed: committee validation over the transport (`WorkerQuorumValidationIT` — three companion-only workers propose, re-execute, vote, quorum-commit to the reference-engine root, and persist the co-signed certificate) and certified forward sync (`EventSyncQuery`/`EventSyncAnswer` + `EventSyncService`, proven by `EventSyncOverTransportIT`: a fresh peer pulls certified events and certificates over the `PeerTransport`, replays the chain, converges on the certified root, and an uncertified tail never syncs). A narrower live-soak row of the same id remains open | [2](Task.2.md) | 2026-07-23 |
 | L-32 | World data transferred whole-region only; pieces were not addressable and there was no multi-seeder swarm fetch | Chunk-section `PieceManifest` with `ContentRequest`/`Chunk`/`Availability`, deterministic rarest-first selection, resume-after-partial proven twice, and bad-piece rejection via hash-validate-before-accept. `PieceManifestTest`, `PieceSelectorTest`, `PieceReassemblerTest`, `DistributionIT` | [4](Task.4.md) | 2026-07-23 |
-| L-34 | No tracker, archive inventory, or multi-bootstrap: a peer learned the mesh only through single-bootstrap gossip | `TrackerServiceIT` drives the real tracker binary for peers, seeders, counts, and health; `ArchiveInventory` advertise/query works; `MultiBootstrapIT` joins via a configured list, a `CachedPeerStore` redial, and a signed `InvitationCodec` **with the original bootstrap offline** | [5](Task.5.md) | 2026-07-23 |
+| L-34 | No tracker, archive inventory, or multi-bootstrap: a peer learned the mesh only through single-bootstrap gossip | **Partly re-evidenced, partly withdrawn — 2026-08-06 (issue #210).** The row stays retired: a peer no longer learns the mesh only through single-bootstrap gossip, and the tracker half is stronger than ever. **Still proven:** `TrackerServiceIT` drives the real tracker binary for peers, seeders, counts, and health, and `PinnedTrackerEndpointsTest` pins that a companion config push may add trackers but may not remove the operator's. The seeder index moved rather than vanished — `ArchiveInventory` was a Java-side cache that only the deleted repair lane read, and the index now lives in the **Rust** tracker (`tracker/src/registry.rs`), fed by the `ManifestHolding` list on each `TrackerAnnounce` and answered as `ManifestSeeders`; its coverage is `cargo test -p nodera-tracker`. **No longer proven, and this is a real gap:** `MultiBootstrapIT` — three independent join routes with the original bootstrap **offline** — was deleted with `BootstrapClient`, `CachedPeerStore` and `InvitationCodec` (`0b02aa5`), which were a second discovery resolver superseded by `PeerDiscoveryService` + `TrackerClient`. The deletion is defensible; the *test* was the only assertion that no single host is a gatekeeper, and nothing replaces it. **Exit test needed:** a multi-tracker join written against `PeerDiscoveryService` showing a new peer reaches the mesh with its first tracker down. Recorded in [`TESTING.md`](TESTING.md) §2.1 | [5](Task.5.md) | 2026-07-23 (evidence rewritten 2026-08-06) |
 | L-35 | No replication placement or repair: content lived only where produced | Deterministic rendezvous placement (snapshot ×5, log ×4, compacted ×3, host exempt from R), the dynamic seed floor and per-peer cap, an audit diffing expected against live inventory, and a bounded repair service that verifies before recording and re-audits rather than trusting. `ArchiveRepairIT` re-creates missing replicas after a peer kill with no data loss | [6](Task.6.md) | 2026-07-23 |
-| L-36 | Reliability was a single proposal-outcome EMA | `ReliabilityScorer` blends correctness, connectivity, uptime, availability, and worlds-seeded in pure basis-point integer math. `ReliabilityScorerTest` pins same-inputs determinism, slash-to-zero, the assignment-floor gate, no single-factor dominance across weight configurations, and offline decay converging to the target without going below it | [7](Task.7.md) | 2026-07-23 |
 | L-37 | No client storage quota or eviction policy — remote-peered data could grow unbounded | `BoundedClientWorldStore` over a byte budget with `StorageQuotaManager` and `ArchiveEvictionPolicy`: oldest-cold-first within budget, pinned assigned-region current state **never** evicted (a loud quota error when only pinned remains or on an oversize blob), and eviction signalling repair including off-monitor callbacks | [7](Task.7.md) | 2026-07-23 |
 | L-38 | No retention-before-drop: worlds were never garbage-collected | `RetentionIT` pins the full lifecycle — zero-seeder countdown start, cancel-on-return clearing the surfaced deadline, earliest-proposed-deadline coordination so no peer can extend a world's life, drop-at-expiry, and a fresh retention life on re-seed. The countdown is network-visible: every announce carries the deadline | [7](Task.7.md) | 2026-07-23 |
 | L-39 | World content was plaintext on the network; any connected peer could read any chunk | Four halves: the encrypted piece plane (AES-GCM-256 per piece, deterministic nonces, ciphertext hashes and content ids so keyless seeders verify without the key); production KDF selection (Argon2id with PBKDF2 fallback, parameters travelling publicly); the join throttle (exponential lockouts; refused attempts never touch the KDF); and the worker seed half (`seedEncryptedArchive` encrypts before the blob touches the content store, so seeders move only ciphertext). `EncryptedDistributionIT`, `EncryptedRegionTest`, `EncryptedArchiveTest` — wrong password fails the GCM tag and yields *empty*, never garbage | [8](Task.8.md) | 2026-07-24 |
@@ -42,3 +48,48 @@
 | L-58 | The archive directory was reported as `restart_required`, and that framing hid the real defect: the blobs a node holds **are** its seeding obligations, so re-pointing the directory without moving them would leave a world listed on the tracker while every piece request missed — worse than refusing the change | `FsContentStore.relocateTo` moves the content first and re-points the store only after; content addressing makes it safe, since a blob's filename is its hash and a file already at the destination is byte-identical. The key moved out of the restart-required set into the applied path; an embedding without a relocatable store gets an honest `rejected` reason rather than a false success, and an empty path is refused rather than treated as a location. `FsContentStoreRelocationTest` (5) includes the durability half — a store **reopened** on the new directory finds the content — and `ConfigVerbIT` proves it end to end over the real control socket. The p2p bind port stays restart-required: an open listener is a different problem from a movable directory | [3](Task.3.md) | 2026-07-25 |
 | L-61 | The continuous archive stream grew the content store without bound: issue #43's streaming appends a full world archive every `archive.streamIntervalTicks` (2400 by default) and **every** version was kept, so an evening's session left dozens of whole-world snapshots on disk, all of them announced. L-37's quota answered this for `BoundedClientWorldStore`, which nothing in the running system constructs — the production path is `FsContentStore`, which had no budget (see **L-62**) | A retention **window** on the seeding path: `WorldArchiveService.trimToRetention` keeps the newest `retainedVersions` (default 3, floor 1, `NODERA_ARCHIVE_RETAINED_VERSIONS`) after every seed, plaintext and encrypted alike. A window rather than `supersedeOlderVersions`' cliff on purpose — keeping exactly one would evict the version a joiner is mid-fetch of, which is why the streaming path never called it. `ArchiveRetentionWindowTest`: 20 stream intervals leave 3 versions and drop 17 blobs from the store AND from `holdingsFor`, the encrypted stream is bounded too, and the newest archive is never evicted | [7](Task.7.md) | 2026-07-25 |
 | L-62 | The **production** content store had no byte budget. L-37 retired on `BoundedClientWorldStore` — quota, oldest-cold-first eviction, pinned-never-evicted, repair signalling — but nothing ever constructed it: the worker stores blobs in `FsContentStore`, which was unbounded | The policy is now wired where the bytes actually land. `FsContentStore.setBudgetBytes` enforces the L-37 rules against a real directory: oldest cold blob first by mtime (so LRU order survives a restart), pinned content never evicted, `QuotaException` when only pinned remains or the blob exceeds the whole budget, and every eviction handed to a listener **with its bytes** so repair can re-place the replica. Usage is recomputed from disk on open, so the first put after a restart is bounded too. `PinnableContentStore` is the seam both stores now share. The archive lane pins what this node SEEDS and leaves adopted replicas unpinned — a budget that could delete the host's own world to fit somebody else's replica would be worse than none. Operator setting: `NODERA_CONTENT_BUDGET` (unbounded by default, because this store also holds hosted worlds). `FsContentStoreQuotaTest` (8 cases, real `@TempDir`), `ArchiveRetentionWindowTest.aBoundedDiskStoreNeverEvictsTheWorldThisNodeSeeds` and `anEvictedVersionReleasesItsPin` | [7](Task.7.md) | 2026-07-25 |
+
+---
+
+## Withdrawn retirement
+
+<!-- AI-AGENT-INSTRUCTION: The row below is NOT retired and is NOT counted in the header total. It is
+     kept here because this file may never delete a row or soften an evidence cell. The row itself is
+     open again in LIMITATIONS.md §B, which is where its exit test lives. Do not move it back here
+     without an exit test that can be run against production behaviour. -->
+
+**L-36 returned to [`LIMITATIONS.md`](LIMITATIONS.md) §B on 2026-08-06.** Its exit test,
+`ReliabilityScorerTest`, was deleted together with `ReliabilityScorer`, `ReliabilityFactors` and
+`ReliabilityConfig` in commit `24e6f0e` (issue #210), so no version of this tree can run the check the
+retirement rested on.
+
+The deletion was correct and this reopening does not ask for it to be undone. The distinction that
+matters here is between a feature that was removed and a retirement that was staged on code nothing
+ran, and it was settled before anything else was written. At `24e6f0e^` — the commit immediately
+before the deletion — `git grep -l` over the whole tree for `ReliabilityScorer`, `ReliabilityFactors`
+and `ReliabilityConfig` returned nine paths: the three implementation files, their single test file,
+and five documents. There was no other Java file in the repository, production or test, that named any
+of the three. The shapes a name search can miss were checked too and none of them applies: the
+repository's only `Class.forName` call sites are a plugin dependency probe and an Argon2 availability
+probe, its one `META-INF/services` file registers test scenarios, and no Gradle or NeoForge entry
+point constructed a scorer. The commit's own transitive closure over `java.main` from the three real
+production entry points could not reach these classes, and the debugger-profiled run of the real
+`nodera-headless` worker never loaded them. Deleting them therefore removed no behaviour, because
+there was none to remove: peers never scored each other on five factors in a shipped build.
+
+What that means for the row is that it was never truly retired. The limitation it described —
+reliability being a single proposal-outcome EMA over proposal outcomes — is the state the production
+tree has always been in and is still in today: `ReliabilityLedger` computes
+`score ← (1-α)·score + α·outcome` and nothing blends anything else into it. The row is not reopening
+because something regressed; it is reopening because the register's rule is that a retirement rests on
+a check somebody can run, and this one never rested on production behaviour at all.
+
+The evidence as it stood on 2026-07-23 is preserved below, unchanged.
+`git show 24e6f0e^:library/java/engine/src/main/java/dev/nodera/coordinator/ReliabilityScorer.java`
+recovers the implementation, which is worth reading before the row is attempted again: the
+basis-point integer arithmetic is the part that should survive, because the reason the score has to be
+integral — every peer must compute the same number — has not changed.
+
+| ID | Limitation | Retirement evidence (withdrawn 2026-08-06) | Owner | Retired |
+|---|---|---|---|---|
+| L-36 | Reliability was a single proposal-outcome EMA | `ReliabilityScorer` blends correctness, connectivity, uptime, availability, and worlds-seeded in pure basis-point integer math. `ReliabilityScorerTest` pins same-inputs determinism, slash-to-zero, the assignment-floor gate, no single-factor dominance across weight configurations, and offline decay converging to the target without going below it. **⚠️ EVIDENCE WITHDRAWN 2026-08-06 (issue #210).** The three classes and the test were deleted in commit `24e6f0e`, so none of it can be re-proven from the tree — and, unlike the server category's L-62, the mechanism was never reachable from production at any point in its life, so the retirement described a property of the test suite rather than a property of the product. Reliability in the shipped build is, and always was, the single EMA this row was written to remove | [7](Task.7.md) | 2026-07-23 (withdrawn 2026-08-06) |

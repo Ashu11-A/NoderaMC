@@ -24,19 +24,6 @@ public final class ComponentRenderer {
 
     private ComponentRenderer() {}
 
-    /** @return the whole view as one multi-line {@link Component} (panels separated by a blank line). */
-    public static MutableComponent renderView(DiagnosticsView view) {
-        MutableComponent out = Component.empty();
-        List<Panel> panels = view.panels();
-        for (int i = 0; i < panels.size(); i++) {
-            if (i > 0) {
-                out.append(Component.literal("\n"));
-            }
-            out.append(renderPanel(panels.get(i)));
-        }
-        return out;
-    }
-
     /** @return one panel as a titled multi-line {@link Component}. */
     public static MutableComponent renderPanel(Panel panel) {
         MutableComponent out = Component.empty();

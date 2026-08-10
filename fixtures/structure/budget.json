@@ -1,13 +1,13 @@
 {
-  "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
-  "measured": "2026-08-05 on the full tree. Tightened by the region-hashing pass (Plan 10): the speculative diagnostic accessors that pass added were deleted rather than budgeted for, and the sweep took nine more with them \u2014 ChunkStamp#differsFrom, ChunkStampBook#clear/clock, HybridClock#node, Hlc#of, MutationGuard#mode, EncryptedRegion#piece, PieceDownloader#completion, ContentTransferService#manifestOf \u2014 plus ProposalManager's three and ReliabilityScorer's two, all of which section 2.3 reported as referenced by nothing at all, tests included. severe_cost_findings returns to 4 because WorldArchiveService#withLateArrivals no longer scans its holder list inside its own loop: the membership test now uses a set, which matters precisely when a fetch is struggling and the holder set is growing.",
+  "note": "Ratchet for the structural code report (`./gradlew :peer:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
+  "measured": "2026-08-10 on the MERGED PR #222 review-wave tree, re-measured by `./gradlew :peer:structureReport` on the merge commit rather than carried over from any one of the five review branches. Against the validation-pass stamp: test_only_classes 11 -> 10, test_only_methods 312 -> 309, unreachable_methods 115 -> 112, from deleting SaveRegion -- the last third of the per-.mca lane, whose two production consumers (RegionSplitArchive and WorldArchiveService.seedSaveRegion) this PR had already deleted, leaving a 208-line class driven only by its own suite -- and from making WorldArchive.manifestFor(RegionId, long, byte[]) private once both external callers were gone. Re-measuring rather than merging matters for the reason round 3 made concrete: a ratchet file describes exactly one tree, and no branch's tree survives the merge. never_referenced_methods at 2 still has no headroom; both are documented in STRUCTURE.md and each is a filed defect kept fixable-by-wiring rather than deleted.",
   "limits": {
     "dead_classes": 0,
-    "test_only_classes": 29,
-    "never_referenced_methods": 136,
-    "test_only_methods": 415,
-    "unreachable_methods": 267,
+    "test_only_classes": 10,
+    "never_referenced_methods": 2,
+    "test_only_methods": 309,
+    "unreachable_methods": 112,
     "huge_methods": 0,
-    "severe_cost_findings": 4
+    "severe_cost_findings": 3
   }
 }

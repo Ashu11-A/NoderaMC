@@ -7,10 +7,12 @@ package dev.nodera.core.region;
  * at any time, without loading a chunk into the game.</i> It is backed by the peer's world store,
  * never by the server's chunk cache — a chunk unloaded in Minecraft is still held by the node.
  *
- * <p>Custody is a <b>claim</b>, and claims get checked: see
- * {@code dev.nodera.peer.archival.CustodyAudit}. A node whose spot-check fails is downgraded to
- * {@link #VIEW}, loudly, and keeps playing — the world stays available, only the claim is
- * withdrawn.
+ * <p>Custody is a <b>claim</b>, and nothing in the network takes it on trust: every piece a node
+ * serves is hash-verified by the receiver against the manifest, so a node claiming {@code FULL} it
+ * cannot back simply fails to answer and is passed over. A spot-check auditor that would have
+ * downgraded such a node to {@link #VIEW} was written for Task 21 and never reached from a
+ * shipping entry point; it was deleted on 2026-08-06 (Plan 11 round 2, issue #210) rather than
+ * left here as a check nobody runs.
  *
  * <p><b>Custody never buys authority.</b> It breaks ties in the ownership plan only on an exact
  * geometric distance tie, and never outranks distance (see {@code ViewOwnershipPlanner} and

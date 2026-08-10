@@ -66,11 +66,6 @@ public final class TlvWriter {
         out.write((int) (v & 0xFF));
     }
 
-    /** Write an unsigned 8-bit field. */
-    public TlvWriter u8(int id, int value) {
-        return field(id, WireType.U8, new byte[] {(byte) value});
-    }
-
     /** Write an unsigned 16-bit field, big-endian. */
     public TlvWriter u16(int id, int value) {
         return field(id, WireType.U16, new byte[] {(byte) (value >>> 8), (byte) value});
@@ -99,11 +94,6 @@ public final class TlvWriter {
     /** Write a boolean as exactly 0 or 1. */
     public TlvWriter bool(int id, boolean value) {
         return field(id, WireType.BOOL, new byte[] {(byte) (value ? 1 : 0)});
-    }
-
-    /** Write raw bytes. */
-    public TlvWriter bytes(int id, byte[] value) {
-        return field(id, WireType.BYTES, value.clone());
     }
 
     /** Write raw bytes. */
@@ -219,8 +209,4 @@ public final class TlvWriter {
         return Bytes.unsafeWrap(out.toByteArray());
     }
 
-    /** Number of bytes written so far. */
-    public int size() {
-        return out.size();
-    }
 }

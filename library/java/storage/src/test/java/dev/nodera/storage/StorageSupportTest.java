@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The shared storage support types: EventChainGuard, RegionOrder, AtomicFileWriter. */
@@ -23,14 +24,30 @@ class StorageSupportTest {
 
     @Test
     void chainGuardAcceptsFirstEventOnEmptyLog() {
+        // These two accept-cases had NO assertion at all — the call was made and its outcome was
+        // whatever the JVM did next. A guard that returned unconditionally would have passed them,
+        // which is exactly the failure the reject-cases below exist to rule out. Stating "does not
+        // throw" is the whole claim, so it is now written down.
         CommittedEventEnvelope first = StoreFixtures.chainedEvent(StoreFixtures.REGION, 0);
-        EventChainGuard.checkAppend(first, -1L, null);
+        assertThatCode(() -> EventChainGuard.checkAppend(first, -1L, null))
+                .as("an empty log takes event 0, and takes no head root with it")
+                .doesNotThrowAnyException();
+        // …and the same envelope against a non-empty log does not, so the accepting call above
+        // reached the check rather than returning early.
+        assertThatThrownBy(() -> EventChainGuard.checkAppend(first, 3L, StoreFixtures.chainRoot(3)))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void chainGuardAcceptsChainedAppend() {
         CommittedEventEnvelope next = StoreFixtures.chainedEvent(StoreFixtures.REGION, 1);
-        EventChainGuard.checkAppend(next, 0L, StoreFixtures.chainRoot(0));
+        assertThatCode(() -> EventChainGuard.checkAppend(next, 0L, StoreFixtures.chainRoot(0)))
+                .as("event 1 follows event 0 when its prevRoot is event 0's root")
+                .doesNotThrowAnyException();
+        assertThatThrownBy(
+                () -> EventChainGuard.checkAppend(next, 0L, StoreFixtures.root("some-other-head")))
+                .as("and the same envelope against a different head is a broken chain")
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

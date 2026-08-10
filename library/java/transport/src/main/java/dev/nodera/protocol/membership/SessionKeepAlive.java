@@ -38,7 +38,13 @@ public record SessionKeepAlive(NodeId from, long seq, List<RegionProgress> regio
                     .thenComparingInt(p -> p.region().regionZ());
 
     /**
-     * Legacy convenience constructor. A caller that has no regional view reports empty progress.
+     * A keep-alive with no regional view: identity and sequence only.
+     *
+     * <p>This used to be called the legacy constructor, because body version 1 ended after
+     * {@code seq} and the v1 decoder built its result here. Version 1 is gone as of 0.2.0 and this
+     * is not: it is what {@link dev.nodera.protocol.session.PeerSession#shapeForEmit} emits for a
+     * peer that did not negotiate {@code KEEP_ALIVE_REGION_PROGRESS}, and what any sender with
+     * nothing regional to report sends. The shape outlived the version that introduced it.
      *
      * @param from the sender's stable id.
      * @param seq  monotonically increasing per-sender sequence number.

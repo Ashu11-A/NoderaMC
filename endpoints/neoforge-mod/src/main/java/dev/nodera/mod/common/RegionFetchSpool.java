@@ -160,11 +160,6 @@ public final class RegionFetchSpool implements AutoCloseable {
         }
     }
 
-    /** Allow {@code region} to be re-requested immediately (it changed, or a fetch is known stale). */
-    public void forget(RegionId region) {
-        lastAttempt.remove(region);
-    }
-
     @Override
     public void close() {
         fetches.shutdownNow();

@@ -40,11 +40,6 @@ public final class CorrelationTable<T> {
     /** A pending request: what was asked, when, and what the caller wants back. */
     private record Pending<T>(int kind, long issuedAtMillis, T context) {}
 
-    /** A table seeded from a random starting point. */
-    public CorrelationTable() {
-        this(new java.security.SecureRandom().nextLong() & Long.MAX_VALUE);
-    }
-
     /** A table seeded from a fixed starting point, for deterministic tests. */
     public CorrelationTable(long seed) {
         // 0 is reserved: it means "this is an event, do not look for a request".

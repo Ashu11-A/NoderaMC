@@ -201,11 +201,6 @@ public final class EndToEndCipher {
             this.initiator = initiator;
         }
 
-        /** @return whether this side initiated the circuit. */
-        public boolean isInitiator() {
-            return initiator;
-        }
-
         /**
          * Encrypt a frame: {@code nonce(12) || AES-GCM(plaintext)}.
          *

@@ -61,11 +61,6 @@ public final class RendezvousClient {
         this.readTimeout = Objects.requireNonNull(readTimeout, "readTimeout");
     }
 
-    /** @return this client's node id. */
-    public NodeId nodeId() {
-        return identity.nodeId();
-    }
-
     /**
      * Build and sign this peer's registration record.
      *

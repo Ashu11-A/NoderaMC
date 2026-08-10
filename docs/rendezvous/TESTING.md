@@ -43,13 +43,26 @@ Counts above were verified 2026-07-28 by grep against the source (`rg '#\[test\]
 ## 3. Java transport coverage
 
 - `TransportSelector` — direct over punched over relayed; demotion on path loss; bulk stream chunks
-  strongly avoid relayed paths.
+  strongly avoid relayed paths. **`PUNCHED` is ranked but never produced** — see the note below.
 - `EndToEndCipher` — loopback round-trip, identity binding, tamper rejection.
 - `CandidateDialer` — candidate ordering; reachable and unreachable dials.
-- `HolePunchCoordinator` — go-signal wait and candidate selection.
 - `RendezvousEndpoint` — `tcp://host:port` scheme stripping, IPv6 literals, malformed refusal.
 - `BootstrapAddressHasNoNodeIdTest` / `CallerRouteIsDirectTest` — the two structural dispatch fixes
   (NPE out of the heartbeat scheduler; caller route treated as direct).
+
+> **No punched path is tested because none is established (2026-08-06, issue #210).**
+> `HolePunchCoordinatorTest` used to appear in this list, covering go-signal wait and candidate
+> selection. `HolePunchCoordinator` was deleted in commit `1599250` because nothing dials through
+> it: `RendezvousPeerTransport` only ever attempts `Path.DIRECT` and falls back to `Path.RELAYED`,
+> so `Path.PUNCHED` is a rank in `TransportSelector`'s preference order that no code path ever
+> records a success or failure against. Two peers that cannot dial each other are always relayed.
+>
+> (The deletion commit justified this by saying `TransportSelector.Path` "has exactly two values".
+> It has three — `DIRECT`, `PUNCHED`, `RELAYED` — and `TransportSelector` still reasons about all
+> three. The conclusion was right and the reason was misstated: the gap is in the *dialer*, not the
+> enum. NAT traversal is not tested here because it is not implemented, and the Rust side's punch
+> go-signal ordering — listed under §2 — is the service half of a handshake the Java client never
+> completes.)
 
 ## 4. `RendezvousRelayIT` — the decisive scenario
 

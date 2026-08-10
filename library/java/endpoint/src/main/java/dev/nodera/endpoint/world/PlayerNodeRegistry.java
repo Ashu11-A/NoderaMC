@@ -3,7 +3,6 @@ package dev.nodera.endpoint.world;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -91,11 +90,6 @@ public final class PlayerNodeRegistry {
     /** @return the player's announced node, or {@code null}. */
     public static PlayerNode nodeOf(UUID player) {
         return NODES.get(player);
-    }
-
-    /** @return an insertion-stable snapshot of every announced player node. */
-    public static Map<UUID, PlayerNode> snapshot() {
-        return new LinkedHashMap<>(NODES);
     }
 
     /** Drop everything (server stopped). */

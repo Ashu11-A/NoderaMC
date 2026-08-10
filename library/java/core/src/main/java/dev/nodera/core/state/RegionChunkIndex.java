@@ -17,38 +17,19 @@ import java.util.Objects;
 
 /**
  * Every chunk in a region, hashed and stamped — the thing a peer compares instead of downloading.
+ * {@link #root()} is a merkle root over the stamps' <b>content</b>, so two peers establish
+ * "identical" by exchanging 32 bytes — and reach the same 32 bytes even though one of them wrote the
+ * terrain and the other received it. When those differ, {@link #changedSince} names the columns that
+ * actually differ, so a transfer is proportional to what someone did rather than to how big the
+ * world is. The tree (not a flat hash) is there for the next step: a peer can be handed a subtree
+ * root and a sibling path and verify a <i>particular</i> chunk belongs to a region's index without
+ * holding the rest of it.
  *
- * <h2>What this replaces</h2>
- *
- * <p>Freshness used to be a single monotonic counter per region, and identity a single flat hash
- * over a piece list. Together those answer exactly one question — "is your copy the same bytes as
- * mine?" — and the only available follow-up was "send me all of it". The measured consequence was a
- * peer re-downloading an entire world every two minutes because the host had repacked it, and
- * getting no credit for the 99% of it that had not changed.
- *
- * <p>An index answers the useful question instead. {@link #root()} is a merkle root over the
- * stamps' <b>content</b>, so two peers establish "identical" by exchanging 32 bytes — and reach the
- * same 32 bytes even though one of them wrote the terrain and the other received it. When those
- * differ, {@link #changedSince} names the columns that actually differ, and the transfer that
- * follows is proportional to what someone did rather than to how big the world is.
- *
- * <h2>Why a merkle root rather than a flat hash</h2>
- *
- * <p>A flat hash over the stamps would already give the 32-byte equality check. The tree is there
- * for the next step: a peer can be handed a subtree root and a sibling path and verify that a
- * <i>particular</i> chunk belongs to a region's index without holding the rest of it — which is what
- * lets a peer that is streaming one player's surroundings validate what it receives without first
- * fetching an index for terrain it will never look at.
- *
- * <h2>Why there is no version number here</h2>
- *
- * <p>An index deliberately carries no {@link SnapshotVersion}. A version is a <b>per-region chain
- * height</b> — how many times one committee has committed — and two peers that have been apart hold
- * heights that were counted independently and mean nothing to each other. Comparing them was the old
- * behaviour and the old bug: a region that happens to sit at height 900 outranked a genuinely more
- * recent column from a peer sitting at 3, and that peer's work was discarded. Recency lives in the
- * stamps' {@link Hlc}s, which are comparable across machines by construction; identity lives in
- * {@link #root()}, which is comparable because it is content. Neither needs a counter.
+ * <p>Deliberately carries no {@link SnapshotVersion} — why a version-per-region counter cannot
+ * decide which of two columns is more recent, and what this type replaced:
+ * {@code docs/engine/Task.2.md} §Design ("Why chunk freshness no longer runs through the consensus
+ * chain height"). Recency lives in the stamps' {@link Hlc}s, comparable across machines by
+ * construction; identity lives in {@link #root()}, comparable because it is content.
  *
  * <p>Wire form: {@code [u16 REGION_CHUNK_INDEX][u16 2][RegionId][list ChunkStamp][bytes root]}.
  * Stamps are canonically ordered by {@code (chunkX, chunkZ)} on construction, so the root is a
@@ -268,7 +249,7 @@ public record RegionChunkIndex(RegionId region, List<ChunkStamp> stamps, Bytes r
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.REGION_CHUNK_INDEX).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.REGION_CHUNK_INDEX, ENCODING_VERSION);
         region.encode(w);
         w.writeList(stamps, CanonicalWriter::writeEncodable);
         w.writeBytes(root);
@@ -283,11 +264,7 @@ public record RegionChunkIndex(RegionId region, List<ChunkStamp> stamps, Bytes r
      * @Thread-context any thread.
      */
     public static RegionChunkIndex decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_CHUNK_INDEX) {
-            throw new IllegalStateException("expected REGION_CHUNK_INDEX tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.REGION_CHUNK_INDEX, "REGION_CHUNK_INDEX", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         List<ChunkStamp> stamps = r.readList(ChunkStamp::decode);
         Bytes root = r.readBytesValue();

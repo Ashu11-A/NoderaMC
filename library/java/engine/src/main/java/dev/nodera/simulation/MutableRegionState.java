@@ -399,11 +399,6 @@ public final class MutableRegionState implements RegionWorldView {
         return containers.remove(pos);
     }
 
-    /** @return every container in canonical position order (unmodifiable snapshot). */
-    public List<dev.nodera.core.state.ContainerEntry> containers() {
-        return List.copyOf(containers.values());
-    }
-
     /**
      * Schedule a block tick at {@code executeAtLocalTick} (region-local time) with the
      * documented total order — insertion seq is assigned here, monotonically.

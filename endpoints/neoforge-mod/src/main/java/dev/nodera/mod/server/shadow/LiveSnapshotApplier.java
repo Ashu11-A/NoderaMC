@@ -1,9 +1,6 @@
 package dev.nodera.mod.server.shadow;
 
-import dev.nodera.core.NoderaConstants;
-import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.ChunkColumnState;
-import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.simulation.rules.FlatWorldRules;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -75,13 +72,6 @@ public final class LiveSnapshotApplier {
     public record Result(int columnsWritten, int columnsSkipped, int sectionsWritten,
                          int unmappable) {
 
-        Result plus(Result other) {
-            return new Result(columnsWritten + other.columnsWritten,
-                    columnsSkipped + other.columnsSkipped,
-                    sectionsWritten + other.sectionsWritten,
-                    unmappable + other.unmappable);
-        }
-
         /** @return whether anything at all was written. */
         public boolean wroteAnything() {
             return columnsWritten > 0;
@@ -89,33 +79,6 @@ public final class LiveSnapshotApplier {
     }
 
     private static final Result NOTHING = new Result(0, 0, 0, 0);
-
-    /**
-     * Write a whole region snapshot into the level.
-     *
-     * @param level        the level; its dimension must match the snapshot's region.
-     * @param snapshot     the state to write.
-     * @param applierScope the seam that marks these writes as the applier's rather than foreign;
-     *                     {@code null} runs them unmarked, which is only safe when the region is not
-     *                     delegated.
-     * @return what was written.
-     * @Thread-context server main thread.
-     */
-    public static Result apply(ServerLevel level, RegionSnapshot snapshot,
-                               java.util.function.Consumer<Runnable> applierScope) {
-        if (level == null || snapshot == null) {
-            throw new IllegalArgumentException("apply arguments must not be null");
-        }
-        Result total = NOTHING;
-        for (ChunkColumnState column : snapshot.chunks()) {
-            total = total.plus(applyColumn(level, column, applierScope));
-        }
-        LOG.debug("applied {} to {}: {} column(s) written, {} already held, {} section(s), {} "
-                        + "unmappable", snapshot.region(), level.dimension().location(),
-                total.columnsWritten(), total.columnsSkipped(), total.sectionsWritten(),
-                total.unmappable());
-        return total;
-    }
 
     /**
      * Write one chunk column.
@@ -273,26 +236,4 @@ public final class LiveSnapshotApplier {
         }
     }
 
-    /**
-     * The region a column belongs to — for callers holding columns rather than snapshots.
-     *
-     * @param level  the level, for its dimension.
-     * @param column the column.
-     * @return the region.
-     */
-    public static RegionId regionOf(ServerLevel level, ChunkColumnState column) {
-        return RegionId.fromChunk(
-                dev.nodera.mod.server.entity.MinecraftEntityAdapters.dimension(level),
-                Math.floorDiv(column.chunkX(), NoderaConstants.REGION_SIZE_CHUNKS)
-                        * NoderaConstants.REGION_SIZE_CHUNKS,
-                Math.floorDiv(column.chunkZ(), NoderaConstants.REGION_SIZE_CHUNKS)
-                        * NoderaConstants.REGION_SIZE_CHUNKS);
-    }
-
-    /** Convenience: the block position of a column-local coordinate. */
-    public static BlockPos posOf(ChunkColumnState column, int sectionIndex, int x, int y, int z) {
-        return new BlockPos(column.chunkX() * SECTION_EDGE + x,
-                column.minY() + sectionIndex * SECTION_EDGE + y,
-                column.chunkZ() * SECTION_EDGE + z);
-    }
 }

@@ -44,9 +44,15 @@ import java.util.function.Predicate;
  *
  * <h2>Safety</h2>
  *
- * <p>{@link #unpackInto} refuses absolute paths and any {@code ..} traversal segment — an archive
- * fetched from an untrusted swarm must never write outside its destination root. (Piece hashes
- * make corruption detectable; this guard makes a <i>maliciously crafted</i> archive inert.)
+ * <p>Entry names are attacker-chosen: an archive fetched from an untrusted swarm decides what the
+ * files inside it are called. Both {@link #pack} and {@link #unpack} refuse a name that is empty,
+ * absolute on <i>any</i> platform, contains a backslash, or holds a {@code ..} segment; {@link
+ * #unpackInto} additionally proves, per entry, that the resolved target is still inside the
+ * destination root — after making that root absolute, and following symbolic links, because a
+ * lexical check cannot see that a directory is a link to somewhere else. The guard is
+ * {@link ContainedPath}, shared with the headless stores so a fourth copy cannot drift from it.
+ * (Piece hashes make corruption detectable; this guard makes a <i>maliciously crafted</i> archive
+ * inert.)
  *
  * <p>Thread-context: stateless static helpers; safe for any thread.
  */
@@ -131,10 +137,12 @@ public final class WorldArchive {
     /**
      * Read a directory tree into a path → bytes map, applying the archive's path filter.
      *
-     * <p>Separate from {@link #packDirectory} because a save is not always packed whole: the
-     * region-addressed lane reads the same tree and packs one blob per {@link SaveRegion}. Both
-     * callers must see exactly the same file set, which is why they share this step rather than
-     * each walking the directory with their own filter.
+     * <p>Separate from {@link #packDirectory} because a save is not always packed whole: a
+     * per-{@code r.X.Z.mca} lane used to read the same tree and pack one blob per region file, and
+     * the two had to see exactly the same file set — which is why the walk is one shared step and
+     * not a filter each caller applies for itself. That lane has since been retired (it never had a
+     * caller), so {@code packDirectory} is the only caller today; the split is kept because the
+     * invariant it protects belongs to whoever reintroduces a second one.
      *
      * @param root   the directory to read.
      * @param filter which files to include, judged on the {@code /}-separated relative path.
@@ -142,7 +150,7 @@ public final class WorldArchive {
      * @throws UncheckedIOException on any read failure.
      * @Thread-context any thread; blocking I/O.
      */
-    public static SortedMap<String, byte[]> readDirectory(Path root, Predicate<String> filter) {
+    static SortedMap<String, byte[]> readDirectory(Path root, Predicate<String> filter) {
         TreeMap<String, byte[]> files = new TreeMap<>();
         try (var stream = Files.walk(root)) {
             for (Path p : (Iterable<Path>) stream::iterator) {
@@ -175,11 +183,10 @@ public final class WorldArchive {
         try {
             Files.createDirectories(root);
             for (Map.Entry<String, byte[]> e : files.entrySet()) {
-                Path target = root.resolve(e.getKey()).normalize();
-                if (!target.startsWith(root.normalize())) {
-                    throw new IllegalArgumentException(
-                            "archive entry escapes destination: " + e.getKey());
-                }
+                // One guard, shared with the two headless stores (ContainedPath): this call site is
+                // the only one of the three whose names are attacker-chosen, and it used to be the
+                // weakest of the three.
+                Path target = ContainedPath.inside(root, e.getKey());
                 Files.createDirectories(target.getParent());
                 Files.write(target, e.getValue());
             }
@@ -309,22 +316,27 @@ public final class WorldArchive {
     }
 
     /**
-     * Build the piece manifest for one <b>region's</b> archive blob.
+     * Build the piece manifest for one archive blob, under the region it belongs to.
      *
-     * <p>The region travels in the manifest, so it travels in the announce and in every holding a
-     * peer advertises: a piece is never just "part of some world", it is part of {@code r.X.Z.mca}
-     * of a named dimension, and a peer asking for the ground it is standing on can ask for exactly
-     * that. Identical in every other respect to the whole-world manifest — same splitter, same
-     * self-checking {@code regionRoot} over the bytes — because a region blob <i>is</i> an archive
-     * blob, of one region's files.
+     * <p>The region parameter is not decoration: the region travels in the manifest, so it travels
+     * in the announce and in every holding a peer advertises. A piece is never just "part of some
+     * world" — it is part of a named region of a named dimension, and a peer asking for the ground
+     * it is standing on can ask for exactly that. That is what makes a per-region lane expressible
+     * with no new message on the wire, and it is why the parameter stays even though only one value
+     * is passed today.
      *
-     * @param region  the region these bytes belong to ({@link SaveRegion#toRegionId()}).
+     * <p>Private, because it is: the per-region archive lane that supplied any other region was
+     * retired without ever having had a caller, so the sole caller is now the two-argument sibling
+     * above, which always passes {@link #ARCHIVE_REGION}. Public it read as a supported way to build
+     * a manifest for an arbitrary region, and nothing on the receive side was prepared for one.
+     *
+     * @param region  the region these bytes belong to; {@link #ARCHIVE_REGION} for a whole save.
      * @param version the archive snapshot version (monotonic per world; freshness ordering).
      * @param blob    the canonical archive bytes for that region.
      * @return the manifest.
      * @Thread-context any thread.
      */
-    public static PieceManifest manifestFor(RegionId region, long version, byte[] blob) {
+    private static PieceManifest manifestFor(RegionId region, long version, byte[] blob) {
         int[] starts = entryStarts(blob);
         List<Piece> pieces = starts == null
                 ? PieceSplitter.splitFixed(blob, ARCHIVE_PIECE_BYTES)
@@ -399,13 +411,7 @@ public final class WorldArchive {
 
     /** Reject null/empty/absolute/traversing entry paths (see class Javadoc, "Safety"). */
     private static String checkedPath(String path) {
-        if (path == null || path.isEmpty()) {
-            throw new IllegalArgumentException("archive entry path must not be empty");
-        }
-        if (path.startsWith("/") || path.contains("\\") || path.matches(".*(^|/)\\.\\.(/|$).*")) {
-            throw new IllegalArgumentException("unsafe archive entry path: " + path);
-        }
-        return path;
+        return ContainedPath.checkedName(path);
     }
 
     /** All-files variant of {@link #packDirectory(Path, Predicate)} using the default filter. */

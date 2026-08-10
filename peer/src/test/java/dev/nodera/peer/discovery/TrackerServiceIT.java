@@ -1,6 +1,6 @@
 package dev.nodera.peer.discovery;
 
-import dev.nodera.testkit.harness.LayoutManifest;
+import dev.nodera.testkit.harness.SpawnedService;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeIdentity;
@@ -17,19 +17,13 @@ import dev.nodera.protocol.discovery.TrackerResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
@@ -48,8 +42,8 @@ import static org.assertj.core.api.Assumptions.assumeThat;
  * inside the service, over the JDK's X.509-encoded public key.
  *
  * <p>Skipped (not failed) when the binary has not been built: {@code cargo build} is a separate
- * toolchain, and a Java-only checkout must stay green. Build it with
- * {@code cd rust && cargo build --release --bin nodera-tracker} (or {@code scripts/build-all.sh}).
+ * toolchain, and a Java-only checkout must stay green. A run that <i>has</i> built it says so with
+ * {@link SpawnedService#REQUIRE_PROPERTY}, and then the absence fails instead of skipping.
  *
  * <p>Thread-context: single test thread; the service runs in a child process.
  */
@@ -59,77 +53,36 @@ final class TrackerServiceIT {
     private static final int ANNOUNCE_INTERVAL_SECONDS = 1;
     private static final int PEER_TTL_SECONDS = 2;
 
-    private Process tracker;
-    private Path configFile;
+    private static final String BINARY = "nodera-tracker";
+
+    private SpawnedService tracker;
 
     @AfterEach
-    void stopTracker() throws Exception {
+    void stopTracker() {
         if (tracker != null) {
-            tracker.destroy();
-            if (!tracker.waitFor(10, TimeUnit.SECONDS)) {
-                tracker.destroyForcibly();
-            }
-        }
-        if (configFile != null) {
-            Files.deleteIfExists(configFile);
+            tracker.close();
+            tracker = null;
         }
     }
 
-    private static Path repoRoot() {
-        Path dir = Paths.get("").toAbsolutePath();
-        while (dir != null && !Files.exists(dir.resolve("settings.gradle.kts"))) {
-            dir = dir.getParent();
-        }
-        if (dir == null) {
-            throw new IllegalStateException("repo root not found");
-        }
-        return dir;
-    }
-
-    private static Optional<Path> trackerBinary() {
-        Path root = LayoutManifest.load().dir("cargoTarget");
-        for (String profile : new String[] {"release", "debug"}) {
-            Path candidate = root.resolve(profile).resolve("nodera-tracker");
-            if (Files.isExecutable(candidate)) {
-                return Optional.of(candidate);
-            }
-        }
-        return Optional.empty();
+    /** The binary, or an assumption failure describing how to build it. */
+    private static Path binary() {
+        Optional<Path> found = SpawnedService.binary(BINARY);
+        assumeThat(found).as(SpawnedService.buildHint(BINARY)).isPresent();
+        return found.orElseThrow();
     }
 
     /** Start the service on an ephemeral port and return the endpoint it actually bound. */
     private TrackerClient.Endpoint startTracker(Path binary) throws IOException {
-        configFile = Files.createTempFile("nodera-tracker", ".toml");
-        Files.writeString(configFile, """
+        tracker = SpawnedService.start(binary, """
                 bind_addr = "127.0.0.1:0"
                 announce_interval_seconds = %d
                 peer_ttl_seconds = %d
                 healthy_seeder_floor = 1
                 sample_size = 10
                 seeder_floor = 5
-                """.formatted(ANNOUNCE_INTERVAL_SECONDS, PEER_TTL_SECONDS),
-                StandardCharsets.UTF_8);
-
-        ProcessBuilder builder = new ProcessBuilder(
-                binary.toString(), "--config", configFile.toString());
-        builder.redirectErrorStream(true);
-        tracker = builder.start();
-
-        // The service prints the bound address; port 0 means only it knows the real port.
-        BufferedReader reader = new BufferedReader(
-                new InputStreamReader(tracker.getInputStream(), StandardCharsets.UTF_8));
-        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
-        while (System.nanoTime() < deadline) {
-            String line = reader.readLine();
-            if (line == null) {
-                break;
-            }
-            int marker = line.indexOf("listening on ");
-            if (marker >= 0) {
-                return TrackerClient.Endpoint.parse(line.substring(marker + "listening on ".length()).trim());
-            }
-        }
-        throw new IOException("nodera-tracker did not report a listening address");
+                """.formatted(ANNOUNCE_INTERVAL_SECONDS, PEER_TTL_SECONDS));
+        return TrackerClient.Endpoint.parse(tracker.endpoint());
     }
 
     private static NodeCapabilities capabilities(Set<PeerRole> roles) {
@@ -161,11 +114,7 @@ final class TrackerServiceIT {
 
     @Test
     void twoPeersAnnounceTwoWorldsAndQueriesStayIsolated() throws Exception {
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary)
-                .as("nodera-tracker binary (run: cd rust && cargo build --release)")
-                .isPresent();
-        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        TrackerClient.Endpoint endpoint = startTracker(binary());
 
         Bytes worldA = world("survival");
         Bytes worldB = world("creative");
@@ -213,9 +162,7 @@ final class TrackerServiceIT {
 
     @Test
     void aSilentPeerExpiresAndTheWorldListSurvivesEverySeederLeaving() throws Exception {
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary).as("nodera-tracker binary").isPresent();
-        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        TrackerClient.Endpoint endpoint = startTracker(binary());
 
         Bytes worldA = world("survival");
 
@@ -251,9 +198,7 @@ final class TrackerServiceIT {
         // Task 28 acceptance #4: the Task 26 GUI feed, end to end and headless. The view model is
         // the Minecraft-free half of the multiplayer screen, so this proves the whole read path —
         // Rust service → frozen TrackerResponse → rendered row — without a GUI environment.
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary).as("nodera-tracker binary").isPresent();
-        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        TrackerClient.Endpoint endpoint = startTracker(binary());
 
         Bytes worldA = world("survival");
         try (TrackerClient host = new TrackerClient(List.of(endpoint), NodeIdentity.generate())) {
@@ -293,9 +238,7 @@ final class TrackerServiceIT {
 
     @Test
     void aStoppedAnnounceRemovesThePeerWithoutWaitingForTheTtl() throws Exception {
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary).as("nodera-tracker binary").isPresent();
-        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        TrackerClient.Endpoint endpoint = startTracker(binary());
 
         Bytes worldA = world("survival");
         try (TrackerClient peer = new TrackerClient(List.of(endpoint), NodeIdentity.generate())) {
@@ -311,9 +254,7 @@ final class TrackerServiceIT {
 
     @Test
     void aTamperedAnnounceIsRejectedByTheService() throws Exception {
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary).as("nodera-tracker binary").isPresent();
-        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        TrackerClient.Endpoint endpoint = startTracker(binary());
 
         Bytes worldA = world("survival");
         try (TrackerClient peer = new TrackerClient(List.of(endpoint), NodeIdentity.generate())) {
@@ -346,9 +287,7 @@ final class TrackerServiceIT {
      */
     @Test
     void onlyPeersInTheWorldContributeToItsPlayerCount() throws Exception {
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary).as("nodera-tracker binary").isPresent();
-        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        TrackerClient.Endpoint endpoint = startTracker(binary());
         Bytes world = world("survival");
 
         try (TrackerClient seeder = new TrackerClient(List.of(endpoint), NodeIdentity.generate());
@@ -378,9 +317,7 @@ final class TrackerServiceIT {
 
     @Test
     void aRestartedTrackerIsRepopulatedByTheNextAnnounce() throws Exception {
-        Optional<Path> binary = trackerBinary();
-        assumeThat(binary).as("nodera-tracker binary").isPresent();
-        TrackerClient.Endpoint first = startTracker(binary.get());
+        TrackerClient.Endpoint first = startTracker(binary());
 
         Bytes worldA = world("survival");
         NodeIdentity identity = NodeIdentity.generate();
@@ -392,7 +329,7 @@ final class TrackerServiceIT {
 
         // Restart: announce state is deliberately ephemeral, so the new process starts empty.
         stopTracker();
-        TrackerClient.Endpoint second = startTracker(binary.get());
+        TrackerClient.Endpoint second = startTracker(binary());
         try (TrackerClient peer = new TrackerClient(List.of(second), identity)) {
             assertThat(peer.query(worldA).orElseThrow().peers())
                     .as("a restarted tracker knows nothing until peers re-announce")

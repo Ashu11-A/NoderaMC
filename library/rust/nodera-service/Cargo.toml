@@ -12,6 +12,8 @@ nodera-codec = { workspace = true }
 ed25519-dalek = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
+# The operator's configuration file: one TOML loader for all three services (`config`).
+toml = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 # The update lane's HTTPS fetch. `default-features = false` drops gzip; `rustls` brings bundled

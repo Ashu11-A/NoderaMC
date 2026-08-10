@@ -34,6 +34,40 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Methods nothing in the tree names are gone from `:engine` and `:storage` (Plan 11 phase 1)
+
+Twenty-six methods that `:peer:structureReport` §2.3 reported as referenced by nothing at all —
+tests included — were deleted: from `:engine`, `NodeRegistry`'s five unread accessors,
+`RegisteredNode#withHeartbeat`, `CommitteeMember#sign(StateRoot, VoteDecision)`,
+`ProposalKey#of`, `LagHandoffPolicy#evaluate(RegionLease, long, long)`, `SoakMetrics#snapshot`,
+`MutableRegionState#containers`, `BlockMutationBuffer#isEmpty`, `EntityStore#baseView` and the
+seven accessors on the three drift/nondeterminism exceptions; from `:storage`,
+`WorldPermissions#author`/`#authorPublicKey`, `WorldRegistry#find` and
+`BoundedClientWorldStore#budgetBytes`/`#quota`/`#touch`. Deleting `SoakMetrics#snapshot` left its
+nested `Snapshot` record with no reference anywhere, so the record went with it — the report listed
+it as a dead class the moment its producer was gone, and a dead class is not something to budget for.
+
+No canonical form, tag, version, field order or rules version changed; no `Encodable` lost an
+`encode` or a `decode`. Section 2.5 (methods no entry point can reach) could not be cut here at all:
+every one of them IS referenced by production code, and each cluster terminates in a record's
+canonical constructor, an `@Override` declared in a frozen module, or a method a test calls — so
+removing one would have broken a test or a contract this phase may not touch. `docs/engine/
+LIMITATIONS.md` L-92 (`GenesisRecertification`, `GenesisApprovalFlow`) and L-16 (`LocalReplicaView`)
+are staged on exactly that kind of unwired machinery, and were left alone deliberately.
+
+Evidence: `./gradlew :engine:test` and `:storage:test` green, `:peer:structureReport` green against
+the tightened `fixtures/structure/budget.json` (never-referenced 136 → 93, unreachable 267 → 264).
+### 2026-08-05 — Duplicated design history moved out of two comments (Plan.11 phase 2)
+
+`RegionChunkIndex` and `ChunkStampBook` each carried their own retelling of the same story — why
+per-region chain height was removed from column-freshness comparison, and what broke while it was
+still there. Consolidated into one place, [`Task.2.md`](Task.2.md) §Design, with a one-line pointer
+left at both sites. Also logged a duplication finding in [`REFACTORING.md`](REFACTORING.md): the
+repeated `@Thread-context`/`Full-frame decode` one-line Javadoc across ~40 `Encodable` types is real
+(jscpd already counts it inside the existing rows' `%` figures, since it does not strip comments)
+but is not separately actionable — it retires when the `CanonicalFrame` tag+version helper lands, not
+via a comment-editing pass. No code changed; `:core:compileJava` verified green.
+
 ### 2026-07-28 — Deterministic helper duplication removed (L-52)
 
 L-52 is RETIRED. Core now owns the three operations that engine packages had copied:
@@ -282,7 +316,13 @@ exit names the SDK, and the guard still has no live mixin call site) and, at the
 - **L-9 RETIRED** — projectiles, TNT, and rails/minecarts as validated state.
 - **L-11 core** — `EntityKind.PLAYER` puts owner and the 36-slot inventory in the root; a portal
   hand-off moves the whole inventory through the dupe-proof joint-certificate pipeline.
-- **L-18 rotation** — `CommitteeManager.draftRotation` is deterministic rendezvous-hash rotation.
+- **L-18 rotation** — was `CommitteeManager.draftRotation`, a certified deterministic rendezvous-hash
+  rotation; deleted 2026-08-06 (`24e6f0e`, issue #210) as a **superseded design**, not a missing call
+  site. Rotation is no longer a certifiable event: committees are re-derived deterministically by
+  `EntityLaneBootstrap.plan` from inputs every member already holds, so every member computes the
+  same new committee from the same facts and there is nothing for a certificate to attest. The
+  determinism this bullet claimed is intact and lives in `ViewOwnershipPlanner`; the certificate is
+  gone. Wiring both would have put two rotation mechanisms in one lane.
 - **T16 container lane engine core complete** — four increments in one day: container contents in the
   hashed root; `CHEST` + `ContainerAction`; `HOPPER` as a self-scheduling 8-tick machine; comparators
   emitting container fill with reactive re-settling.

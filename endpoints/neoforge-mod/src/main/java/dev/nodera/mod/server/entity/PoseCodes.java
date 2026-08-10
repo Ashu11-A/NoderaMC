@@ -86,8 +86,4 @@ public final class PoseCodes {
         return CODES.getOrDefault(pose, UNKNOWN_POSE);
     }
 
-    /** How many poses this build has numbered — used by the table's own snapshot test. */
-    public static int assignedCount() {
-        return CODES.size();
-    }
 }

@@ -8,7 +8,6 @@
 use crate::announce::{self, within_window, IdentityBindings, Rejection};
 use crate::config::Config;
 use crate::deletion::DeletedWorlds;
-use crate::limits::AnnounceQuota;
 use crate::query;
 use crate::registry::{AnnounceOutcome, Registry};
 use crate::services::{ServiceDirectory, ServiceRejection};
@@ -19,6 +18,7 @@ use nodera_codec::service::{
 };
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::{WorldDeletionGossip, WorldRevivalGossip};
+use nodera_service::limits::Quota as AnnounceQuota;
 use std::net::IpAddr;
 
 /// What the tracker did with a frame — the caller logs this; the peer gets the reply.
@@ -315,12 +315,17 @@ impl Tracker {
                             &announce.record.service,
                             now_millis,
                         );
-                        let _ = outcome;
+                        // What the directory actually did, rather than "accepted" for everything
+                        // that verified. The one that matters is `NotPresent`: a relay announcing
+                        // `Stopped` for an id this tracker never held used to be told "accepted",
+                        // so a service that believed it was listed here had no way to find out it
+                        // never was.
+                        let (accepted, reason) = outcome.ack();
                         Handled::Reply(
                             ServiceMessage::AnnounceAck(ServiceAnnounceAck {
-                                accepted: true,
+                                accepted,
                                 next_announce_after_seconds: self.config.announce_interval_seconds,
-                                reason: String::new(),
+                                reason: reason.to_owned(),
                                 directory,
                             })
                             .encode(),
@@ -641,10 +646,10 @@ mod tests {
         let mut tracker = Tracker::new(config());
         let signer = TestSigner::new(7);
         let now = 10_000;
-        tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+        served_at(&mut tracker, &announce_for_deleted_world(&signer, now), now);
         assert_eq!(tracker.stats().3, 1, "the world starts out listed");
 
-        let handled = tracker.handle_frame(&deletion_frame(), None, None, now);
+        let handled = served_at(&mut tracker, &deletion_frame(), now);
 
         assert_eq!(tracker.stats().3, 0, "the world is no longer listed");
         assert!(tracker.is_world_deleted(&deleted_world_id()));
@@ -665,12 +670,12 @@ mod tests {
         let mut tracker = Tracker::new(config());
         let signer = TestSigner::new(7);
         let now = 10_000;
-        tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+        served_at(&mut tracker, &announce_for_deleted_world(&signer, now), now);
         let mut forged = deletion_frame();
         let last = forged.len() - 1;
         forged[last] ^= 0x01; // one bit of the owner's signature
 
-        tracker.handle_frame(&forged, None, None, now);
+        served_at(&mut tracker, &forged, now);
 
         assert_eq!(tracker.stats().3, 1, "the world is still listed");
         assert!(!tracker.is_world_deleted(&deleted_world_id()));
@@ -681,13 +686,12 @@ mod tests {
         let mut tracker = Tracker::new(config());
         let signer = TestSigner::new(7);
         let now = 10_000;
-        tracker.handle_frame(&deletion_frame(), None, None, now);
+        served_at(&mut tracker, &deletion_frame(), now);
 
         // A peer that was offline during the deletion announces the world as usual. Its own
         // signature is perfectly valid — and irrelevant, because it proves who is speaking, not
         // that the world should exist.
-        let handled =
-            tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+        let handled = served_at(&mut tracker, &announce_for_deleted_world(&signer, now), now);
 
         assert_eq!(tracker.stats().3, 0, "the world was not re-listed");
         match handled {
@@ -711,7 +715,7 @@ mod tests {
             .verified()
             .expect("verify")
             .issued_at_epoch as u64;
-        tracker.handle_frame(&deletion_frame(), None, None, issued);
+        served_at(&mut tracker, &deletion_frame(), issued);
 
         tracker.sweep(issued + crate::deletion::RETENTION_MILLIS);
         assert!(
@@ -776,7 +780,7 @@ mod tests {
         // A body this build cannot read: the tag stays legible, the fields behind it do not.
         frame.truncate(frame.len() - 8);
 
-        let refusal = ack(tracker.handle_frame(&frame, None, None, 10_000));
+        let refusal = ack(served_at(&mut tracker, &frame, 10_000));
 
         assert!(!refusal.accepted);
         assert_eq!(refusal.reason, "undecodable-announce");
@@ -786,7 +790,7 @@ mod tests {
         );
         // Frames that are not announces keep being dropped: there is no useful answer to give.
         assert!(matches!(
-            tracker.handle_frame(&[0xff, 0xff, 0x00], None, None, 10_000),
+            served_at(&mut tracker, &[0xff, 0xff, 0x00], 10_000),
             Handled::Unsupported(_)
         ));
     }
@@ -804,7 +808,7 @@ mod tests {
         assert!(accepted.accepted);
         assert_eq!(accepted.next_announce_after_seconds, 30);
 
-        let r = response(tracker.handle_frame(&query_frame(b"world"), None, None, 10_000));
+        let r = response(served_at(&mut tracker, &query_frame(b"world"), 10_000));
         assert_eq!(r.peers.len(), 1);
         // The announcing peer reported no population (the fixture is a seeder), so the world has
         // none to report. This asserted `1` — the peer count under a player's name.
@@ -824,16 +828,15 @@ mod tests {
         impostor.announce_epoch_millis = 10_000;
         TestSigner::new(2).sign_announce(&mut impostor);
         assert!(
-            ack(tracker.handle_frame(
+            ack(served_at(
+                &mut tracker,
                 &DiscoveryMessage::TrackerAnnounce(impostor).encode(),
-                None,
-                None,
                 10_000
             ))
             .accepted
         );
 
-        let r = response(tracker.handle_frame(&query_frame(b"world"), None, None, 10_000));
+        let r = response(served_at(&mut tracker, &query_frame(b"world"), 10_000));
         assert_eq!(
             r.world_name, "",
             "a non-host cannot name someone else's world"
@@ -847,16 +850,15 @@ mod tests {
         host.announce_epoch_millis = 10_000;
         TestSigner::new(1).sign_announce(&mut host);
         assert!(
-            ack(tracker.handle_frame(
+            ack(served_at(
+                &mut tracker,
                 &DiscoveryMessage::TrackerAnnounce(host).encode(),
-                None,
-                None,
                 10_000
             ))
             .accepted
         );
 
-        let named = response(tracker.handle_frame(&query_frame(b"world"), None, None, 10_000));
+        let named = response(served_at(&mut tracker, &query_frame(b"world"), 10_000));
         assert_eq!(named.world_name, "nodera-overworld");
         assert_eq!(named.retention_deadline_epoch_millis, 500_000);
     }
@@ -873,12 +875,12 @@ mod tests {
         );
         // Corrupt the last byte of the signature.
         *frame.last_mut().unwrap() ^= 0xFF;
-        let rejected = ack(tracker.handle_frame(&frame, None, None, 10_000));
+        let rejected = ack(served_at(&mut tracker, &frame, 10_000));
         assert!(!rejected.accepted);
         assert_eq!(rejected.reason, "bad-signature");
         assert!(rejected.next_announce_after_seconds > 0, "still back off");
 
-        let r = response(tracker.handle_frame(&query_frame(b"world"), None, None, 10_000));
+        let r = response(served_at(&mut tracker, &query_frame(b"world"), 10_000));
         assert!(
             r.peers.is_empty(),
             "a rejected announce never reaches the registry"
@@ -904,19 +906,17 @@ mod tests {
     fn a_stopped_announce_removes_the_peer_immediately() {
         let mut tracker = Tracker::new(config());
         let signer = TestSigner::new(1);
-        tracker.handle_frame(
+        served_at(
+            &mut tracker,
             &signed_frame(&signer, 1, AnnounceEvent::Started, true, 10_000),
-            None,
-            None,
             10_000,
         );
-        tracker.handle_frame(
+        served_at(
+            &mut tracker,
             &signed_frame(&signer, 1, AnnounceEvent::Stopped, true, 11_000),
-            None,
-            None,
             11_000,
         );
-        let r = response(tracker.handle_frame(&query_frame(b"world"), None, None, 11_000));
+        let r = response(served_at(&mut tracker, &query_frame(b"world"), 11_000));
         assert!(r.peers.is_empty());
     }
 
@@ -924,16 +924,15 @@ mod tests {
     fn silence_past_the_ttl_expires_a_peer_and_starts_the_countdown_surface() {
         let mut tracker = Tracker::new(config());
         let signer = TestSigner::new(1);
-        tracker.handle_frame(
+        served_at(
+            &mut tracker,
             &signed_frame(&signer, 1, AnnounceEvent::Started, true, 10_000),
-            None,
-            None,
             10_000,
         );
         tracker.set_world_metadata(b"world", "w".to_owned(), 200_000, 10_000);
 
         let later = 10_000 + 60_001;
-        let r = response(tracker.handle_frame(&query_frame(b"world"), None, None, later));
+        let r = response(served_at(&mut tracker, &query_frame(b"world"), later));
         assert!(r.peers.is_empty(), "expired on read, before the sweep runs");
         assert_eq!(
             r.health,
@@ -944,7 +943,7 @@ mod tests {
 
         assert_eq!(tracker.sweep(later), 1);
 
-        let dead = response(tracker.handle_frame(&query_frame(b"world"), None, None, 300_000));
+        let dead = response(served_at(&mut tracker, &query_frame(b"world"), 300_000));
         assert_eq!(
             dead.health,
             WorldHealth::Dead,
@@ -957,17 +956,16 @@ mod tests {
     fn a_returning_seeder_cancels_the_death_verdict() {
         let mut tracker = Tracker::new(config());
         tracker.set_world_metadata(b"world", "w".to_owned(), 200_000, 0);
-        let dead = response(tracker.handle_frame(&query_frame(b"world"), None, None, 300_000));
+        let dead = response(served_at(&mut tracker, &query_frame(b"world"), 300_000));
         assert_eq!(dead.health, WorldHealth::Dead);
 
         let signer = TestSigner::new(1);
-        tracker.handle_frame(
+        served_at(
+            &mut tracker,
             &signed_frame(&signer, 1, AnnounceEvent::Started, true, 300_000),
-            None,
-            None,
             300_000,
         );
-        let alive = response(tracker.handle_frame(&query_frame(b"world"), None, None, 300_000));
+        let alive = response(served_at(&mut tracker, &query_frame(b"world"), 300_000));
         assert_eq!(alive.health, WorldHealth::Healthy);
     }
 
@@ -986,7 +984,7 @@ mod tests {
         );
         assert!(frame.len() > 16);
         assert_eq!(
-            ack(tracker.handle_frame(&frame, None, None, 10_000)).reason,
+            ack(served_at(&mut tracker, &frame, 10_000)).reason,
             "too-large"
         );
     }
@@ -995,7 +993,7 @@ mod tests {
     fn garbage_and_unserved_tags_do_not_crash_the_service() {
         let mut tracker = Tracker::new(config());
         assert!(matches!(
-            tracker.handle_frame(&[0xFF, 0xFF, 0x00], None, None, 0),
+            served_at(&mut tracker, &[0xFF, 0xFF, 0x00], 0),
             Handled::Unsupported(_)
         ));
         let inventory = DiscoveryMessage::InventoryAdvertisement(
@@ -1007,7 +1005,7 @@ mod tests {
         )
         .encode();
         assert!(matches!(
-            tracker.handle_frame(&inventory, None, None, 0),
+            served_at(&mut tracker, &inventory, 0),
             Handled::Unsupported(_)
         ));
     }
@@ -1015,7 +1013,7 @@ mod tests {
     #[test]
     fn queries_for_an_unknown_world_answer_instead_of_hanging() {
         let mut tracker = Tracker::new(config());
-        let r = response(tracker.handle_frame(&query_frame(b"nobody-here"), None, None, 0));
+        let r = response(served_at(&mut tracker, &query_frame(b"nobody-here"), 0));
         assert_eq!(r.genesis_hash, b"nobody-here".to_vec());
         assert!(r.peers.is_empty());
     }
@@ -1023,6 +1021,23 @@ mod tests {
     // --- the service directory, driven through the real dispatch path ---
 
     const SERVICE_NOW: u64 = 1_700_000_000_000;
+
+    /// Feed one frame at `now_millis`, from no particular source address.
+    ///
+    /// The two `None`s are "no source IP" and "no source route". A test that means to exercise the
+    /// per-IP quota passes an address and therefore does not use this.
+    fn served_at(tracker: &mut Tracker, frame: &[u8], now_millis: u64) -> Handled {
+        tracker.handle_frame(frame, None, None, now_millis)
+    }
+
+    /// Feed one frame at the fixed service-test clock, from no particular source address.
+    ///
+    /// Written out, that is six lines every time, and this module did it twenty-three times. The
+    /// two `None`s are "no source IP" and "no source route": the service-directory family is
+    /// quota'd by neither, so no test here varies them.
+    fn served(tracker: &mut Tracker, frame: &[u8]) -> Handled {
+        tracker.handle_frame(frame, None, None, SERVICE_NOW)
+    }
 
     fn service_ack(handled: Handled) -> ServiceAnnounceAck {
         match handled {
@@ -1103,11 +1118,9 @@ mod tests {
         let signer = crate::test_support::TestSigner::new(7);
         let (record, signature) =
             crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
-        let ack = service_ack(tracker.handle_frame(
+        let ack = service_ack(served(
+            &mut tracker,
             &announce_service_frame(&record, &signature),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert!(ack.accepted, "reason: {}", ack.reason);
         assert!(
@@ -1115,11 +1128,9 @@ mod tests {
             "the ack must pace the announcer"
         );
 
-        let listed = service_directory(tracker.handle_frame(
+        let listed = service_directory(served(
+            &mut tracker,
             &directory_query_frame(ServiceKind::Rendezvous),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].record.routes, record.routes);
@@ -1132,6 +1143,45 @@ mod tests {
         .unwrap();
     }
 
+    /// A stop for a service this tracker never listed is not an admission.
+    ///
+    /// The relay's own log says "announced, accepted", so an `accepted: true` here made a service
+    /// that had never reached this tracker — or whose records were expiring between announces —
+    /// indistinguishable from one that was listed the whole time.
+    #[test]
+    fn a_stop_for_an_id_the_tracker_never_held_is_not_acked_as_accepted() {
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(7);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |r| {
+                r.lifecycle = nodera_codec::service::ServiceLifecycle::Stopped;
+                r.drain_deadline_epoch_millis = SERVICE_NOW + 30_000;
+            });
+        let ack = service_ack(served(
+            &mut tracker,
+            &announce_service_frame(&record, &signature),
+        ));
+        assert!(!ack.accepted);
+        assert_eq!(ack.reason, "not-listed");
+
+        // And the ordinary path still acks plainly: a stop for a service that *was* listed.
+        let (serving, serving_signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        assert!(
+            service_ack(served(
+                &mut tracker,
+                &announce_service_frame(&serving, &serving_signature)
+            ))
+            .accepted
+        );
+        let removed = service_ack(served(
+            &mut tracker,
+            &announce_service_frame(&record, &signature),
+        ));
+        assert!(removed.accepted, "reason: {}", removed.reason);
+        assert_eq!(removed.reason, "");
+    }
+
     #[test]
     fn a_tampered_service_record_is_refused_and_never_listed() {
         let mut tracker = Tracker::new(config());
@@ -1142,19 +1192,15 @@ mod tests {
             routes: vec!["attacker.example:25601".to_owned()],
             ..record
         };
-        let ack = service_ack(tracker.handle_frame(
+        let ack = service_ack(served(
+            &mut tracker,
             &announce_service_frame(&moved, &signature),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert!(!ack.accepted);
         assert_eq!(ack.reason, "bad-signature");
-        assert!(service_directory(tracker.handle_frame(
-            &directory_query_frame(ServiceKind::Rendezvous),
-            None,
-            None,
-            SERVICE_NOW
+        assert!(service_directory(served(
+            &mut tracker,
+            &directory_query_frame(ServiceKind::Rendezvous)
         ))
         .is_empty());
     }
@@ -1167,11 +1213,9 @@ mod tests {
             let signer = crate::test_support::TestSigner::new(seed);
             let (record, signature) =
                 crate::test_support::service_record(&signer, id, SERVICE_NOW, |_| {});
-            let ack = service_ack(tracker.handle_frame(
+            let ack = service_ack(served(
+                &mut tracker,
                 &announce_service_frame(&record, &signature),
-                None,
-                None,
-                SERVICE_NOW,
             ));
             assert!(ack.accepted);
             assert!(
@@ -1185,11 +1229,9 @@ mod tests {
         let signer = crate::test_support::TestSigner::new(3);
         let (record, signature) =
             crate::test_support::service_record(&signer, 13, SERVICE_NOW, |_| {});
-        let ack = service_ack(tracker.handle_frame(
+        let ack = service_ack(served(
+            &mut tracker,
             &announce_service_frame(&record, &signature),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert_eq!(ack.directory.len(), 2);
     }
@@ -1202,40 +1244,32 @@ mod tests {
             let (record, signature) =
                 crate::test_support::service_record(&signer, id, SERVICE_NOW, |_| {});
             assert!(
-                service_ack(tracker.handle_frame(
-                    &announce_service_frame(&record, &signature),
-                    None,
-                    None,
-                    SERVICE_NOW
+                service_ack(served(
+                    &mut tracker,
+                    &announce_service_frame(&record, &signature)
                 ))
                 .accepted
             );
         }
         let reporter = crate::test_support::TestSigner::new(9);
         assert!(
-            service_ack(tracker.handle_frame(
-                &signed_report(&reporter, 11, 20, 2, 40, SERVICE_NOW),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &signed_report(&reporter, 11, 20, 2, 40, SERVICE_NOW)
             ))
             .accepted
         );
         assert!(
-            service_ack(tracker.handle_frame(
-                &signed_report(&reporter, 12, 20, 20, 40, SERVICE_NOW),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &signed_report(&reporter, 12, 20, 20, 40, SERVICE_NOW)
             ))
             .accepted
         );
 
-        let listed = service_directory(tracker.handle_frame(
+        let listed = service_directory(served(
+            &mut tracker,
             &directory_query_frame(ServiceKind::Rendezvous),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert_eq!(
             listed[0].record.service,
@@ -1255,11 +1289,9 @@ mod tests {
         let (record, signature) =
             crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
         assert!(
-            service_ack(tracker.handle_frame(
-                &announce_service_frame(&record, &signature),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &announce_service_frame(&record, &signature)
             ))
             .accepted
         );
@@ -1269,14 +1301,12 @@ mod tests {
         // Corrupt the last signature byte: the frame still decodes, so only verification can catch it.
         let last = frame.len() - 1;
         frame[last] ^= 0xFF;
-        let ack = service_ack(tracker.handle_frame(&frame, None, None, SERVICE_NOW));
+        let ack = service_ack(served(&mut tracker, &frame));
         assert!(!ack.accepted);
         assert_eq!(ack.reason, "bad-signature");
-        let listed = service_directory(tracker.handle_frame(
+        let listed = service_directory(served(
+            &mut tracker,
             &directory_query_frame(ServiceKind::Rendezvous),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert_eq!(
             listed[0].score.reporter_count, 0,
@@ -1291,21 +1321,17 @@ mod tests {
         let (record, signature) =
             crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
         assert!(
-            service_ack(tracker.handle_frame(
-                &announce_service_frame(&record, &signature),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &announce_service_frame(&record, &signature)
             ))
             .accepted
         );
         let reporter = crate::test_support::TestSigner::new(9);
         let old = SERVICE_NOW - tracker.config().clock_skew_millis() - 1;
-        let ack = service_ack(tracker.handle_frame(
+        let ack = service_ack(served(
+            &mut tracker,
             &signed_report(&reporter, 11, 20, 0, 40, old),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert!(!ack.accepted);
         assert_eq!(ack.reason, "stale-record");
@@ -1319,11 +1345,9 @@ mod tests {
         let (serving, serving_sig) =
             crate::test_support::service_record(&signer, 21, SERVICE_NOW, |_| {});
         assert!(
-            service_ack(tracker.handle_frame(
-                &announce_service_frame(&serving, &serving_sig),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &announce_service_frame(&serving, &serving_sig)
             ))
             .accepted
         );
@@ -1333,20 +1357,16 @@ mod tests {
                 r.drain_deadline_epoch_millis = SERVICE_NOW + 30_000;
             });
         assert!(
-            service_ack(tracker.handle_frame(
-                &announce_service_frame(&draining, &draining_sig),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &announce_service_frame(&draining, &draining_sig)
             ))
             .accepted
         );
 
-        let listed = service_directory(tracker.handle_frame(
+        let listed = service_directory(served(
+            &mut tracker,
             &directory_query_frame(ServiceKind::Rendezvous),
-            None,
-            None,
-            SERVICE_NOW,
         ));
         assert_eq!(
             listed[0].record.lifecycle,
@@ -1431,7 +1451,7 @@ mod tests {
         })
         .encode();
         assert!(matches!(
-            tracker.handle_frame(&frame, None, None, SERVICE_NOW),
+            served(&mut tracker, &frame),
             Handled::Unsupported(_)
         ));
     }
@@ -1443,19 +1463,16 @@ mod tests {
         let (record, signature) =
             crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
         assert!(
-            service_ack(tracker.handle_frame(
-                &announce_service_frame(&record, &signature),
-                None,
-                None,
-                SERVICE_NOW
+            service_ack(served(
+                &mut tracker,
+                &announce_service_frame(&record, &signature)
             ))
             .accepted
         );
         let later = SERVICE_NOW + 300_001;
-        assert!(service_directory(tracker.handle_frame(
+        assert!(service_directory(served_at(
+            &mut tracker,
             &directory_query_frame(ServiceKind::Rendezvous),
-            None,
-            None,
             later
         ))
         .is_empty());

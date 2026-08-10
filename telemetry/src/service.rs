@@ -22,9 +22,9 @@ use serde_json::{Map, Value};
 use crate::config::Config;
 use crate::event::{self, CleanBatch};
 use crate::geo::{Geo, GeoTable};
-use crate::limits::{IngestQuota, Verdict};
 use crate::sink::EventSink;
 use crate::subject::Pseudonymiser;
+use nodera_service::limits::{PairQuota as IngestQuota, Verdict};
 
 /// Row-format version, written on every line. Bumped when the *row* shape changes, independently
 /// of the batch envelope version, because the warehouse and the clients version separately.
@@ -154,7 +154,7 @@ impl Ingest {
             match self.quota.admit(ip, claimed_events, now_millis) {
                 Verdict::Admit => {}
                 Verdict::TooManyBatches => return self.refuse("quota_batches", claimed_events),
-                Verdict::TooManyEvents => return self.refuse("quota_events", claimed_events),
+                Verdict::TooManyItems => return self.refuse("quota_events", claimed_events),
             }
         }
 

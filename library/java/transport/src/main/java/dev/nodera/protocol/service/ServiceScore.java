@@ -142,7 +142,7 @@ public record ServiceScore(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SERVICE_SCORE).writeU16(Encodable.ENCODING_VERSION);
+        w.writeFrame(TypeTags.SERVICE_SCORE, Encodable.ENCODING_VERSION);
         w.writeU32(availabilityPermille);
         w.writeU32(rttP50Millis);
         w.writeU32(rttP95Millis);
@@ -161,10 +161,7 @@ public record ServiceScore(
      * @Thread-context one reader per decode call.
      */
     public static ServiceScore decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SERVICE_SCORE) {
-            throw new IllegalStateException("expected ServiceScore tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.SERVICE_SCORE, "ServiceScore");
         int version = r.readU16();
         if (version != Encodable.ENCODING_VERSION) {
             throw new IllegalStateException("unsupported ServiceScore version " + version);

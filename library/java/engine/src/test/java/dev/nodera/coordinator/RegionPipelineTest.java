@@ -4,6 +4,7 @@ import dev.nodera.consensus.VerificationOutcome;
 import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.SnapshotVersion;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -11,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RegionPipelineTest {
 
-    private final RegionId region = CoordFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
 
     @Test
     void happyPathTransitions() {

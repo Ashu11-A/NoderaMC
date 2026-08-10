@@ -56,7 +56,7 @@ public record ScheduledTickEntry(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.SCHEDULED_TICK_ENTRY).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.SCHEDULED_TICK_ENTRY, ENCODING_VERSION);
         pos.encode(w);
         w.writeU32(Integer.toUnsignedLong(blockId));
         w.writeU64(executeAtLocalTick);
@@ -66,11 +66,7 @@ public record ScheduledTickEntry(
 
     /** Full-frame decode (tag + version validated). */
     public static ScheduledTickEntry decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.SCHEDULED_TICK_ENTRY) {
-            throw new IllegalStateException("expected SCHEDULED_TICK_ENTRY tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.SCHEDULED_TICK_ENTRY, "SCHEDULED_TICK_ENTRY", ENCODING_VERSION);
         NBlockPos pos = NBlockPos.decode(r);
         int blockId = r.readU32AsInt();
         long executeAt = r.readU64();

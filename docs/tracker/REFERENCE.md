@@ -172,6 +172,38 @@ says so, so peers migrate before its circuits break.
   evidence, and therefore how many identities an attacker needs before the median moves.
 * Score reports carry their own per-IP quota, `per_ip_report_quota`, separate from announces.
 
+A `ServiceAnnounce` is admitted on rules close to a peer announce's, but **not in the same order**,
+and the order is part of the contract: shape (`malformed-record`), then freshness (`stale-record`),
+then the signature over the bytes as they arrived (`bad-signature`), then trust-on-first-use identity
+binding (`identity-mismatch`), then the directory ceiling (`directory-full`). The per-IP announce
+quota (`quota`) is charged before any of it. Note the consequence, because it differs from the peer
+path, which verifies the signature first: a service record is answered `malformed-record` or
+`stale-record` **before** its signature is checked, so an unauthenticated sender can probe
+`announce_clock_skew_seconds` with junk in the signature field. That is a deliberate
+cheapest-check-first ordering, not an oversight, and it is stated here so it cannot be changed by
+accident.
+
+Three of these codes also answer a `ServiceScoreReport` (tag 71) rather than an announce: `quota`
+against `per_ip_report_quota`, plus `stale-record` and `bad-signature`. The codes are stable and
+machine-readable rather than prose:
+
+| Ack code | `accepted` | Meaning |
+|---|---|---|
+| `quota` | `false` | The source address exceeded `per_ip_announce_quota` |
+| `bad-signature` | `false` | The signature did not verify against the record's own key |
+| `stale-record` | `false` | The record's issue time is outside `announce_clock_skew_seconds` |
+| `identity-mismatch` | `false` | This service `NodeId` is already bound to a different key here |
+| `directory-full` | `false` | At `max_services`, with no expired row to reuse |
+| `malformed-record` | `false` | `Draining` with no drain deadline — unplannable, and the shape a truncated record has |
+| `not-listed` | `false` | A `Stopped` record for a service this tracker was not listing |
+| *(empty)* | `true` | Registered, refreshed, or delisted |
+
+`not-listed` is the only one that is not a refusal to do something. The tracker did exactly what was
+asked — there was nothing to remove — and says so because it is the one fact the announcer cannot
+work out for itself: it means this service's listing had been expiring between announces, so peers
+querying *this* tracker were being answered without it. The draining service logs the code and the
+endpoint; a successful-looking round trip would have hidden a discovery outage.
+
 ## Settings
 
 Every setting is a key in `nodera-tracker.toml` **and** an environment variable: `NODERA_TRACKER_`

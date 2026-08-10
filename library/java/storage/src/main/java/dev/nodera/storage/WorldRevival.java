@@ -184,7 +184,7 @@ public record WorldRevival(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_REVIVAL).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_REVIVAL, ENCODING_VERSION);
         w.writeBytes(worldId);
         w.writeBytes(ownershipRecord);
         w.writeU64(issuedAtEpoch);
@@ -206,11 +206,7 @@ public record WorldRevival(
      * @throws IllegalStateException if the next tag is not {@code WORLD_REVIVAL}.
      */
     public static WorldRevival decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_REVIVAL) {
-            throw new IllegalStateException("expected WORLD_REVIVAL tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_REVIVAL, "WORLD_REVIVAL", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         Bytes ownership = r.readBytesValue();
         long issuedAt = r.readU64();

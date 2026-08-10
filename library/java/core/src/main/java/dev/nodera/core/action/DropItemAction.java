@@ -36,7 +36,7 @@ public record DropItemAction(int itemStackId, int count, FixedVec3 origin) imple
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.DROP_ITEM_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.DROP_ITEM_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
@@ -44,21 +44,6 @@ public record DropItemAction(int itemStackId, int count, FixedVec3 origin) imple
         w.writeU32(Integer.toUnsignedLong(itemStackId));
         w.writeU8(count);
         origin.encode(w);
-    }
-
-    /**
-     * Full-frame decode (tag + version + body).
-     *
-     * @throws IllegalStateException if the next tag is not {@code DROP_ITEM_ACTION}.
-     * @Thread-context not thread-safe; one reader per decode call.
-     */
-    public static DropItemAction decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.DROP_ITEM_ACTION) {
-            throw new IllegalStateException("expected DROP_ITEM_ACTION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
-        return decodeBody(r);
     }
 
     static DropItemAction decodeBody(CanonicalReader r) {

@@ -36,7 +36,7 @@ public record BlockMutation(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.BLOCK_MUTATION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.BLOCK_MUTATION, ENCODING_VERSION);
         pos.encode(w);
         w.writeU32(Integer.toUnsignedLong(expectedPreviousStateId));
         w.writeU32(Integer.toUnsignedLong(newStateId));
@@ -50,11 +50,7 @@ public record BlockMutation(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static BlockMutation decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.BLOCK_MUTATION) {
-            throw new IllegalStateException("expected BLOCK_MUTATION tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.BLOCK_MUTATION, "BLOCK_MUTATION", ENCODING_VERSION);
         NBlockPos pos = NBlockPos.decode(r);
         int expectedPreviousStateId = r.readU32AsInt();
         int newStateId = r.readU32AsInt();

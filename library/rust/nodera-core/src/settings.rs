@@ -457,6 +457,21 @@ pub enum Enforcement {
     Never { reason: &'static str },
 }
 
+/// `Live`, confirmed by the named key. See [`Enforcement::Live`] for when it is not the key itself.
+const fn live(confirmed_by: &'static str) -> Enforcement {
+    Enforcement::Live { confirmed_by }
+}
+
+/// `Local`, applied by this app with no worker involved.
+const fn local(how: &'static str) -> Enforcement {
+    Enforcement::Local { how }
+}
+
+/// `Never`, with the structural reason the user is shown.
+const fn never(reason: &'static str) -> Enforcement {
+    Enforcement::Never { reason }
+}
+
 /// Every settings key, and how it is meant to be enforced.
 ///
 /// The two `Never` rows are a recorded product decision: both controls stay in the UI, permanently
@@ -465,9 +480,7 @@ pub enum Enforcement {
 pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     (
         "appearance.theme",
-        Enforcement::Local {
-            how: "applied by this window as it renders",
-        },
+        local("applied by this window as it renders"),
     ),
     // Declared unenforced rather than `Local`: this build raises no notification at all (there is
     // no `tauri-plugin-notification` dependency, capability, or read site), so reporting it as `Live`
@@ -476,55 +489,41 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     // is badged "not supported" with this reason. See A-UX-2.
     (
         "appearance.notifications",
-        Enforcement::Never {
-            reason: "desktop notifications are not wired up in this build; the toggle is saved \
-                     but no notification is raised",
-        },
+        never(
+            "desktop notifications are not wired up in this build; the toggle is saved \
+             but no notification is raised",
+        ),
     ),
     // `Local`, and honestly so: the window that renders this document is the thing that applies a
     // custom theme, immediately, with no worker involved. It is never pushed over NODERA-CONFIG.
     (
         "appearance.themes",
-        Enforcement::Local {
-            how: "stored on this computer and applied by this window as it renders",
-        },
+        local("stored on this computer and applied by this window as it renders"),
     ),
     (
         "behavior.auto_start",
-        Enforcement::Local {
-            how: "registered with the OS as a login item",
-        },
+        local("registered with the OS as a login item"),
     ),
+    // The four battery controls are all decided HERE and reach the worker only as
+    // `behavior.transfers_paused`, so that is the key whose confirmation proves the whole rule is
+    // being honoured.
     (
         "behavior.only_when_charging",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "behavior.battery_control",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "behavior.battery_threshold_percent",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "behavior.power_rules_during_game",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
-    (
-        "network.default_trackers",
-        Enforcement::Live {
-            confirmed_by: "network.default_trackers",
-        },
-    ),
+    ("network.default_trackers", live("network.default_trackers")),
     // The worker binds its rendezvous clients once, at startup.
     ("network.rendezvous_endpoints", Enforcement::AtRestart),
     // A store feeds both lists. The tracker half goes live the moment it is pushed, which is what
@@ -532,81 +531,49 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     // restart, which that row already says. Claiming `AtRestart` here would under-report the half
     // that does take effect immediately, and a badge that is wrong in the pessimistic direction
     // still teaches people not to read it.
-    (
-        "network.tracker_stores",
-        Enforcement::Live {
-            confirmed_by: "network.default_trackers",
-        },
-    ),
+    ("network.tracker_stores", live("network.default_trackers")),
     // Decided here and pushed as the same one flag the battery rules use: the worker has no idea
     // what kind of link it is on, and a phone is the only thing that does.
     (
         "network.transfer_network",
-        Enforcement::Live {
-            confirmed_by: "behavior.transfers_paused",
-        },
+        live("behavior.transfers_paused"),
     ),
     (
         "network.unlimited_connections_only",
-        Enforcement::Never {
-            reason:
-                "no peer advertises a connection cap on the wire, so there is nothing to filter on",
-        },
+        never("no peer advertises a connection cap on the wire, so there is nothing to filter on"),
     ),
     // Bind-time: the listening socket is opened once, at startup.
     ("network.use_random_port", Enforcement::AtRestart),
     ("network.port_range", Enforcement::AtRestart),
-    (
-        "network.max_connections",
-        Enforcement::Live {
-            confirmed_by: "network.max_connections",
-        },
-    ),
+    ("network.max_connections", live("network.max_connections")),
     (
         "network.max_connections_per_world",
-        Enforcement::Never {
-            reason: "the transport has no world dimension; a socket is not owned by a world",
-        },
+        never("the transport has no world dimension; a socket is not owned by a world"),
     ),
     (
         "network.max_upload_slots_per_world",
-        Enforcement::Live {
-            confirmed_by: "network.max_upload_slots_per_world",
-        },
+        live("network.max_upload_slots_per_world"),
     ),
     (
         "network.max_upload_bytes_per_sec",
-        Enforcement::Live {
-            confirmed_by: "network.max_upload_bytes_per_sec",
-        },
+        live("network.max_upload_bytes_per_sec"),
     ),
     (
         "network.max_download_bytes_per_sec",
-        Enforcement::Live {
-            confirmed_by: "network.max_download_bytes_per_sec",
-        },
+        live("network.max_download_bytes_per_sec"),
     ),
     // Applied live: the worker relocates the content store in place (`contentStore.relocateTo`)
     // rather than requiring a restart. This row said `AtRestart` until the Java side was read: the
     // badge happened to render correctly anyway, because `applied` is checked first — but a table
     // that disagrees with the worker is a table nobody can trust the next time they read it.
-    (
-        "storage.peer_worlds_dir",
-        Enforcement::Live {
-            confirmed_by: "storage.peer_worlds_dir",
-        },
-    ),
+    ("storage.peer_worlds_dir", live("storage.peer_worlds_dir")),
     (
         "storage.replication_budget_bytes",
-        Enforcement::Live {
-            confirmed_by: "storage.replication_budget_bytes",
-        },
+        live("storage.replication_budget_bytes"),
     ),
     (
         "storage.replication_sweep_seconds",
-        Enforcement::Live {
-            confirmed_by: "storage.replication_sweep_seconds",
-        },
+        live("storage.replication_sweep_seconds"),
     ),
 ];
 
@@ -924,6 +891,26 @@ impl SettingsHandle {
         handle
     }
 
+    /// The in-memory document, taken whether or not a previous holder panicked.
+    ///
+    /// `lock().unwrap()` was the wrong reflex here and the failure it produces is total. [`update`]
+    /// runs a **caller-supplied** closure while holding this lock; one panic inside one of those
+    /// closures poisons the mutex, and from then on every `snapshot()` — which is on the path of
+    /// every screen in the app — panics too. Recovering the guard keeps the document that was there
+    /// before the panic, which is the last consistent one: the closure mutates a *clone* and only
+    /// the successful path writes it back.
+    ///
+    /// The file's own test helper has always done this (`unwrap_or_else(|e| e.into_inner())`); the
+    /// production handles had not.
+    fn held(&self) -> std::sync::MutexGuard<'_, Settings> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The damage note, taken whether or not a previous holder panicked. See [`Self::held`].
+    fn damage(&self) -> std::sync::MutexGuard<'_, Option<String>> {
+        self.damaged.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Apply a read result to this handle.
     fn absorb(&self, stored: Stored) {
         match stored {
@@ -942,21 +929,21 @@ impl SettingsHandle {
                         crate::stores::OFFICIAL_STORE_URL
                     );
                 }
-                *self.inner.lock().unwrap() = settings;
-                *self.damaged.lock().unwrap() = None;
+                *self.held() = settings;
+                *self.damage() = None;
                 self.loaded
                     .store(true, std::sync::atomic::Ordering::Release);
             }
             Stored::Absent => {
                 // A fresh install is fully loaded: there is nothing else to find, and saying
                 // otherwise would make every snapshot re-stat a file that is not there.
-                *self.damaged.lock().unwrap() = None;
+                *self.damage() = None;
                 self.loaded
                     .store(true, std::sync::atomic::Ordering::Release);
             }
             Stored::Damaged(reason) => {
                 log::error!("settings: {reason}");
-                *self.damaged.lock().unwrap() = Some(reason);
+                *self.damage() = Some(reason);
                 self.loaded
                     .store(false, std::sync::atomic::Ordering::Release);
             }
@@ -972,7 +959,7 @@ impl SettingsHandle {
         if !self.loaded.load(std::sync::atomic::Ordering::Acquire) {
             self.absorb(read_stored());
         }
-        self.inner.lock().unwrap().clone()
+        self.held().clone()
     }
 
     /// Why the stored settings could not be read, if they could not. Empty otherwise.
@@ -980,7 +967,7 @@ impl SettingsHandle {
     /// Surfaced to the UI rather than only logged: a user whose settings file was damaged is about
     /// to be shown default values, and saying nothing would let them conclude the app forgot.
     pub fn fault(&self) -> String {
-        self.damaged.lock().unwrap().clone().unwrap_or_default()
+        self.damage().clone().unwrap_or_default()
     }
 
     /// Re-read from disk, replacing what is in memory.
@@ -994,7 +981,7 @@ impl SettingsHandle {
 
     /// Validate, store, and persist. Returns the error message on a rejected document.
     pub fn save(&self, settings: Settings) -> Result<(), String> {
-        let mut held = self.inner.lock().unwrap();
+        let mut held = self.held();
         self.persist(&settings)?;
         *held = settings;
         self.loaded
@@ -1007,7 +994,7 @@ impl SettingsHandle {
     pub fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
         // Complete Android's deferred load before taking the mutation lock.
         let _ = self.snapshot();
-        let mut held = self.inner.lock().unwrap();
+        let mut held = self.held();
         let mut next = held.clone();
         change(&mut next);
         self.persist(&next)?;
@@ -1024,11 +1011,11 @@ impl SettingsHandle {
         // The guard is dropped before the branch runs. Reading it inside `if let` keeps the
         // temporary alive for the whole body, and the body locks the same mutex again — a deadlock
         // in a settings save, which is about the worst place to put one.
-        let damaged = self.damaged.lock().unwrap().clone();
+        let damaged = self.damage().clone();
         if let Some(reason) = damaged {
             let kept = settings_path().with_extension("json.bad");
             let _ = std::fs::rename(settings_path(), &kept);
-            *self.damaged.lock().unwrap() = None;
+            *self.damage() = None;
             self.loaded
                 .store(true, std::sync::atomic::Ordering::Release);
             return Err(format!(
@@ -1251,6 +1238,35 @@ mod tests {
             assert!(handle.fault().is_empty());
             handle.save(Settings::default()).unwrap();
             assert!(path.exists());
+        });
+    }
+
+    /// One panic in one command handler must not end the app's ability to read its own settings.
+    ///
+    /// [`SettingsHandle::update`] runs a caller-supplied closure while holding the document lock.
+    /// With `lock().unwrap()` a panic in any of those closures poisoned the mutex, and every later
+    /// `snapshot()` — which every screen calls — panicked forever after. The recovered guard keeps
+    /// the pre-panic document, because the closure mutates a clone and only success writes back.
+    #[test]
+    fn a_panic_inside_an_update_closure_does_not_poison_every_later_read() {
+        with_settings_file(None, |_| {
+            let handle = SettingsHandle::load();
+            handle
+                .update(|settings| settings.network.max_upload_bytes_per_sec = 4_096)
+                .unwrap();
+
+            let blew_up = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = handle.update(|_| panic!("a command handler blew up mid-edit"));
+            }));
+            assert!(blew_up.is_err(), "the panic must still reach the caller");
+
+            // Both of these used to panic instead of answering.
+            assert_eq!(handle.snapshot().network.max_upload_bytes_per_sec, 4_096);
+            assert!(handle.fault().is_empty());
+            handle
+                .update(|settings| settings.network.max_upload_bytes_per_sec = 8_192)
+                .unwrap();
+            assert_eq!(handle.snapshot().network.max_upload_bytes_per_sec, 8_192);
         });
     }
 

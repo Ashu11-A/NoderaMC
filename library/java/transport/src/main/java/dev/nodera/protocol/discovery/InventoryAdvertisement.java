@@ -9,8 +9,15 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A peer's periodic "here is what I hold, in this world" gossip (Task 20) — the feed that keeps
- * every tracker's {@code ArchiveInventory} current.
+ * A peer's periodic "here is what I hold, in this world" gossip (Task 20).
+ *
+ * <p><b>Nothing sends this today.</b> The Java-side tracker cache it fed, {@code ArchiveInventory},
+ * was deleted on 2026-08-06 (Plan 11 round 2, issue #210) — only the repair lane consulted it, and
+ * that lane went with it. The same holdings still reach a tracker, by a different route: peers put
+ * the {@link ManifestHolding} list on their {@code TrackerAnnounce}, and the Rust tracker keeps it
+ * in the peer registry ({@code tracker/src/registry.rs}) to answer {@code ManifestSeeders} queries.
+ * Tag 29 is frozen in {@code WireRegistry} and the codec still round-trips this record; treat it as
+ * a reserved shape, not as live protocol.
  *
  * <p>It carries the same {@link ManifestHolding} shape as Task 19's {@code ContentAvailability},
  * with one addition that earns it a separate message type: the <b>genesis hash</b>. A network may

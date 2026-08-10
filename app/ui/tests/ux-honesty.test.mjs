@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { declaredComponents, duplicateComponents } from "nodera-ui/component-audit";
 import { frontendRoots, readCrate } from "./layout.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -21,18 +22,20 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
  */
 function frontendSources() {
   const out = [];
-  const walk = (dir) => {
+  const walk = (root, dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const child = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(child);
-      else if (/\.tsx?$/.test(entry.name)) out.push(readFileSync(child, "utf8"));
+      if (entry.isDirectory()) walk(root, child);
+      else if (/\.tsx?$/.test(entry.name))
+        out.push([path.relative(root, child), readFileSync(child, "utf8")]);
     }
   };
-  for (const root of frontendRoots()) walk(root);
-  return out.join("\n");
+  for (const root of frontendRoots()) walk(root, root);
+  return out;
 }
 
-const frontend = frontendSources();
+const frontendFiles = frontendSources();
+const frontend = frontendFiles.map(([, source]) => source).join("\n");
 
 /**
  * Every desktop screen the shell can show, and the module that draws it.
@@ -134,8 +137,28 @@ test("the notifications toggle is badged with why it is not in force", () => {
   );
   // The backing declaration is asserted on the Rust side
   // (`appearance_notifications_is_declared_unenforced_with_a_reason`); this half only proves the
-  // screen actually shows the badge that declaration produces.
-  assert.match(readCrate("nodera-core", "src/settings.rs"), /Enforcement::Never \{\s*reason: "desktop notifications/);
+  // screen actually shows the badge that declaration produces, and that the declaration lives in
+  // the Rust rather than only in this UI.
+  //
+  // Found by its KEY, not by the syntax of the enforcement table. This assertion used to read
+  // `/Enforcement::Never \{\s*reason: "desktop notifications/` and broke the day the table was
+  // collapsed behind `never(...)` constructors — while the declaration it checks for still existed
+  // and still said the same thing. The key is wire contract (the worker pins the same strings); how
+  // a row spells its variant is not, so the test is written against the part that cannot move.
+  const table = readCrate("nodera-core", "src/settings.rs");
+  const keyAt = table.indexOf('"appearance.notifications"');
+  assert.notEqual(keyAt, -1, "the enforcement table must declare appearance.notifications");
+  const row = table.slice(keyAt, keyAt + 400);
+  assert.match(
+    row,
+    /\bnever\b|\bEnforcement::Never\b/,
+    "appearance.notifications must be declared never-enforced, however that is spelled",
+  );
+  assert.match(
+    row,
+    /desktop notifications are not wired up in this build/,
+    "the declaration must carry the reason the UI shows in its badge",
+  );
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-3 */
@@ -304,6 +327,24 @@ test("the six A-UX-5 commands are each resolved, and stay resolved", () => {
   // carries; the tray now just requests a push. One truth, one path.
   assert.doesNotMatch(lib, /nodera:\/\/pause/, "the orphan pause event is back");
   assert.doesNotMatch(frontend, /nodera:\/\/pause/, "the orphan pause event has a listener again");
+});
+
+/**
+ * One name, one component.
+ *
+ * The rule, the `Banner` collision that produced it, and why its tempting second half is absent are
+ * all in `nodera-ui/component-audit`. It moved there so the website could be held to the same rule
+ * from `web/tests/honesty.test.mjs` — a duplicate name is a property of how components are written
+ * in this repository, not of the launcher, and the site has 69 of them that nothing was checking.
+ */
+test("no component name is declared in two modules", () => {
+  const declaredIn = declaredComponents(frontendRoots());
+  // The cardinality first. Zero collisions out of zero components is what a walker pointed at a
+  // directory the code has left produces, and it renders identically to a clean tree.
+  assert.ok(declaredIn.size > 40, `only ${declaredIn.size} components were inspected`);
+
+  const collisions = duplicateComponents(frontendRoots());
+  assert.deepEqual(collisions, [], `two modules declare the same component:\n  ${collisions.join("\n  ")}`);
 });
 
 /**

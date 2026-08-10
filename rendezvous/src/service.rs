@@ -8,13 +8,13 @@
 
 use crate::config::Config;
 use crate::discover;
-use crate::limits::RequestQuota;
 use crate::punch::PunchCoordinator;
 use crate::register::{self, IdentityBindings};
 use crate::registry::{Namespace, Registry};
 use crate::reservation::ReservationKeeper;
 use nodera_codec::rendezvous::{ObservedAddress, PunchSync, RelayConnect, RendezvousMessage};
 use nodera_codec::types::NodeId;
+use nodera_service::limits::Quota as RequestQuota;
 use std::net::IpAddr;
 
 /// The lead time before a coordinated hole-punch go-signal fires, giving both peers time to receive
@@ -420,6 +420,14 @@ mod tests {
         )
     }
 
+    /// Feed one frame at the fixture's issue time, from no particular source address.
+    ///
+    /// The two `None`s are "no source IP" and "no source route"; a test exercising the per-IP quota
+    /// passes an address and does not use this.
+    fn served(svc: &mut Rendezvous, frame: &[u8]) -> Decision {
+        svc.handle_frame(frame, None, None, ISSUED_AT)
+    }
+
     fn register_frame(signed: &nodera_codec::rendezvous::SignedRecord) -> Vec<u8> {
         RendezvousMessage::Register(nodera_codec::rendezvous::RendezvousRegister {
             signed: signed.clone(),
@@ -469,7 +477,7 @@ mod tests {
             other => panic!("expected a reply, got {other:?}"),
         }
 
-        let page = peers(svc.handle_frame(&discover_frame(), None, None, ISSUED_AT));
+        let page = peers(served(&mut svc, &discover_frame()));
         assert_eq!(page.records.len(), 1);
         assert_eq!(page.records[0].record.peer, NodeId::new(0, 1));
     }
@@ -480,10 +488,10 @@ mod tests {
         let mut signed = signed_record(1, NET, b"world", RegistrationEvent::Register, 0);
         signed.signature[0] ^= 0xFF;
         assert!(matches!(
-            svc.handle_frame(&register_frame(&signed), None, None, ISSUED_AT),
+            served(&mut svc, &register_frame(&signed)),
             Decision::Drop(_)
         ));
-        let page = peers(svc.handle_frame(&discover_frame(), None, None, ISSUED_AT));
+        let page = peers(served(&mut svc, &discover_frame()));
         assert!(page.records.is_empty());
     }
 
@@ -514,7 +522,7 @@ mod tests {
             peer: NodeId::new(0, 1),
         })
         .encode();
-        match svc.handle_frame(&reserve, None, None, ISSUED_AT) {
+        match served(&mut svc, &reserve) {
             Decision::Reserved {
                 namespace,
                 peer,
@@ -540,10 +548,7 @@ mod tests {
             target: NodeId::new(0, 1),
         })
         .encode();
-        assert!(matches!(
-            svc.handle_frame(&connect, None, None, ISSUED_AT),
-            Decision::Connect(_)
-        ));
+        assert!(matches!(served(&mut svc, &connect), Decision::Connect(_)));
     }
 
     #[test]
@@ -558,7 +563,7 @@ mod tests {
             go_signal_epoch_millis: 0,
         })
         .encode();
-        match svc.handle_frame(&sync, None, None, ISSUED_AT) {
+        match served(&mut svc, &sync) {
             Decision::Forward(m) => {
                 assert_eq!(m.go_signal_epoch_millis, ISSUED_AT + PUNCH_LEAD_MILLIS);
             }
@@ -593,7 +598,7 @@ mod tests {
             None,
             ISSUED_AT,
         );
-        let page = peers(svc.handle_frame(&discover_frame(), None, None, ISSUED_AT));
+        let page = peers(served(&mut svc, &discover_frame()));
         assert!(page.records.is_empty());
     }
 
@@ -601,7 +606,7 @@ mod tests {
     fn a_garbage_frame_is_dropped_without_crashing() {
         let mut svc = service();
         assert!(matches!(
-            svc.handle_frame(&[0xFF, 0xFF, 0x00], None, None, ISSUED_AT),
+            served(&mut svc, &[0xFF, 0xFF, 0x00]),
             Decision::Drop(_)
         ));
     }
@@ -623,7 +628,7 @@ mod tests {
         };
         let signed = TestSigner::new(42).sign(record);
         assert!(matches!(
-            svc.handle_frame(&register_frame(&signed), None, None, ISSUED_AT),
+            served(&mut svc, &register_frame(&signed)),
             Decision::Reply(_)
         ));
     }

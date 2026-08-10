@@ -217,7 +217,7 @@ public record ChunkColumnState(
     @Override
     public void encode(CanonicalWriter w) {
         int version = denseSections.isEmpty() ? 1 : 2;
-        w.writeU16(TypeTags.CHUNK_COLUMN_STATE).writeU16(version);
+        w.writeFrame(TypeTags.CHUNK_COLUMN_STATE, version);
         w.writeU32(Integer.toUnsignedLong(chunkX));
         w.writeU32(Integer.toUnsignedLong(chunkZ));
         w.writeU32(Integer.toUnsignedLong(minY));
@@ -244,10 +244,7 @@ public record ChunkColumnState(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static ChunkColumnState decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.CHUNK_COLUMN_STATE) {
-            throw new IllegalStateException("expected CHUNK_COLUMN_STATE tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.CHUNK_COLUMN_STATE, "CHUNK_COLUMN_STATE");
         int version = r.readU16();
         if (version != 1 && version != 2) {
             throw new IllegalStateException("unsupported CHUNK_COLUMN_STATE version " + version);

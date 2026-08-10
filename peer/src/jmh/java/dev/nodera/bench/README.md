@@ -42,8 +42,19 @@ library.
 
 - **Open a socket.** Discovery latency in the field is the network; a loopback benchmark would
   measure the kernel. What is measured is the per-peer CPU work done with each answer once it lands.
-- **Create files per invocation.** `cacheSave`/`cacheLoad` reuse one file created in `@Setup`: a temp
-  file per operation measures the filesystem's create/unlink path, which swamped the encode/decode
-  cost this lane exists to watch.
+- **Create files per invocation.** A file-touching benchmark reuses one file created in `@Setup`: a
+  temp file per operation measures the filesystem's create/unlink path, which swamped the
+  encode/decode cost the lane existed to watch. (The two benchmarks that taught this,
+  `cacheSave`/`cacheLoad`, were removed on 2026-08-06 with `CachedPeerStore` — see below.)
 - **Depend on a test fixture.** Test classes are not on this source set's compile path on purpose —
   a benchmark that shares a builder with a test starts changing when the test does.
+
+## Removed lanes
+
+**2026-08-06 (Plan 11 round 2, issue #210):** `directoryIngest`, `directoryOnline`, `cacheSave` and
+`cacheLoad` were deleted with `PeerDirectory` and `CachedPeerStore`. Both classes had zero
+production callers — discovery in production is `PeerDiscoveryService` + `TrackerClient` +
+`RendezvousDirectory`, and none of them consults either — so four of this lane's six benchmarks were
+ranking, load-scaling and baselining work no node does. `fixtures/bench/baseline.json` lost the
+twelve corresponding rows in the same commit; the remaining rows are unchanged, so a same-machine
+diff still reads as evidence.

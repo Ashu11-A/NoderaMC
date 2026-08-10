@@ -21,7 +21,7 @@ exclude = ["app"]
 # `gradle/libs.versions.toml` version-catalog discipline (Task 0 §3). Bumps are single dedicated
 # commits, never mixed into a feature task.
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"

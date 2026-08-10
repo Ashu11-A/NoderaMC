@@ -9,17 +9,31 @@ publish.workspace = true
 
 [dependencies]
 nodera-codec = { workspace = true }
-# For `env` only: one environment-overlay implementation for all three services, so a variable that
-# works on the tracker works the same way here. This crate takes no identity, drain, or update
-# behaviour from it — telemetry is a deployment, never a peer.
+# The service plumbing all three binaries share, so a flag, a variable or a frame size that behaves
+# one way on the tracker behaves the same way here. Seven of its thirteen modules are used: `cli`
+# (the five common flags and their dispatch), `config` (`load_toml`/`configure`/`bind` and the
+# `service_config!` macro), `env` (the overlay and `env_overlay!`), `endpoint` (`socket_target`,
+# which strips the `tcp://` a resolver cannot take), `frame` (the length-prefixed reader/writer and
+# its bounds), `limits` (`PairQuota`) and `serve` (`shutdown_signal` and `accept_loop`).
+#
+# What it does NOT take is the half that makes a service a peer: no `identity`, `directory`, `drain`,
+# `lifecycle`, `update` or `admission`. Telemetry is a deployment, never a peer — it signs nothing,
+# announces itself to no tracker, and holds no authority anything in the network reads.
 nodera-service = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = { workspace = true }
 thiserror = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+# Test-only. Production TOML parsing goes through `nodera_service::config::load_toml`, which owns the
+# error type; the only `toml::` calls here build fixtures and assert the round trip.
+toml = { workspace = true }
+
+[build-dependencies]
+# The `VERSION` stamp, shared with the other services. No dependencies of its own, so it costs
+# nothing on a cross-compiled release build.
+nodera-build = { path = "../library/rust/nodera-service/build-version" }

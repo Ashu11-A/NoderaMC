@@ -2,12 +2,15 @@
 
 <!-- AI-AGENT-INSTRUCTION: This file documents the SCRIPTED LIVE ACCEPTANCE SUITES as well as the
      module's unit tests. Update it whenever a script gains or changes a stage. Counts come from the
-     `./gradlew check` XML reports (or `rg -c '@Test'` over `src/test`, re-verified 2026-07-30 at
-     216 across 39 files), never from memory. RUN THE LIVE SUITES whenever a change touches the
+     `./gradlew check` XML reports, never from memory, and the module row below is held by
+     `scripts/test-counts.sh --check java`. An `rg -c '@Test'` sweep is NOT the same number: it
+     counted 216 across 39 files on 2026-07-30 while JUnit reported 134, because a
+     `@ParameterizedTest` row and a `@Nested` class each count once in the annotation sweep and
+     once per executed case in the report. Quote the report. RUN THE LIVE SUITES whenever a change touches the
      host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-07-30 · **216 unit tests · 0 failing** (module
+**Category:** minecraft · **Last run:** 2026-08-10 · **134 unit tests · 0 failing** (module
 `neoforge-mod`), plus the live acceptance scenarios (now `dev.nodera.testkit.scenario`, run with `scripts/nodera-test.sh`)
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
@@ -218,7 +221,7 @@ suites pass through it by design.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate **and its lockout** (`JoinGateThrottleIsWiredTest`, `JoinerIdentityTest` — a reconnect no longer buys a fresh password guess), crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, the in-game self-test drive, and the forward event-sync call sites (`EventSyncIsWiredTest`) | 216 | 🚧 |
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate **and its lockout** (`JoinGateThrottleIsWiredTest`, `JoinerIdentityTest` — a reconnect no longer buys a fresh password guess), crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, the in-game self-test drive, and the forward event-sync call sites (`EventSyncIsWiredTest`) | 134 | 🚧 |
 
 Landmark unit tests:
 

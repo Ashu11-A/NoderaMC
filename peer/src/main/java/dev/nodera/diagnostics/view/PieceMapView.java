@@ -93,11 +93,6 @@ public final class PieceMapView {
             holders = Math.max(holders, seeders);
         }
 
-        /** Back-compat: a map that knows only its seeder count treats every seeder as a holder. */
-        public PieceMap(String worldName, List<PieceCell> cells, int seeders) {
-            this(worldName, cells, seeders, seeders);
-        }
-
         /** @return total number of pieces. */
         public int total() {
             return cells.size();

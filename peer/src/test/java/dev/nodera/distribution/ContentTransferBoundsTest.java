@@ -10,6 +10,7 @@ import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -31,8 +32,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 final class ContentTransferBoundsTest {
 
-    private static final NodeId SELF = DistFixtures.node(1);
-    private static final NodeId PEER = DistFixtures.node(2);
+    private static final NodeId SELF = EngineFixtures.node(1);
+    private static final NodeId PEER = EngineFixtures.node(2);
     private static final PeerAddress PEER_ADDRESS = PeerAddress.of(PEER, "peer:1");
 
     /** Records what the node tried to send — the observation point a pause has to suppress. */

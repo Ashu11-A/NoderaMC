@@ -90,7 +90,8 @@ dials), [`engine/Task.5.md`](../engine/Task.5.md) (the validation stack for task
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) ·
-refactoring register: [`REFACTORING.md`](REFACTORING.md).
+refactoring register: [`REFACTORING.md`](REFACTORING.md) · control-protocol wire reference:
+[`REFERENCE.md`](REFERENCE.md).
 
 ## 6. Files
 
@@ -104,7 +105,7 @@ refactoring register: [`REFACTORING.md`](REFACTORING.md).
 |---|---|
 | `peer/.../headless/HeadlessPeerMain.java` | Boots the runtime, holds the identity, serves the control endpoint |
 | `peer/.../headless/WorkerControlHandler.java` | Answers the verb table; builds the live `STATE` snapshot from runtime state |
-| `peer/.../peer/control/ControlProtocol.java` | The wire: verbs and version — the single source of truth |
+| `peer/.../peer/control/ControlProtocol.java` | The wire: verbs and version — the single source of truth for the constants; full grammar in [`REFERENCE.md`](REFERENCE.md) |
 | `peer/.../peer/control/ControlServer.java` | Loopback listener + handler dispatch |
 | Mirrors | `endpoints/neoforge-mod/.../common/CompanionProtocol.java`, `app/src/control.rs` |
 

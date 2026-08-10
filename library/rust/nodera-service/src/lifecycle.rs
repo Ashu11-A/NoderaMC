@@ -235,6 +235,72 @@ where
     }
 }
 
+/// How one round of announces was answered, split by whether the tracker admitted the record.
+///
+/// Kept apart from "how many trackers replied", because those used to be the same number. A tracker
+/// answering `accepted: false` has told the service the one thing it cannot work out for itself: a
+/// `not-listed` reply to a `Stopped` record means this service's listing had been expiring between
+/// announces, so every peer that asked *that* tracker has been getting an answer without it in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AnnounceSummary {
+    /// Trackers that answered and admitted the record.
+    acked: usize,
+    /// Trackers that answered and refused it.
+    refused: usize,
+}
+
+impl AnnounceSummary {
+    fn of(outcomes: &[AnnounceOutcome]) -> Self {
+        let refused = outcomes.iter().filter(|outcome| !outcome.accepted).count();
+        Self {
+            acked: outcomes.len() - refused,
+            refused,
+        }
+    }
+}
+
+/// Name every tracker that refused the record, and return the split.
+///
+/// The line is the whole signal: nothing further up the stack reads `accepted`, so a refusal that is
+/// not printed here is a discovery outage with no operator-visible symptom at all.
+fn report_announce(outcomes: &[AnnounceOutcome], what: &str) -> AnnounceSummary {
+    for outcome in outcomes.iter().filter(|outcome| !outcome.accepted) {
+        let reason = if outcome.reason.is_empty() {
+            "no reason given"
+        } else {
+            outcome.reason.as_str()
+        };
+        eprintln!(
+            "nodera-service: {} refused this service's {what} record ({reason})",
+            outcome.endpoint
+        );
+    }
+    AnnounceSummary::of(outcomes)
+}
+
+/// The operator-facing drain line.
+///
+/// Built here rather than inline so the counting is assertable. The tracker figure used to be
+/// `outcomes.len()` — the number of trackers that *answered* — which reported a tracker that had
+/// just refused the record as one that had accepted it.
+fn drain_line(
+    reason: &str,
+    notified: usize,
+    trackers: AnnounceSummary,
+    replacements: usize,
+) -> String {
+    let refused = if trackers.refused == 0 {
+        String::new()
+    } else {
+        format!(", {} refused it", trackers.refused)
+    };
+    format!(
+        "nodera-service: draining ({reason}); told {notified} peer(s) and {} tracker(s){refused}, \
+         offering {replacements} replacement(s)",
+        trackers.acked
+    )
+}
+
 /// Announce once, and remember the siblings the trackers reported.
 async fn announce_once<H: ServiceHost>(
     host: &H,
@@ -247,6 +313,7 @@ async fn announce_once<H: ServiceHost>(
     }
     let (record, signature) = sign_now(host, lifecycle, identity, config);
     let outcomes = directory::announce_to_all(&config.tracker_endpoints, &record, &signature).await;
+    report_announce(&outcomes, "current");
     let merged = directory::merge_directories(&outcomes);
     if !merged.is_empty() {
         lifecycle.set_siblings(merged);
@@ -310,14 +377,15 @@ pub async fn drain_now<H: ServiceHost>(
 
     // 3. Tell the peers already committed, directly. They are the ones losing an inbound path.
     let notified = host.notify_peers(&notice);
-    // And the trackers, so a peer that asks after this moment is not sent here.
-    let acked = directory::announce_to_all(&config.tracker_endpoints, &record, &signature)
-        .await
-        .len();
+    // And the trackers, so a peer that asks after this moment is not sent here. A tracker that
+    // refuses the draining record has *not* been told, and is counted apart from the ones that were.
+    let trackers = report_announce(
+        &directory::announce_to_all(&config.tracker_endpoints, &record, &signature).await,
+        "draining",
+    );
     println!(
-        "nodera-service: draining ({reason}); told {notified} peer(s) and {acked} tracker(s), \
-         offering {} replacement(s)",
-        replacements.len()
+        "{}",
+        drain_line(reason, notified, trackers, replacements.len())
     );
 
     // 4. Let in-flight work finish. A relay circuit carrying a world transfer completes; it does not
@@ -346,7 +414,19 @@ pub async fn drain_now<H: ServiceHost>(
         ttl_millis: config.record_ttl_millis(),
         drain_deadline_epoch_millis: 0,
     });
-    directory::announce_to_all(&config.tracker_endpoints, &stopped, &stopped_signature).await;
+    // This is the one announce a tracker can answer `not-listed`, and it was previously discarded
+    // whole: the service said "delist me", was told it had never been listed, and printed nothing.
+    let delisted = report_announce(
+        &directory::announce_to_all(&config.tracker_endpoints, &stopped, &stopped_signature).await,
+        "stopped",
+    );
+    if delisted.refused > 0 {
+        println!(
+            "nodera-service: {} tracker(s) delisted this service and {} never had it listed — \
+             peers asking those trackers have not been able to find it",
+            delisted.acked, delisted.refused
+        );
+    }
 }
 
 /// Check for and stage an update, off the runtime's worker threads.
@@ -391,8 +471,12 @@ async fn staged_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nodera_codec::framing;
+    use nodera_codec::service::{ServiceAnnounceAck, ServiceMessage};
     use nodera_codec::types::NodeId;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     struct FakeHost {
         notified: AtomicUsize,
@@ -566,6 +650,91 @@ mod tests {
         let outcomes = announce_once(&*host, &lifecycle, &identity(), &config()).await;
         assert!(outcomes.is_empty());
         assert!(lifecycle.siblings().is_empty());
+    }
+
+    #[test]
+    fn a_refusal_is_not_counted_as_an_acknowledgement() {
+        // The whole defect this split exists for. The tracker figure in the drain line was the number
+        // of trackers that *answered*, so a tracker that had just refused the draining record was
+        // reported to the operator as one that had accepted it.
+        let summary = AnnounceSummary::of(&[answered(true, ""), answered(false, "not-listed")]);
+        assert_eq!(summary.acked, 1);
+        assert_eq!(summary.refused, 1);
+
+        let line = drain_line("shutdown", 4, summary, 2);
+        assert!(
+            line.contains("1 tracker(s), 1 refused it"),
+            "the drain line must not count the refusal as a success: {line}"
+        );
+    }
+
+    #[test]
+    fn a_clean_drain_says_nothing_about_refusals() {
+        // The quiet case has to stay quiet, or the new figure trains operators to ignore the line.
+        let line = drain_line(
+            "update",
+            0,
+            AnnounceSummary::of(&[answered(true, ""), answered(true, "")]),
+            0,
+        );
+        assert_eq!(
+            line,
+            "nodera-service: draining (update); told 0 peer(s) and 2 tracker(s), \
+             offering 0 replacement(s)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tracker_that_refuses_the_record_is_reported_as_a_refusal() {
+        // End to end over a socket, because the bit travels from `ServiceAnnounceAck.accepted`
+        // through `AnnounceOutcome` and every hop of that path used to drop it.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut header = [0u8; 4];
+            stream.read_exact(&mut header).await.unwrap();
+            let len = framing::decode_length(header).unwrap();
+            let mut body = vec![0u8; len];
+            stream.read_exact(&mut body).await.unwrap();
+            let ack = ServiceMessage::AnnounceAck(ServiceAnnounceAck {
+                accepted: false,
+                next_announce_after_seconds: 120,
+                reason: "not-listed".to_owned(),
+                directory: Vec::new(),
+            })
+            .encode();
+            stream
+                .write_all(&framing::frame(&ack).unwrap())
+                .await
+                .unwrap();
+            stream.flush().await.unwrap();
+        });
+
+        let config = LifecycleConfig {
+            tracker_endpoints: vec![addr],
+            ..config()
+        };
+        let host = FakeHost::new();
+        let lifecycle = Lifecycle::new();
+        let outcomes = announce_once(&*host, &lifecycle, &identity(), &config).await;
+        server.await.unwrap();
+
+        assert_eq!(outcomes.len(), 1, "the tracker answered");
+        let summary = AnnounceSummary::of(&outcomes);
+        assert_eq!(summary.acked, 0, "answering is not accepting");
+        assert_eq!(summary.refused, 1);
+        assert_eq!(outcomes[0].reason, "not-listed");
+    }
+
+    fn answered(accepted: bool, reason: &str) -> AnnounceOutcome {
+        AnnounceOutcome {
+            endpoint: "tracker.example:25600".to_owned(),
+            accepted,
+            next_announce_after_seconds: 120,
+            reason: reason.to_owned(),
+            directory: Vec::new(),
+        }
     }
 
     fn sibling(id: u64) -> ServiceDirectoryEntry {

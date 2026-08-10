@@ -71,11 +71,6 @@ public final class LocalReplicaView {
         regions.put(base.region(), new RegionState(base, epoch));
     }
 
-    /** Stop tracking a region (FOV plan deactivation). */
-    public synchronized void deactivate(RegionId region) {
-        regions.remove(region);
-    }
-
     /**
      * Append a locally-captured action to the region's prediction overlay. Ignored (returns
      * false) when the region is not tracked or the engine rejects the overlay re-execution —

@@ -60,6 +60,8 @@
 - `./gradlew :peer:jmh -Pbench.quick` / `./gradlew :peer:benchmarkReport` — the peer benchmark lanes (discovery · chunk sync · wire · runtime latency) and the ranked report with load-scaling and a baseline diff (network task 15). NOT part of `check`: minutes, and not a correctness gate
 - `./gradlew :peer:structureReport` — the structural code report: dead code, in-loop cost findings, and a **debugger-profiled** run of the real `nodera-headless` worker. `-Pstructure.debug=false` skips the probe. Budgets in `fixtures/structure/budget.json` ratchet DOWN only
 - `scripts/android-apk.sh --require-release-key` — the SIGNED Android build. Without the flag the script mints a development key (hardcoded password, reproducible by anyone) so a developer can install on a phone; with it, an absent key is a refusal. The release lane always passes it, because Android identifies an app by its signing certificate and an install signed with the dev key could never be updated by a genuine release. Key material arrives as `NODERA_ANDROID_KEYSTORE_BASE64` + `NODERA_ANDROID_KEY_PASS` secrets, is decoded mode-600 to a temp file, and is removed by the script's single EXIT trap — never add a second `trap` to that script
+- `scripts/loc-metrics.py [--check | --baseline | --json | --by-module | --diff FILE | --selftest]` — how much source the tree holds, lexed rather than grepped (`scripts/lib/loc_classify.py` knows Java text blocks, Kotlin raw strings and nesting block comments, Rust raw strings and lifetimes, TS template and regex literals). Sixteen buckets across four languages: Java, Kotlin (`.kt` and every `build.gradle.kts`), Rust and TypeScript. `.py` and `.sh` are deliberately outside it, and the exclusion's size is stated in the baseline's own `note`. `--check` is in the gate and fails on growth past `scripts/lib/loc-baseline.json`, which ratchets DOWN only; deliberate growth is re-stamped with `--baseline` in the SAME commit. Generated files are measured and then excluded from the limits — appending a wire kind must never fail a size gate. The reduction programme it serves is `docs/plans/Plan.11.md`
+- `scripts/reference-check.py [--check | --json]` — every exported symbol has a call site somewhere other than where it is declared. Rust `pub fn`/`struct`/`enum`/`trait`/`type`/`const`/`static` and `pub` fields, plus named and default TypeScript exports; Java is covered by `:peer:structureReport` instead. In the gate, ratcheted by `fixtures/structure/reference-allow.json`. What it does not ask is listed in the script's own header — read that before adding an allowlist entry
 - `scripts/check-case-collisions.sh` — no two tracked paths, and no two module stems in one directory, may differ only in case. Linux is case-sensitive and macOS/Windows are not, so such a pair is two files here and one there; it is invisible from a case-sensitive machine and breaks every checkout on the other two
 - `scripts/test-totals.sh --java | --cargo <log> | --merge … --badges DIR` — how many tests PASSED and FAILED, read from JUnit XML and libtest's own `test result:` lines. The three CI test jobs each emit their half; the `badges` job sums them and force-pushes two shields endpoint documents to the orphan `badges` branch, which is what README's two test badges render. Never hand-write those numbers into README — and do not put a workflow-status badge back, because "passing" is what a job that skipped into green also says
 - `scripts/dev.sh --build-only` — compile both toolchains + collect the DEV artifacts (2 binaries + the mod jar + the worker dist) into `build/`. This is a development convenience, not the release lane
@@ -100,18 +102,21 @@ same frozen wire contract, so a codec regression is a consensus regression.
     `DeterminismPropertyTest`. `shadow`'s `SnapshotDeltaApplier` measures timing OUTSIDE the
     hashed path (nanoTime around the engine, never inside it).
   - `coordinator`: the delegate→propose→verify→commit→reassign pipeline behind the
-    `MutableWorldView` seam (`CoordinatorIT`); ALL world writes go through `WorldMutationApplier`
+    `MutableWorldView` seam; ALL world writes go through `WorldMutationApplier`
     (two-pass compare-and-set, all-or-nothing). Durable state via `PersistedCoordinatorState`.
-    Task 22's multi-factor `ReliabilityScorer` is ADDITIVE — the Task-6 `ReliabilityLedger` EMA
-    stays the frozen correctness source. Task 25's `LagHandoffPolicy`: skew strictly above four
+    The Task-6 `ReliabilityLedger` EMA is the correctness source — Task 22's additive multi-factor
+    scorer was deleted on 2026-08-06 (round 2, #210) as unreachable, so there is one scorer, not
+    two. Task 25's `LagHandoffPolicy`: skew strictly above four
     ticks for consecutive windows, streak resets on assignment change, cooldown prevents
     flapping, only a guarded handoff applies the one-shot reliability penalty. Task 11's
     `interference` package is the single mutation-guard choke point.
   - `committee`: consensus primitives around real engine re-execution; Task 24 `VotePersistence`
     (durably prepare before signing, persist certificate before canonical apply); guarded lag
     handoff pins region/epoch/primary (stale decisions are no-ops); 2-of-3 quorum commits through
-    the coordinator applier. Proven by `CommitteeMvpIT`/`ByzantineWorkerTest`/`CrashRecoveryIT`/
-    `LagHandoffIT`.
+    the coordinator applier. **These are primitives only** — the engine-side session that drove
+    them was deleted on 2026-08-06 (round 2, #210). The batch loop that ships is
+    `dev.nodera.peer.validation.WorkerValidationService`; proven by `WorkerQuorumValidationIT`/
+    `ByzantineMeshIT`/`LiveLagHandoffIT` in `:peer`, over the real transport.
   - `fallback`: committee-lane vs server-lane router + `SoakMetrics` (Phase 4 exit: >90%
     committee-commit, `FallbackRoutingIT`). Wired live by Task 5's live lane.
 - `transport` (`dev.nodera.protocol` + `dev.nodera.transport{,.socket,.rendezvous}`):
@@ -148,8 +153,11 @@ same frozen wire contract, so a codec regression is a consensus regression.
     counts the departing peer. BouncyCastle (Argon2id) is this package's only external dep.
   - `peer` runtime: membership/heartbeat/gateway election over the transport SEAM (runs
     identically on `LoopbackTransport` and `SocketPeerTransport` — `SessionContinuityIT`);
-    `discovery` (TrackerClient/BootstrapClient/PeerDirectory/ArchiveInventory/CachedPeerStore/
-    PersistentIdentityStore), `archival` (placement/audit/repair, Tasks 21/22), deadline-bound
+    `discovery` (PeerDiscoveryService/TrackerClient/TrackerLookup/RendezvousDirectory/
+    ServiceScoreBoard/PersistentIdentityStore/CommonsPresence — the second resolver and its caches
+    were deleted 2026-08-06, #210), `archival` (**placement only**: `RendezvousArchivePolicy` +
+    `ReplicationTarget`/`RetentionPolicy`; the audit→repair triangle went with the same round, and
+    repair is now the placement sweep in `WorldReplicationService`), deadline-bound
     `PeerShutdownHook`, certified-reference `TickSync`, `control` — the loopback verb endpoint
     (`ControlProtocol` v2), the single source the mod's `CompanionProtocol` and the Tauri app's
     `control.rs` mirror.
@@ -242,9 +250,11 @@ answer must be unchanged apart from the telemetry block and the clock.
   and fails on any drift, and `tests/fixtures.rs` re-encodes every `fixtures/wire/*.bin`
   byte-exactly. Appending a tag means appending it on BOTH sides in the same commit.
 - `core/Bytes` is the single byte[] value type (use everywhere, never raw byte[] in records).
-- Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber). `SessionKeepAlive` keeps tag
-  23 but emits body version 2 for canonical per-region progress; its decoder must continue accepting
-  v1 as empty progress while all unchanged tags remain on global version 1.
+- Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber) is the front door;
+  `protocol/codec/CodecRegistry` is the table it dispatches through, one row per tag with the encoder
+  beside its decoder. `SessionKeepAlive` keeps tag 23 and, **since 0.2.0**, emits and accepts body
+  version 2 only — v1 was retired in the same version bump that allowed a frozen contract to change
+  (issue #214). All unchanged tags remain on global version 1.
 - Hash/sign: `core/crypto/HashService` (SHA-256 over canonical encoding) + `SignatureService`
   (Ed25519 verify; signing lives on `core/identity/NodeIdentity`).
 

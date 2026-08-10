@@ -132,34 +132,10 @@ impl Default for Config {
     }
 }
 
-/// Why a configuration was refused.
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    /// The file could not be read.
-    #[error("cannot read config {path}: {source}")]
-    Io {
-        /// Path that failed.
-        path: String,
-        /// Underlying IO error.
-        #[source]
-        source: std::io::Error,
-    },
-    /// The file was not valid TOML, or had unknown/mistyped keys.
-    #[error("invalid config {path}: {source}")]
-    Parse {
-        /// Path that failed.
-        path: String,
-        /// Underlying parse error.
-        #[source]
-        source: toml::de::Error,
-    },
-    /// A value was structurally valid but unusable.
-    #[error("invalid config value: {0}")]
-    Invalid(String),
-    /// An environment variable was unusable, or named nothing this service has.
-    #[error("invalid environment configuration: {0}")]
-    Env(#[from] nodera_service::env::EnvError),
-}
+/// Why a configuration was refused. One definition for all three services.
+pub use nodera_service::config::ConfigError;
+
+nodera_service::service_config!(Config);
 
 impl Config {
     /// Overlay `NODERA_RENDEZVOUS_*` onto an already-loaded configuration.
@@ -167,7 +143,7 @@ impl Config {
     /// Precedence is defaults, then the file, then this. Validation runs after, never before.
     pub fn apply_env(
         &mut self,
-        env: &impl EnvSource,
+        env: &dyn EnvSource,
     ) -> Result<nodera_service::env::Applied, ConfigError> {
         let mut overlay = EnvOverlay::new(ENV_PREFIX, env);
         // These three are read by the Java peer/worker (`HeadlessPeerMain`), which is a *client* of
@@ -176,57 +152,15 @@ impl Config {
         overlay.ignore("NODERA_RENDEZVOUS_FANOUT");
         overlay.ignore("NODERA_RENDEZVOUS_SWEEP_SECONDS");
 
-        overlay.set("bind_addr", &mut self.bind_addr);
-        overlay.set(
-            "registration_ttl_seconds",
-            &mut self.registration_ttl_seconds,
-        );
-        overlay.set(
-            "refresh_interval_seconds",
-            &mut self.refresh_interval_seconds,
-        );
-        overlay.set("clock_skew_seconds", &mut self.clock_skew_seconds);
-        overlay.set("discover_page_limit", &mut self.discover_page_limit);
-        overlay.set(
-            "max_records_per_namespace",
-            &mut self.max_records_per_namespace,
-        );
-        overlay.set("max_namespaces", &mut self.max_namespaces);
-        overlay.set("reservation_ttl_seconds", &mut self.reservation_ttl_seconds);
-        overlay.set("reservation_max_bytes", &mut self.reservation_max_bytes);
-        overlay.set(
-            "reservation_max_duration_seconds",
-            &mut self.reservation_max_duration_seconds,
-        );
-        overlay.set(
-            "circuit_idle_timeout_seconds",
-            &mut self.circuit_idle_timeout_seconds,
-        );
-        overlay.set("per_ip_request_quota", &mut self.per_ip_request_quota);
-        overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
-        overlay.set(
-            "reservation_hmac_key_hex",
-            &mut self.reservation_hmac_key_hex,
-        );
-        overlay.set("telemetry_endpoint", &mut self.telemetry_endpoint);
-        overlay.set(
-            "telemetry_interval_seconds",
-            &mut self.telemetry_interval_seconds,
-        );
-        overlay.set_list("tracker_endpoints", &mut self.tracker_endpoints);
-        overlay.set_list("advertised_routes", &mut self.advertised_routes);
-        overlay.set("identity_file", &mut self.identity_file);
-        overlay.set("drain_grace_seconds", &mut self.drain_grace_seconds);
-        overlay.set("max_concurrent_circuits", &mut self.max_concurrent_circuits);
-        overlay.set("update_channel", &mut self.update_channel);
-        overlay.set("update_feed_base_url", &mut self.update_feed_base_url);
-        overlay.set(
-            "update_check_interval_seconds",
-            &mut self.update_check_interval_seconds,
-        );
-        overlay.set(
-            "update_release_public_key",
-            &mut self.update_release_public_key,
+        nodera_service::env_overlay!(overlay, self,
+            set: bind_addr, registration_ttl_seconds, refresh_interval_seconds, clock_skew_seconds,
+                 discover_page_limit, max_records_per_namespace, max_namespaces,
+                 reservation_ttl_seconds, reservation_max_bytes, reservation_max_duration_seconds,
+                 circuit_idle_timeout_seconds, per_ip_request_quota, max_frame_bytes,
+                 reservation_hmac_key_hex, telemetry_endpoint, telemetry_interval_seconds,
+                 identity_file, drain_grace_seconds, max_concurrent_circuits, update_channel,
+                 update_feed_base_url, update_check_interval_seconds, update_release_public_key;
+            set_list: tracker_endpoints, advertised_routes;
         );
 
         Ok(overlay.finish()?)
@@ -242,14 +176,7 @@ impl Config {
 
     /// Load and validate a config file.
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
-        let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
-            path: path.display().to_string(),
-            source,
-        })?;
-        let config: Config = toml::from_str(&text).map_err(|source| ConfigError::Parse {
-            path: path.display().to_string(),
-            source,
-        })?;
+        let config: Config = nodera_service::config::load_toml(path)?;
         config.validate()?;
         Ok(config)
     }
@@ -378,6 +305,11 @@ impl Config {
     /// Reservation duration ceiling in milliseconds.
     pub fn reservation_max_duration_millis(&self) -> u64 {
         self.reservation_max_duration_seconds.saturating_mul(1_000)
+    }
+
+    /// Circuit idle timeout in milliseconds — the unit [`crate::circuit::CircuitLimits`] works in.
+    pub fn circuit_idle_timeout_millis(&self) -> u64 {
+        self.circuit_idle_timeout_seconds.saturating_mul(1_000)
     }
 
     /// The configured HMAC key bytes, or `None` when an ephemeral key should be minted.

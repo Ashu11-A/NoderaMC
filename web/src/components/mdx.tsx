@@ -3,12 +3,16 @@ import { breadcrumb, command } from "../destinations";
 import { Callout } from "./primitives";
 
 /**
- * The five components the prose is allowed to use to name something outside itself.
+ * The four components the prose is allowed to use to name something outside itself.
  *
  * They all share one property: they turn a fact that lives somewhere else into text, and they throw
  * when that fact has moved. A page that names a screen the launcher renamed, or cites a task that
  * does not exist, is the failure this repository writes tests against everywhere else; the site is
  * not exempt just because its output is prose.
+ *
+ * There were five. `NeedsScreenshot` marked a place a picture belonged, said a build step counted
+ * them, and was written into no page — the build step does not exist either, so the marker for
+ * "somebody should notice this gap" was itself the gap.
  */
 
 /**
@@ -89,24 +93,5 @@ export function Unwritten(props: { task: string; taskPath: string; route: string
         lists it with everything else that is open.
       </p>
     </Callout>
-  );
-}
-
-/**
- * A marker where a screenshot belongs and none exists.
- *
- * It renders as a visible, quiet gap rather than as nothing, because the honest failure mode of
- * "we will add the picture later" is that nobody can tell which pages were supposed to have one. A
- * build step counts these and prints the list; it is a report, not a failure.
- */
-export function NeedsScreenshot(props: { of: string }) {
-  return (
-    <div
-      className="my-6 rounded-md border border-dashed border-line px-5 py-4 text-sm text-faint"
-      data-needs-screenshot={props.of}
-    >
-      A screenshot of {props.of} belongs here. It lands with the launcher redesign — a capture taken
-      against today's launcher would be wrong within the month.
-    </div>
   );
 }

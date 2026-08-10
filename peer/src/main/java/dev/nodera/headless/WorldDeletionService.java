@@ -14,17 +14,17 @@ import dev.nodera.protocol.membership.WorldDeletionGossip;
 import dev.nodera.storage.WorldTombstone;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
-import dev.nodera.transport.TransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import static dev.nodera.headless.WorldIds.key;
+import static dev.nodera.headless.WorldIds.shortId;
 
 /**
  * Forgetting a world, on the owner's signed instruction — and never on anyone else's.
@@ -53,8 +53,8 @@ public final class WorldDeletionService {
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
     private final NodeId self;
-    private final PeerTransport transport;
-    private final Supplier<List<PeerEntry>> members;
+    /** The one flood loop this package shares; see {@link SignedGossipRelay}. */
+    private final SignedGossipRelay mesh;
     private final WorldHostingService hosting;
     private final WorldRegistryStore registry; // nullable
     private final WorldArchiveService archive; // nullable
@@ -91,8 +91,7 @@ public final class WorldDeletionService {
                                 WorldRegistryStore registry, WorldArchiveService archive,
                                 dev.nodera.peer.tunnel.TunnelService tunnel, WorkerEventBus events) {
         this.self = Objects.requireNonNull(self, "self");
-        this.transport = Objects.requireNonNull(transport, "transport");
-        this.members = Objects.requireNonNull(members, "members");
+        this.mesh = new SignedGossipRelay(self, transport, members);
         this.hosting = Objects.requireNonNull(hosting, "hosting");
         this.registry = registry;
         this.archive = archive;
@@ -210,12 +209,6 @@ public final class WorldDeletionService {
         if (!revived.isEmpty()) {
             LOG.info("Restored {} world restore record(s)", revived.size());
         }
-    }
-
-    /** @return the restore this node holds for a world, if its owner has undone the deletion. */
-    public Optional<dev.nodera.storage.WorldRevival> revival(String worldIdHex) {
-        return worldIdHex == null ? Optional.empty()
-                : Optional.ofNullable(revived.get(key(worldIdHex)));
     }
 
     /**
@@ -455,20 +448,7 @@ public final class WorldDeletionService {
                 LOG.debug("could not publish the restore to trackers: {}", e.getMessage());
             }
         }
-        int notified = 0;
-        for (PeerEntry member : members.get()) {
-            NodeId id = member.nodeId();
-            if (id.equals(self) || id.equals(excluding)) {
-                continue;
-            }
-            try {
-                transport.send(PeerAddress.of(id, member.route()), frame);
-                notified++;
-            } catch (TransportException unreachable) {
-                LOG.debug("restore relay to {} failed: {}", id.value(), unreachable.getMessage());
-            }
-        }
-        return notified;
+        return mesh.flood(frame, excluding, "restore");
     }
 
     private int relay(WorldTombstone tombstone, NodeId excluding) {
@@ -485,29 +465,8 @@ public final class WorldDeletionService {
                 LOG.debug("could not publish the deletion to trackers: {}", e.getMessage());
             }
         }
-        int notified = 0;
-        for (PeerEntry member : members.get()) {
-            NodeId id = member.nodeId();
-            if (id.equals(self) || id.equals(excluding)) {
-                continue;
-            }
-            try {
-                transport.send(PeerAddress.of(id, member.route()), frame);
-                notified++;
-            } catch (TransportException unreachable) {
-                // One unreachable peer must not stop the deletion reaching the others; it learns
-                // from any peer that has it, or from a tracker, the next time it is reachable.
-                LOG.debug("deletion relay to {} failed: {}", id.value(), unreachable.getMessage());
-            }
-        }
-        return notified;
+        return mesh.flood(frame, excluding, "deletion");
     }
 
-    private static String key(String hex) {
-        return hex.trim().toLowerCase(Locale.ROOT);
-    }
 
-    private static String shortId(String hex) {
-        return hex.length() <= 12 ? hex : hex.substring(0, 12);
-    }
 }

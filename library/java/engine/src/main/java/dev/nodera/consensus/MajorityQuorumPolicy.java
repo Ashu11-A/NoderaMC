@@ -36,9 +36,9 @@ import java.util.Map;
  *       {@link Decision.Reject.RejectReason#NOT_ENOUGH_ACCEPT}. Two distinct roots each reaching
  *       {@code required} is impossible under a strict-majority policy (it would require
  *       {@code 2·required > committeeSize} votes), and is rejected defensively regardless.</li>
- *   <li>Equivocation (a voter signing two different roots for one proposal) is detected
- *       separately by {@link EquivocationDetector}; this policy is concerned only with the
- *       commit/no-commit decision and must be safe in its absence.</li>
+ *   <li>Equivocation (a voter signing two different roots for one proposal) is not this policy's
+ *       concern: it decides commit/no-commit only, and must be safe whether or not anything else
+ *       is watching for a double-signer.</li>
  * </ul>
  *
  * <p>Thread-context: holds no mutable state; safe to call from any thread.

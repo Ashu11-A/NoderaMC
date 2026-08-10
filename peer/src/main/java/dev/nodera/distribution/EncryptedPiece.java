@@ -63,7 +63,7 @@ public record EncryptedPiece(Bytes nonce, Bytes ciphertext) implements Encodable
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENCRYPTED_PIECE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENCRYPTED_PIECE, ENCODING_VERSION);
         w.writeBytes(nonce);
         w.writeBytes(ciphertext);
     }
@@ -76,11 +76,7 @@ public record EncryptedPiece(Bytes nonce, Bytes ciphertext) implements Encodable
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static EncryptedPiece decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ENCRYPTED_PIECE) {
-            throw new IllegalStateException("expected ENCRYPTED_PIECE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ENCRYPTED_PIECE, "ENCRYPTED_PIECE", ENCODING_VERSION);
         Bytes nonce = r.readBytesValue();
         Bytes ciphertext = r.readBytesValue();
         return new EncryptedPiece(nonce, ciphertext);

@@ -95,7 +95,7 @@ public record Hlc(long wallMillis, long counter, UUID origin)
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.HLC).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.HLC, ENCODING_VERSION);
         w.writeU64(wallMillis);
         w.writeU64(counter);
         w.writeString(origin.toString());
@@ -110,11 +110,7 @@ public record Hlc(long wallMillis, long counter, UUID origin)
      * @Thread-context any thread.
      */
     public static Hlc decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.HLC) {
-            throw new IllegalStateException("expected HLC tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.HLC, "HLC", ENCODING_VERSION);
         long wall = r.readU64();
         long counter = r.readU64();
         return new Hlc(wall, counter, UUID.fromString(r.readString()));

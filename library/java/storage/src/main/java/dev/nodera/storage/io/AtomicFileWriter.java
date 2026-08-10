@@ -16,7 +16,7 @@ import java.util.Set;
  * back to {@code REPLACE_EXISTING} on filesystems without atomic moves). Content is complete in
  * the temporary file before any replacement begins; atomic-capable providers expose either the old
  * bytes or the new bytes. Extracted from the independent copies that grew in FsContentStore,
- * PersistentIdentityStore, CachedPeerStore, LocalFiles, and NoderaWorldStore.
+ * PersistentIdentityStore, LocalFiles, and NoderaWorldStore.
  *
  * @Thread-context any thread; callers serialize writes to the same target themselves.
  */

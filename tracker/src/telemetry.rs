@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nodera_telemetry::reporter::{install_id, Reporter, ServiceEvent};
+use nodera_telemetry::reporter::{arch_label, install_id, os_label, Reporter, ServiceEvent};
 use tokio::sync::Mutex;
 
 use crate::service::Tracker;
@@ -114,23 +114,6 @@ fn now_millis() -> u64 {
     crate::wire::now_millis()
 }
 
-fn os_label() -> &'static str {
-    match std::env::consts::OS {
-        "linux" => "linux",
-        "macos" => "macos",
-        "windows" => "windows",
-        _ => "other",
-    }
-}
-
-fn arch_label() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        _ => "other",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,11 +128,5 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(2), run(tracker))
             .await
             .expect("the reporting loop must return when telemetry is unconfigured");
-    }
-
-    #[test]
-    fn platform_labels_are_members_of_the_declared_enums() {
-        assert!(["linux", "macos", "windows", "other"].contains(&os_label()));
-        assert!(["x86_64", "aarch64", "other"].contains(&arch_label()));
     }
 }

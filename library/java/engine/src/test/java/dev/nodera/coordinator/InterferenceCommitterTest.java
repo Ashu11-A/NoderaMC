@@ -21,6 +21,7 @@ import dev.nodera.coordinator.interference.InterferenceCommitter;
 import dev.nodera.coordinator.interference.InterferenceStats;
 import dev.nodera.coordinator.interference.MutationGuard;
 import dev.nodera.simulation.RegionExecutionResult;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -39,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class InterferenceCommitterTest {
 
-    private final RegionId region = CoordFixtures.region(0, 0);
+    private final RegionId region = EngineFixtures.region(0, 0);
     private final NodeIdentity server = NodeIdentity.generate();
     private final SignatureService signatures = new SignatureService();
 
@@ -53,7 +54,7 @@ class InterferenceCommitterTest {
     @BeforeEach
     void setUp() {
         world = new InMemoryWorldView();
-        world.load(CoordFixtures.fullUniformSnapshot(region, 0)); // AIR
+        world.load(EngineFixtures.fullUniformSnapshot(region, 0)); // AIR
         buffer = new InterferenceBuffer();
         stats = new InterferenceStats(100);
         sinkDeltas = new ArrayList<>();
@@ -89,13 +90,13 @@ class InterferenceCommitterTest {
         assertThat(cert.reason()).isEqualTo(ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION);
         assertThat(cert.baseVersion()).isEqualTo(SnapshotVersion.INITIAL);
         assertThat(cert.resultingVersion()).isEqualTo(SnapshotVersion.INITIAL.next());
-        assertThat(cert.transitionRoot()).isEqualTo(StateRoot.of(CoordFixtures.hashes().hash(delta)));
+        assertThat(cert.transitionRoot()).isEqualTo(StateRoot.of(EngineFixtures.hashes().hash(delta)));
         assertThat(signatures.verify(server.publicKeyBytes(), cert.signedPortion(), cert.serverSignature()))
                 .isTrue();
 
         // Every replica applies the delta without voting and lands on the live world's root.
         InMemoryWorldView replica = new InMemoryWorldView();
-        replica.load(CoordFixtures.fullUniformSnapshot(region, 0));
+        replica.load(EngineFixtures.fullUniformSnapshot(region, 0));
         WorldMutationApplier.ApplyResult applied = new WorldMutationApplier(replica).apply(delta);
         assertThat(applied.committed()).isTrue();
         assertThat(rootOf(replica, region, cert.resultingVersion()))
@@ -105,7 +106,7 @@ class InterferenceCommitterTest {
 
     @Test
     void legacyBlockInterferencePromotesSnapshotEncodingBeforeCertification() {
-        RegionSnapshot current = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot current = EngineFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot legacy = new RegionSnapshot(
                 region, current.version(), current.tick(), current.chunks(), List.of(), 1);
         world.load(legacy);
@@ -141,12 +142,12 @@ class InterferenceCommitterTest {
     void interferenceDuringVotingIsHeldAndCommitsAfterTheDecisionWithoutStaleBase() {
         MutationGuard guard = new MutationGuard(
                 r -> r.equals(region), MutationGuard.Mode.CONVERT, buffer, stats);
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
 
         // A batch is in flight (dispatched, not yet decided) …
-        ActionBatch batch = CoordFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL,
-                0, 1, List.of(CoordFixtures.place(region, 1, 0, 40, 100, 40, 4)));
-        RegionExecutionResult engineResult = CoordFixtures.engine().execute(CoordFixtures.request(base, batch));
+        ActionBatch batch = EngineFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL,
+                0, 1, List.of(EngineFixtures.place(region, EngineFixtures.node(1L), 1, 0, 40, 100, 40, 4)));
+        RegionExecutionResult engineResult = EngineFixtures.engine().execute(EngineFixtures.request(base, batch));
 
         // … when a foreign write lands in the same region at a different position.
         NBlockPos foreign = new NBlockPos(5, 70, 5);
@@ -202,7 +203,7 @@ class InterferenceCommitterTest {
                 .isEqualTo(ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION);
 
         InMemoryWorldView replica = new InMemoryWorldView();
-        replica.load(CoordFixtures.fullUniformSnapshot(region, 0));
+        replica.load(EngineFixtures.fullUniformSnapshot(region, 0));
         assertThat(new WorldMutationApplier(replica).apply(external).committed()).isTrue();
         assertThat(rootOf(replica, region, external.resultingVersion()))
                 .isEqualTo(rootOf(world, region, external.resultingVersion()));
@@ -229,7 +230,7 @@ class InterferenceCommitterTest {
         assertThat(sinkCerts.getFirst().reason())
                 .isEqualTo(ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION);
         InMemoryWorldView replica = new InMemoryWorldView();
-        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot base = EngineFixtures.fullUniformSnapshot(region, 0);
         replica.load(base);
         replica.setBlock(region, doorSection, 7);
         assertThat(new WorldMutationApplier(replica).apply(external).committed()).isTrue();
@@ -239,7 +240,7 @@ class InterferenceCommitterTest {
 
     @Test
     void sinkFailureRetainsMutationAndDoesNotAdvanceVersion() {
-        RegionSnapshot current = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot current = EngineFixtures.fullUniformSnapshot(region, 0);
         world.load(new RegionSnapshot(
                 region, current.version(), current.tick(), current.chunks(), List.of(), 1));
         NBlockPos pos = new NBlockPos(5, 70, 5);
@@ -292,7 +293,7 @@ class InterferenceCommitterTest {
 
     /** The shared extraction convention for this test: canonical snapshot at (version, tick 0). */
     private static StateRoot rootOf(InMemoryWorldView view, RegionId region, SnapshotVersion version) {
-        return StateRoot.of(CoordFixtures.hashes().hash(view.reExtract(region, version, 0L)));
+        return StateRoot.of(EngineFixtures.hashes().hash(view.reExtract(region, version, 0L)));
     }
 
     private static StateRoot rootOf(
@@ -300,6 +301,6 @@ class InterferenceCommitterTest {
         RegionSnapshot extracted = view.reExtract(region, version, 0L);
         RegionSnapshot encoded = new RegionSnapshot(
                 region, version, extracted.tick(), extracted.chunks(), extracted.entities(), bodyVersion);
-        return StateRoot.of(CoordFixtures.hashes().hash(encoded));
+        return StateRoot.of(EngineFixtures.hashes().hash(encoded));
     }
 }

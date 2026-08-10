@@ -61,7 +61,7 @@ public record PersistedCoordinatorState(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.COORDINATOR_STATE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.COORDINATOR_STATE, ENCODING_VERSION);
         List<Map.Entry<RegionId, Long>> entries = new ArrayList<>(epochs.entrySet());
         // epochs is a TreeMap in REGION_ORDER, so iteration is canonical.
         w.writeList(entries, (ww, e) -> {
@@ -72,11 +72,7 @@ public record PersistedCoordinatorState(
     }
 
     public static PersistedCoordinatorState decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.COORDINATOR_STATE) {
-            throw new IllegalStateException("expected COORDINATOR_STATE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.COORDINATOR_STATE, "COORDINATOR_STATE", ENCODING_VERSION);
         Map<RegionId, Long> epochs = new TreeMap<>(REGION_ORDER);
         List<Map.Entry<RegionId, Long>> entries = r.readList(rr -> {
             RegionId region = RegionId.decode(rr);

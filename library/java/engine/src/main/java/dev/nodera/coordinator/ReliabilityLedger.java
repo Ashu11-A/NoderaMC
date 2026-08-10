@@ -108,7 +108,7 @@ public final class ReliabilityLedger implements Encodable {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.RELIABILITY_LEDGER).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.RELIABILITY_LEDGER, ENCODING_VERSION);
         List<Map.Entry<NodeId, Double>> entries = new ArrayList<>(scores.entrySet());
         // scores is a TreeMap by NodeId.value, so iteration is already canonical.
         w.writeList(entries, (ww, e) -> {
@@ -119,11 +119,7 @@ public final class ReliabilityLedger implements Encodable {
 
     /** Restore a ledger (with the given tuning) from its canonical bytes. */
     public static ReliabilityLedger decode(CanonicalReader r, double alpha, double floor, double initial) {
-        int tag = r.readU16();
-        if (tag != TypeTags.RELIABILITY_LEDGER) {
-            throw new IllegalStateException("expected RELIABILITY_LEDGER tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.RELIABILITY_LEDGER, "RELIABILITY_LEDGER", ENCODING_VERSION);
         ReliabilityLedger ledger = new ReliabilityLedger(alpha, floor, initial);
         List<Map.Entry<NodeId, Double>> entries = r.readList(rr -> {
             NodeId id = NodeId.decode(rr);

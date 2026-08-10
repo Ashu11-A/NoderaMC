@@ -19,61 +19,14 @@
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use nodera_codec::framing;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+pub use nodera_service::frame::{now_millis, read_frame, write_frame};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 
 use crate::service::{Handled, Ingest};
-
-/// Wall-clock milliseconds. Used for quotas, rotation, and the event window only — never for
-/// anything any peer's correctness depends on.
-pub fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-/// Read one length-prefixed frame; `Ok(None)` at a clean end of stream.
-///
-/// Generic over the stream so the bound below can be tested against an in-memory pipe: "a frame
-/// larger than the limit is refused *before* the buffer is allocated" is the assertion that keeps
-/// a 4-byte header from being an out-of-memory switch, and it deserves a real test.
-pub async fn read_frame<S: tokio::io::AsyncRead + Unpin>(
-    stream: &mut S,
-    max_frame_bytes: usize,
-) -> io::Result<Option<Vec<u8>>> {
-    let mut header = [0u8; 4];
-    match stream.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = framing::decode_length(header)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    if len > max_frame_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("frame of {len} bytes exceeds the configured limit {max_frame_bytes}"),
-        ));
-    }
-    let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
-    Ok(Some(body))
-}
-
-/// Write one length-prefixed frame.
-pub async fn write_frame<S: tokio::io::AsyncWrite + Unpin>(
-    stream: &mut S,
-    payload: &[u8],
-) -> io::Result<()> {
-    let framed = framing::frame(payload)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    stream.write_all(&framed).await
-}
 
 /// Serve one connection until the client closes it or sends something unreadable.
 ///
@@ -128,23 +81,13 @@ pub async fn run(
 ) -> io::Result<()> {
     let max_frame_bytes = ingest.lock().await.config().max_frame_bytes;
     let maintenance = tokio::spawn(maintenance_loop(Arc::clone(&ingest)));
-    tokio::pin!(shutdown);
-    loop {
-        tokio::select! {
-            _ = &mut shutdown => break,
-            accepted = listener.accept() => match accepted {
-                Ok((stream, remote)) => {
-                    let ingest = Arc::clone(&ingest);
-                    tokio::spawn(serve_connection(ingest, stream, remote, max_frame_bytes));
-                }
-                Err(e) => {
-                    // A failed accept is per-connection (fd exhaustion, a client that vanished);
-                    // it must not take the listener down.
-                    eprintln!("nodera-telemetry: accept failed: {e}");
-                }
-            },
-        }
-    }
+    // A failed accept is per-connection (fd exhaustion, a client that vanished) and is logged
+    // rather than fatal — see `nodera_service::serve::accept_loop`.
+    nodera_service::serve::accept_loop("nodera-telemetry", listener, shutdown, |stream, remote| {
+        let ingest = Arc::clone(&ingest);
+        tokio::spawn(serve_connection(ingest, stream, remote, max_frame_bytes));
+    })
+    .await;
     maintenance.abort();
     // The spool is flushed on the way out so a clean SIGTERM never costs the last partial batch.
     Ok(())

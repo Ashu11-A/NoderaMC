@@ -4,6 +4,7 @@ import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.testkit.engine.EngineFixtures;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,11 +15,11 @@ class PersistedCoordinatorStateTest {
 
     @Test
     void epochsAndReliabilitySurviveRoundTrip() {
-        RegionId r0 = CoordFixtures.region(0, 0);
-        RegionId r1 = CoordFixtures.region(-1, 2);
-        NodeId a = CoordFixtures.node(10L);
-        NodeId b = CoordFixtures.node(11L);
-        NodeId c = CoordFixtures.node(12L);
+        RegionId r0 = EngineFixtures.region(0, 0);
+        RegionId r1 = EngineFixtures.region(-1, 2);
+        NodeId a = EngineFixtures.node(10L);
+        NodeId b = EngineFixtures.node(11L);
+        NodeId c = EngineFixtures.node(12L);
 
         LeaseManager leases = new LeaseManager(200);
         leases.issue(r0, a, List.of(b, c), 0);   // r0 epoch 0
@@ -52,10 +53,10 @@ class PersistedCoordinatorStateTest {
     @Test
     void encodingIsByteStable() {
         LeaseManager leases = new LeaseManager(200);
-        leases.issue(CoordFixtures.region(0, 0), CoordFixtures.node(1L),
-                List.of(CoordFixtures.node(2L), CoordFixtures.node(3L)), 0);
+        leases.issue(EngineFixtures.region(0, 0), EngineFixtures.node(1L),
+                List.of(EngineFixtures.node(2L), EngineFixtures.node(3L)), 0);
         ReliabilityLedger reliability = new ReliabilityLedger();
-        reliability.record(CoordFixtures.node(1L), true);
+        reliability.record(EngineFixtures.node(1L), true);
         PersistedCoordinatorState state = PersistedCoordinatorState.capture(leases, reliability);
 
         CanonicalWriter w1 = new CanonicalWriter();

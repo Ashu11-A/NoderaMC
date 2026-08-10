@@ -311,26 +311,6 @@ public final class CompanionClient implements CompanionProbe {
     public record DeleteOutcome(boolean deleted, int peersNotified, String error) {}
 
     /**
-     * Tell this machine's worker that a player here is in {@code worldId}, and renew that claim.
-     *
-     * <p>Two jobs in one verb, both of which were simply not being done: the world enters the
-     * worker's sweep set — so a joiner supports the world it plays in instead of only taking from
-     * it — and the companion app gains a row for it. Before this, a player standing in somebody
-     * else's world saw an app that said "Nothing is on the network until you share it", because
-     * nothing had ever told the worker the world existed.
-     *
-     * <p>Repeat it while the session lasts. The worker treats each call as a lease renewal, so a
-     * game that dies without saying goodbye stops claiming to be connected on its own.
-     *
-     * @param worldId   hex world id.
-     * @param worldName display name, or empty when unknown.
-     * @return empty on success, else the error message.
-     */
-    public Optional<String> joinWorld(String worldId, String worldName) {
-        return joinWorld(worldId, worldName, "", -1);
-    }
-
-    /**
      * As above, also reporting how many players this client can see in that world.
      *
      * @param playersInWorld the client's own online-player count, or negative for "cannot tell".

@@ -33,7 +33,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   FiAlertCircle,
   FiCheck,
-  FiCopy,
   FiFileText,
   FiPlay,
   FiSettings,
@@ -60,7 +59,6 @@ import { useExternalLink } from "./links";
 import {
   formatBytes,
   formatRate,
-  isStale,
   linkFault,
   show,
   worldRole,
@@ -798,25 +796,13 @@ function NothingToPlay(props: { d: Dashboard; onSettings: (section?: string) => 
   );
 }
 
-/** Copy-to-clipboard for the address, used by the floor tier's remedy. */
-export function CopyAddress(props: { address: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Button
-      variant="secondary"
-      onClick={() => {
-        navigator.clipboard
-          ?.writeText(props.address)
-          .then(() => setDone(true))
-          .catch(() => {});
-      }}
-    >
-      <FiCopy aria-hidden /> {done ? "Copied" : props.address}
-    </Button>
-  );
-}
-
-/** Whether this screen is showing worker-derived figures that may be stale. */
-export function playShowsWorkerFigures(d: Dashboard): boolean {
-  return isStale(d.link);
-}
+// `CopyAddress` used to live here, documented as "used by the floor tier's remedy". It was not: the
+// `copy-address` remedy is one arm of `handleRemedy` above, rendered by the single remedy button
+// this screen's own rule demands ("a failure offers ONE action" — the enum decides which), and that
+// arm has done the copying since the remedy was added. A second component for the same remedy was
+// two answers to one question, and the one nothing rendered was this one.
+//
+// `playShowsWorkerFigures` went with it: a one-line `isStale(d.link)` wrapper, exported, and asked
+// by nothing — including this screen, which imported `isStale` solely to define it. The shell puts
+// `<StaleDataNotice />` above every screen (A-UX-1), so the question this answered is already
+// answered one level up.

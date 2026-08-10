@@ -156,19 +156,6 @@ public final class InfrastructureCodec {
     }
 
     /**
-     * Encode an infrastructure message's TLV body.
-     *
-     * @param msg the message.
-     * @return the body bytes, without a frame header.
-     * @throws IllegalStateException if the message's kind has no shape.
-     * @Thread-context any thread.
-     */
-    @SuppressWarnings("unchecked")
-    public static byte[] encodeBody(NoderaMessage msg) {
-        return encodeBody(msg, TlvOverlay.NONE);
-    }
-
-    /**
      * Encode an infrastructure message's TLV body, re-emitting fields this build does not know.
      *
      * @param msg     the message.
@@ -221,11 +208,6 @@ public final class InfrastructureCodec {
     /** @return {@code true} if this build can encode and decode {@code kind}. */
     public static boolean handles(int kind) {
         return SHAPES.containsKey(kind);
-    }
-
-    /** Every kind with a registered shape, for the totality test. */
-    public static Set<Integer> shapedKinds() {
-        return Set.copyOf(SHAPES.keySet());
     }
 
     // ------------------------------------------------------------------ helpers

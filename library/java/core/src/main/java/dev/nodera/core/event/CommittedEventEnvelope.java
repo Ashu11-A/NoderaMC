@@ -70,7 +70,7 @@ public record CommittedEventEnvelope(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.COMMITTED_EVENT_ENV).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.COMMITTED_EVENT_ENV, ENCODING_VERSION);
         region.encode(w);
         epoch.encode(w);
         version.encode(w);
@@ -91,11 +91,7 @@ public record CommittedEventEnvelope(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static CommittedEventEnvelope decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.COMMITTED_EVENT_ENV) {
-            throw new IllegalStateException("expected COMMITTED_EVENT_ENV tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.COMMITTED_EVENT_ENV, "COMMITTED_EVENT_ENV", ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);

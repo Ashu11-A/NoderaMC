@@ -210,7 +210,7 @@ public final class RegionSnapshotSplitter {
         // record starts. Record 0 is the frame header (tag, version, region, version, tick, list
         // count); it is not a chunk, so it is not in pieceOfChunk.
         CanonicalWriter w = new CanonicalWriter(1024);
-        w.writeU16(TypeTags.REGION_SNAPSHOT).writeU16(snapshot.bodyVersion());
+        w.writeFrame(TypeTags.REGION_SNAPSHOT, snapshot.bodyVersion());
         snapshot.region().encode(w);
         snapshot.version().encode(w);
         w.writeU64(snapshot.tick());

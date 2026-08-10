@@ -52,7 +52,7 @@ public record EntityTransferDescriptor(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ENTITY_TRANSFER_DESCRIPTOR).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ENTITY_TRANSFER_DESCRIPTOR, ENCODING_VERSION);
         w.writeU64(transferId);
         sourceRegion.encode(w);
         targetRegion.encode(w);
@@ -74,11 +74,7 @@ public record EntityTransferDescriptor(
 
     /** Decode one canonical transfer descriptor. */
     public static EntityTransferDescriptor decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.ENTITY_TRANSFER_DESCRIPTOR) {
-            throw new IllegalStateException("expected ENTITY_TRANSFER_DESCRIPTOR tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.ENTITY_TRANSFER_DESCRIPTOR, "ENTITY_TRANSFER_DESCRIPTOR", ENCODING_VERSION);
         return new EntityTransferDescriptor(
                 r.readU64(), RegionId.decode(r), RegionId.decode(r),
                 RegionEpoch.decode(r), RegionEpoch.decode(r), NetworkEntityId.decode(r),

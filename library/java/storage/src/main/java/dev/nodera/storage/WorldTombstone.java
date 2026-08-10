@@ -184,7 +184,7 @@ public record WorldTombstone(
     }
 
     private void encodeSigned(CanonicalWriter w) {
-        w.writeU16(TypeTags.WORLD_TOMBSTONE).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.WORLD_TOMBSTONE, ENCODING_VERSION);
         w.writeBytes(worldId);
         w.writeBytes(ownershipRecord);
         w.writeU64(issuedAtEpoch);
@@ -206,11 +206,7 @@ public record WorldTombstone(
      * @throws IllegalStateException if the next tag is not {@code WORLD_TOMBSTONE}.
      */
     public static WorldTombstone decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.WORLD_TOMBSTONE) {
-            throw new IllegalStateException("expected WORLD_TOMBSTONE tag, got " + tag);
-        }
-        r.readVersion(ENCODING_VERSION);
+        r.expectFrame(TypeTags.WORLD_TOMBSTONE, "WORLD_TOMBSTONE", ENCODING_VERSION);
         Bytes worldId = r.readBytesValue();
         Bytes ownership = r.readBytesValue();
         long issuedAt = r.readU64();

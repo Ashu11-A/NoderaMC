@@ -31,13 +31,13 @@ dev.nodera.simulation      THE region engine — the only re-executor
 ├── worldgen/              deterministic terrain from (seed, position), integer math only
 └── DeterministicRandom    L64X128MixRandom seeded from StableHash
 
-dev.nodera.consensus       QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
-dev.nodera.committee       CommitteeMember/Session, VotePersistence, SpotCheckAuditor, failover
-dev.nodera.coordinator     leases, epochs, allocation, RegionPipeline, ProposalManager,
-│                          ServerVerifier, WorldMutationApplier, reliability, lag handoff
+dev.nodera.consensus       QuorumPolicy, VoteCollector, Decision, QuorumPolicyEvaluator
+dev.nodera.committee       CommitteeMember, MemberBallot, VotePersistence, CommitteeFailover
+dev.nodera.coordinator     leases, epochs, RegionPipeline, WorldMutationApplier, reliability,
+│                          lag handoff, delegability
 │   ├── interference/      MutationGuard (the single write choke point), buffer, committer
 │   └── entity/            entity-aware coordination
-dev.nodera.shadow          WorkerRuntime, ReplicaStore, ShadowWorker/Coordinator, divergence
+dev.nodera.shadow          SnapshotDeltaApplier (replica CAS apply), InterferenceProbe
 dev.nodera.fallback        CrossRegionRouter, FallbackExecutor, SoakMetrics
 ```
 
@@ -83,9 +83,11 @@ courtesy is not.
 
 ## Tests
 
-508 XML-reported tests: determinism property tests, negative determinism tests (dropping state from the hash must
-be detectable), the headless consensus ITs (`ShadowValidationIT`, `CoordinatorIT`, `CommitteeMvpIT`,
-`FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas.
+444 XML-reported tests (measured 2026-08-06): determinism property tests, negative determinism
+tests (dropping state from the hash must be detectable), the headless routing IT
+(`FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas. The consensus ITs that
+used to be listed here drove the central-coordinator design deleted on 2026-08-06 (#210); the
+end-to-end quorum proof now lives in `:peer` as `WorkerQuorumValidationIT`.
 
 ```bash
 ./gradlew :engine:test

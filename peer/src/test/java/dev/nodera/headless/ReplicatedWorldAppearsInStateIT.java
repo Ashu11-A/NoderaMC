@@ -1,27 +1,13 @@
 package dev.nodera.headless;
 
-import dev.nodera.core.crypto.HashService;
-import dev.nodera.core.identity.NodeCapabilities;
-import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.core.identity.PeerRole;
-import dev.nodera.peer.PeerRuntime;
-import dev.nodera.peer.PeerRuntimeConfig;
 import dev.nodera.peer.control.ControlProtocol;
-import dev.nodera.peer.control.ControlServer;
-import dev.nodera.storage.event.InMemoryContentStore;
-import dev.nodera.testkit.LoopbackTransport;
+import dev.nodera.testkit.peer.PeerTestHarness;
+import dev.nodera.testkit.peer.WorkerNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.EnumSet;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,87 +27,35 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class ReplicatedWorldAppearsInStateIT {
 
-    private final HashService hashes = new HashService();
-    private ControlServer control;
-    private WorldArchiveService archive;
-    private WorldHostingService hosting;
-    private PeerRuntime runtime;
-    private LoopbackTransport transport;
+    private final PeerTestHarness harness = PeerTestHarness.create();
+    private WorkerNode worker;
 
     @AfterEach
     void tearDown() {
-        if (control != null) {
-            control.close();
-        }
-        if (archive != null) {
-            archive.close();
-        }
-        if (hosting != null) {
-            try {
-                hosting.close();
-            } catch (RuntimeException ignored) {
-                // teardown
-            }
-        }
-        if (runtime != null) {
-            try {
-                runtime.stop();
-            } catch (RuntimeException ignored) {
-                // teardown
-            }
-        }
-        if (transport != null) {
-            transport.stop();
-        }
+        harness.close();
     }
 
     private void startWorker() throws java.io.IOException {
-        NodeIdentity identity = NodeIdentity.generate();
-        NodeCapabilities caps = NodeCapabilities.initial()
-                .withRoles(EnumSet.of(PeerRole.FULL_ARCHIVE));
-        transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
-        transport.start();
-        runtime = PeerRuntime.bootstrap(identity, caps, transport,
-                () -> "loopback", PeerRuntimeConfig.defaults(), null);
-        archive = new WorldArchiveService(
-                identity, transport, new InMemoryContentStore(hashes), List.of());
-        hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
-                List.of(), List.of(), archive::holdingsFor);
-        control = new ControlServer("127.0.0.1", 0, new WorkerControlHandler(
-                "replicated-world-test", identity, caps, runtime,
-                new dev.nodera.diagnostics.metric.TrafficMeter(), hosting, null, archive));
-        control.start();
-    }
-
-    private String request(String line) throws Exception {
-        try (Socket s = new Socket()) {
-            s.connect(new InetSocketAddress("127.0.0.1", control.boundPort()), 2000);
-            s.setSoTimeout(30_000);
-            OutputStream out = s.getOutputStream();
-            out.write((line + "\n").getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            return new BufferedReader(
-                    new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8)).readLine();
-        }
+        worker = harness.workerNode("replicated-world-test").inMemoryArchive().build();
     }
 
     @Test
     @DisplayName("pieces held for somebody else's world are reported as a world, not just as bytes")
     void aReplicatedWorldIsReportedEvenThoughNothingHostsIt() throws Exception {
         startWorker();
-        String world = hashes.sha256("replicated-only".getBytes()).toHex();
+        String world = harness.hashes().sha256("replicated-only".getBytes()).toHex();
         byte[] blob = new byte[512 * 1024];
         for (int i = 0; i < blob.length; i++) {
             blob[i] = (byte) (i * 31);
         }
         // What a completed piece fetch leaves behind: manifest known, pieces verified and held —
         // and not one word about it in the hosting registry, because nobody here shared it.
-        archive.seedArchive(world, blob);
-        assertThat(hosting.hostedWorlds())
+        worker.archive().seedArchive(world, blob);
+        assertThat(worker.hosting().hostedWorlds())
                 .as("the registry is the wrong place to ask; this node hosts nothing")
                 .isEmpty();
 
-        String state = request(ControlProtocol.STATE + " 2");
+        String state = worker.state();
 
         assertThat(state).contains("\"world_id\":\"" + world + "\"");
         assertThat(state)
@@ -137,7 +71,7 @@ final class ReplicatedWorldAppearsInStateIT {
                 .contains("\"players\":-1");
         // The piece picture is the point of the row: it is what turns "23.8 MB somewhere" into
         // "this much of that world".
-        int pieces = archive.pieceReport(world).pieceCount();
+        int pieces = worker.archive().pieceReport(world).pieceCount();
         assertThat(pieces).isGreaterThan(1);
         assertThat(state).contains("\"piece_count\":" + pieces)
                 .contains("\"pieces_held\":" + pieces);
@@ -147,11 +81,12 @@ final class ReplicatedWorldAppearsInStateIT {
     @DisplayName("a hosted world is listed once, from the registry, not twice")
     void aHostedWorldIsNotDuplicatedByTheReplicationRows() throws Exception {
         startWorker();
-        String world = hashes.sha256("hosted-and-held".getBytes()).toHex();
-        hosting.host(world, "A World", "{}");
-        archive.seedArchive(world, "hello world archive".getBytes(StandardCharsets.UTF_8));
+        String world = harness.hashes().sha256("hosted-and-held".getBytes()).toHex();
+        worker.hosting().host(world, "A World", "{}");
+        worker.archive().seedArchive(world,
+                "hello world archive".getBytes(StandardCharsets.UTF_8));
 
-        String state = request(ControlProtocol.STATE + " 2");
+        String state = worker.request(ControlProtocol.STATE + " 2");
 
         int first = state.indexOf("\"world_id\":\"" + world + "\"");
         assertThat(first).as("the hosted world is reported").isGreaterThan(0);

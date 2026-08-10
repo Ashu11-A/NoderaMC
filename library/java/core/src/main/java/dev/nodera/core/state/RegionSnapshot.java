@@ -158,7 +158,7 @@ public record RegionSnapshot(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.REGION_SNAPSHOT).writeU16(bodyVersion);
+        w.writeFrame(TypeTags.REGION_SNAPSHOT, bodyVersion);
         region.encode(w);
         version.encode(w);
         w.writeU64(tick);
@@ -182,10 +182,7 @@ public record RegionSnapshot(
      * @Thread-context not thread-safe; one reader per decode call.
      */
     public static RegionSnapshot decode(CanonicalReader r) {
-        int tag = r.readU16();
-        if (tag != TypeTags.REGION_SNAPSHOT) {
-            throw new IllegalStateException("expected REGION_SNAPSHOT tag, got " + tag);
-        }
+        r.expectFrame(TypeTags.REGION_SNAPSHOT, "REGION_SNAPSHOT");
         int bodyVersion = r.readU16();
         if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION
                 && bodyVersion != REDSTONE_ENCODING_VERSION

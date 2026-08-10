@@ -77,13 +77,12 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     private final java.util.Map<RegionId, ServerLevel> boundLevels =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
-    /**
-     * Regions this node has SEEN a non-delegable entity in. Separate from the validation lane's
-     * refused set because the two answer different questions: "has the mesh been told" versus "has
-     * this node ever said so out loud", and only the second one keeps a live drive honest.
-     */
-    private final Set<RegionId> observedNonDelegable =
-            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    // There is no `observedNonDelegable` set here any more, and its absence is a decision rather
+    // than a tidy-up (issue #236). It deduplicated the once-per-region log line that `revokeForEntity`
+    // wrote when this lane refused a region for an entity the engine does not model — and that
+    // refusal was retired on 2026-07-29, because it deleted every region from the validated lane
+    // within seconds of a real world loading (docs/minecraft/Task.10.md). An unmodelled entity is
+    // left to vanilla in `EntityCaptureBridge.captureJoin`, which keeps its own once-per-region set.
     /**
      * Feeds locally-captured actions to this node's render overlay (L-16). Resolved per call, so a
      * client validation lane that starts after this runtime does is still picked up.
@@ -228,15 +227,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     private long currentTick;
 
-    /**
-     * When each of this world's columns was last written here.
-     *
-     * @return the book, for anything building or merging an index against this world.
-     */
-    public dev.nodera.core.state.ChunkStampBook stamps() {
-        return stamps;
-    }
-
     public LiveEntityLaneRuntime(
             WorkerValidationService validation,
             ServerEntityWorldView world,
@@ -340,11 +330,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         return validation.currentSnapshot(region).stream()
                 .flatMap(snapshot -> snapshot.entities().stream())
                 .anyMatch(entity -> entity.id().equals(id) && entity.kind() == EntityKind.ITEM);
-    }
-
-    @Override
-    public boolean mayCancelVanilla(RegionId region) {
-        return VanillaCancelGate.mayCancelVanilla(validation.lease(region), authority.nodeId());
     }
 
     @Override
@@ -790,35 +775,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     }
 
     @Override
-    public void revokeForEntity(RegionId region, Entity entity) {
-        // L-60: this runs on whichever node SAW the entity, which under field-of-view ownership is
-        // usually not a node that owns the region — entities spawn and tick on the session server,
-        // and the seats sit on the players' nodes. `refuseRegion` therefore both drops whatever
-        // this node holds and tells the mesh, and answers false for every repeat so a dimension
-        // full of mobs logs once per region rather than once per spawn.
-        boolean announced = validation.refuseRegion(
-                region, dev.nodera.protocol.simulationmsg.RegionRefusal.Reason.NON_DELEGABLE_ENTITY);
-        // Log on the first OBSERVATION per region, not on the first refusal. The two differ
-        // whenever the region was already in the refused set — because a peer announced it first,
-        // or because this node refused it earlier — and in that case the old code said nothing at
-        // all. A live mob drive then reads the lane as silent when it is in fact working, which is
-        // exactly what `e2e-mobs.sh` G2b reported. One line per region either way: a nether full
-        // of piglins must not be a nether full of log lines.
-        if (observedNonDelegable.add(region)) {
-            LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep "
-                            + "it); refusal announced to the mesh{}",
-                    region, entity.getType().builtInRegistryHolder().key().location(),
-                    announced ? "" : " earlier");
-        }
-        regions.remove(region);
-        ServerLevel level = boundLevels.remove(region);
-        if (level != null) {
-            tickets.release(level, region);
-        }
-        EntityCaptureBridge.get().releaseRegion(region);
-    }
-
-    @Override
     public void pearlTeleported(ServerPlayer player, RegionId destination) {
         // The destination is evidence, not state: EntityCaptureBridge logs it on the pearl drive's
         // own logger, and nothing in the lane reads it back. Keeping a field for it would be a
@@ -893,10 +849,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                             .toList()));
         }
         return new dev.nodera.diagnostics.model.EntityControl(out);
-    }
-
-    public EntityLaneSoakMetrics.Snapshot metrics() {
-        return metrics.snapshot();
     }
 
     /** Live action admission: event capture proves actor/session; position is recomputed per action. */

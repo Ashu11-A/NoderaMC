@@ -103,14 +103,27 @@ final class ManifestIndexStore {
         }
     }
 
-    /** Forget one manifest, when retention trims it. */
+    /**
+     * Forget one manifest, when retention trims it.
+     *
+     * <p>Catches {@link RuntimeException} as well as {@link IOException}, the same way {@link #put}
+     * does, because {@link #inside} answers with the file system: a manifest that is a symlink out of
+     * the directory, or a path it cannot resolve at all, is reported as
+     * {@link IllegalArgumentException}. That has to cost this one cache entry and no more. Callers
+     * are start-up ({@code restoreFromIndex}, the last statement of the archive service's
+     * constructor) and eviction, so an escaping throw would deny the worker its archive service
+     * outright rather than leave one stale file behind.
+     */
     void remove(String worldIdHex, PieceManifest manifest) {
         try {
             Path root = root();
             Files.deleteIfExists(inside(root, fileName(worldIdHex, laneOf(manifest),
                     manifest.manifestRoot())));
-        } catch (IOException ignored) {
+        } catch (IOException | RuntimeException degraded) {
             // A manifest that outlives its content is re-trimmed on the next pass.
+            LOG.warn("could not forget the manifest for {} v{} — it will be re-trimmed on the next "
+                            + "pass: {}", worldIdHex, manifest.version().value(),
+                    degraded.toString());
         }
     }
 
@@ -128,19 +141,17 @@ final class ManifestIndexStore {
      * path still inside the directory it was supposed to be inside? That holds whatever the input
      * was, whoever adds a component later, and however clever the traversal is.
      *
+     * <p>The check itself now lives in {@link dev.nodera.distribution.ContainedPath}, because this
+     * tree had three copies of it and they disagreed: this one made the root absolute first and the
+     * world archive's did not, which is exactly the difference that matters for a relative root.
+     *
      * @param root the directory the file must live in.
      * @param name the file name.
      * @return the resolved path.
      * @throws IllegalArgumentException if resolving {@code name} escapes {@code root}.
      */
     private static Path inside(Path root, String name) {
-        Path base = root.toAbsolutePath().normalize();
-        Path resolved = base.resolve(name).normalize();
-        if (!resolved.startsWith(base)) {
-            throw new IllegalArgumentException(
-                    "a manifest file name resolved outside the manifest store");
-        }
-        return resolved;
+        return dev.nodera.distribution.ContainedPath.inside(root, name);
     }
 
     /** Which map a manifest belongs in: the archive lane files under a synthetic region. */

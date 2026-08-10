@@ -90,15 +90,6 @@ public record RegionProposal(
      */
     public static final int PROPOSAL_ENCODING_VERSION = 4;
 
-    /** Version-2 constructor retained for old frames that did not bind the action batch. */
-    public RegionProposal(
-            RegionId region, RegionEpoch epoch, SnapshotVersion baseVersion,
-            long tickFrom, long tickTo, StateRoot prevRoot, StateRoot resultingRoot,
-            Bytes encodedDelta, Bytes proposerSig) {
-        this(region, epoch, baseVersion, tickFrom, tickTo, prevRoot, resultingRoot,
-                encodedDelta, null, proposerSig, 2, null);
-    }
-
     /** Version-3 constructor retained for frames that did not name their halo inputs. */
     public RegionProposal(
             RegionId region, RegionEpoch epoch, SnapshotVersion baseVersion,

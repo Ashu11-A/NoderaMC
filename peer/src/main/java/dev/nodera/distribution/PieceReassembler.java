@@ -68,11 +68,6 @@ public final class PieceReassembler {
         this.verified = new BitSet(manifest.pieceCount());
     }
 
-    /** @return the manifest being reassembled. */
-    public PieceManifest manifest() {
-        return manifest;
-    }
-
     /**
      * Offer a received chunk.
      *

@@ -28,6 +28,31 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-06 — The drain the peers never heard ([#232](https://github.com/Ashu11-A/NoderaMC/issues/232))
+
+The service half of the drain lane has been correct since 2026-07-27: it refuses new work, names its
+replacements, and pushes a signed notice down each reservation's own control channel before it goes.
+`RelayCircuitClient.readIncoming` verified that notice and handed it to `RendezvousPeerTransport`'s
+handler list — which was **empty on every node in the network**, because `onDrainNotice` had no
+caller anywhere in the tree. The consumer that knows what to do with a notice,
+`RendezvousDirectory.onDrainNotice`, was written and tested and never connected to the wire that
+carries one. So the whole lane ran nowhere: a peer stayed on a draining relay until the circuit broke
+under it, which is the outage the drain exists to avoid.
+
+The transport is now its own first listener. On a verified notice it drops the departing relay's
+endpoints, folds in the replacements the notice named — relays it was very likely never configured
+with, which is the point of carrying them — and re-registers immediately through `setEndpoints`. That
+runs on every node holding a reservation, with or without a directory in front of it.
+
+Evidence: `RelayDrainMigrationTest`, which stands up two fake relays, pushes a real signed
+`ServiceDrainNotice` as a real NDR2 frame down the real reservation socket, and asserts the peer
+**registers with a relay it was never configured with**. `never_referenced_methods` 4 → 2.
+
+Still open, and it is a composition question rather than a defect: nothing in the tree builds a
+`RendezvousDirectory` and a `RendezvousPeerTransport` on the same node. The headless worker has the
+directory and no relay transport; the mod has two relay transports and no directory. Until one of
+them holds both, the directory's re-scoring half of the migration cannot be reached by a notice.
+
 ### 2026-07-28 — Documentation sweep: status reconciliation, test counts verified
 
 Category-wide documentation audit (no code change). Outcomes:

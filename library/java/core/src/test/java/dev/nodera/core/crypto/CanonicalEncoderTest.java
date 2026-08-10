@@ -1,5 +1,6 @@
 package dev.nodera.core.crypto;
 
+import dev.nodera.core.Bytes;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,7 +35,19 @@ class CanonicalEncoderTest {
 
     @Test
     void encodeReturnsImmutableBytes() {
-        assertThat(CanonicalEncoder.encode(new TestEncodable())).isNotNull();
+        // This asserted `isNotNull()`, under a name that claims immutability. A `Bytes` that handed
+        // out its own array would have satisfied it, and mutating what a canonical encoding returns
+        // is how two peers end up hashing two spellings of one value.
+        Bytes encoded = CanonicalEncoder.encode(new TestEncodable());
+        byte[] first = encoded.toArray();
+        byte[] second = encoded.toArray();
+        assertThat(first).as("a copy per call, not the backing array").isNotSameAs(second);
+
+        java.util.Arrays.fill(first, (byte) 0);
+        assertThat(encoded.toArray())
+                .as("scribbling on what toArray() handed back cannot reach the value")
+                .isEqualTo(second)
+                .isEqualTo(CanonicalEncoder.encodeBytes(new TestEncodable()));
     }
 
     @Test

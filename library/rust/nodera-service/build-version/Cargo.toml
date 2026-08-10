@@ -1,0 +1,20 @@
+# The build-time half of `nodera-service`: the one thing three service build scripts each did.
+#
+# A separate package rather than a module of `nodera-service` because a build script may only use
+# `[build-dependencies]`, and depending on `nodera-service` itself would compile tokio, ureq and
+# ed25519-dalek **for the host** on every cross-compiled release build. This crate has no
+# dependencies at all, so it costs a few milliseconds.
+#
+# It lives inside the `nodera-service` directory on purpose: it is that crate's build-time half, and
+# `layout.properties` names `crate.nodera-service` as this directory, so every tool that walks the
+# layout — the line metrics, the licence collector — already sees it as part of that component.
+[package]
+name = "nodera-build"
+description = "Build-script support shared by the Nodera service binaries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

@@ -207,15 +207,34 @@ public final class WorkerTelemetryService implements AutoCloseable {
         }
     }
 
+    /**
+     * The block a worker with <b>no</b> emitter reports.
+     *
+     * <p>Named here rather than written out at the one place that needs it, because it has to stay
+     * field-for-field identical to {@link #stateJson}: an absent field would be indistinguishable
+     * from a denial at the reader, and "unanswered" is the honest answer to a question nobody has
+     * been asked.
+     */
+    static final String NO_EMITTER_JSON = block("unanswered", "", 0, 0, 0, 0, "");
+
     /** The {@code telemetry} block of {@code NODERA-STATE}. */
     public String stateJson() {
-        return "{\"consent\":\"" + consentStore.consent().token() + "\""
-                + ",\"endpoint\":\"" + sender.map(TelemetrySender::endpoint).orElse("") + "\""
-                + ",\"queued\":" + spool.size()
-                + ",\"dropped\":" + spool.dropped()
-                + ",\"sent\":" + sent
-                + ",\"last_attempt\":" + lastAttemptMillis
-                + ",\"last_error\":\"" + escape(lastError) + "\"}";
+        return block(consentStore.consent().token(),
+                sender.map(TelemetrySender::endpoint).orElse(""),
+                spool.size(), spool.dropped(), sent, lastAttemptMillis, lastError);
+    }
+
+    private static String block(String consent, String endpoint, long queued, long dropped,
+                                long sent, long lastAttempt, String lastError) {
+        return Json.object()
+                .str("consent", consent)
+                .str("endpoint", endpoint)
+                .num("queued", queued)
+                .num("dropped", dropped)
+                .num("sent", sent)
+                .num("last_attempt", lastAttempt)
+                .str("last_error", lastError)
+                .end();
     }
 
     /** The reply to {@code NODERA-TELEMETRY <ver> GET}. */
@@ -226,11 +245,6 @@ public final class WorkerTelemetryService implements AutoCloseable {
     /** Test seam: how many events are waiting. */
     public int queued() {
         return spool.size();
-    }
-
-    private static String escape(String value) {
-        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "'")
-                .replace("\n", " ");
     }
 
     @Override

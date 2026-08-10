@@ -3,7 +3,6 @@ package dev.nodera.peer;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.core.region.RegionCommittee;
 import dev.nodera.diagnostics.metric.MessageCounters;
 import dev.nodera.diagnostics.model.PeerLink;
 import dev.nodera.diagnostics.model.SessionInfo;
@@ -31,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -94,6 +94,12 @@ public final class PeerRuntime implements DiagnosticsSource {
     private final Map<NodeId, Long> lastSeenNanos = new HashMap<>();
     private final Map<NodeId, Long> keepAliveSeq = new HashMap<>();
     private final Set<NodeId> heard = new HashSet<>();
+    /**
+     * `(peer, kind)` pairs already reported by {@link #answerUndecodable} at WARN. Bounded by the
+     * number of peers times the number of wire kinds, and only ever added to for a frame this build
+     * refused, so an unbounded flood of junk from one peer costs one entry, not one per frame.
+     */
+    private final Set<String> warnedUndecodable = ConcurrentHashMap.newKeySet();
     private long epoch;
     private NodeId gatewayId;
     private long keepAliveSeqCounter;
@@ -157,7 +163,7 @@ public final class PeerRuntime implements DiagnosticsSource {
     /**
      * Bootstrap factory with per-type message counters enabled (Task 18). The runtime records TX/RX
      * counts keyed by {@code MessageCodec} type name on every encoded send and decoded inbound
-     * message; the diagnostics collector reads them via {@link #messageCounters()}.
+     * message.
      */
     public static PeerRuntime bootstrap(NodeIdentity identity, NodeCapabilities capabilities,
                                         PeerTransport transport, Supplier<String> selfRouteSupplier,
@@ -364,36 +370,6 @@ public final class PeerRuntime implements DiagnosticsSource {
         return bootstrapCapable;
     }
 
-    /** @return the per-type message counters (null if counting was not enabled). */
-    public MessageCounters messageCounters() {
-        return messageCounters;
-    }
-
-    /** @return the regional tick synchronizer, or {@code null} when not wired. */
-    public TickSync tickSync() {
-        return tickSync;
-    }
-
-    /**
-     * Feed one locally verified regional certificate into the optional Task 25 synchronizer.
-     * Runtime factories without a synchronizer remain source- and behavior-compatible.
-     *
-     * @return {@code true} if the certified assignment/progress snapshot advanced.
-     */
-    public boolean onCertifiedCommit(RegionCommittee assignment, long lastAppliedTick) {
-        return tickSync != null && tickSync.onCertifiedCommit(assignment, lastAppliedTick);
-    }
-
-    /**
-     * Feed a locally verified commit from elsewhere in the network into the lag reference without
-     * claiming local application progress for that region.
-     *
-     * @return {@code true} if the certified network reference advanced.
-     */
-    public boolean onCertifiedNetworkReference(long committedTick) {
-        return tickSync != null && tickSync.onCertifiedNetworkReference(committedTick);
-    }
-
     /**
      * {@link DiagnosticsSource} contribution (Task 18): publish the session view + per-peer links.
      * Reads only {@code volatile} snapshots, so it is safe to call from the collector's sample
@@ -445,7 +421,8 @@ public final class PeerRuntime implements DiagnosticsSource {
                 // became indistinguishable from corruption and was dropped in silence.
                 decoded = WireCodec.decodeFrame(frame);
             } catch (RuntimeException e) {
-                return; // genuinely malformed: we cannot even find the end of the body to answer
+                answerUndecodable(from, frame, e);
+                return;
             }
             if (decoded.unknownKind()) {
                 answerUnsupported(from, decoded);
@@ -531,6 +508,81 @@ public final class PeerRuntime implements DiagnosticsSource {
                     dev.nodera.protocol.wire.FrameFlags.RESPONSE, decoded.correlationId()));
         } catch (RuntimeException unreachable) {
             // Telling a peer we did not understand it is best-effort by definition.
+        }
+    }
+
+    /**
+     * Answer a frame whose header parsed but whose body this build could not read.
+     *
+     * <p>The same argument as {@link #answerUnsupported}, one step further in. This catch used to be
+     * a bare {@code return} under a comment saying we cannot even find the end of the body — which is
+     * true only when the <b>header</b> is what failed. Once the header parses, the body length, the
+     * kind and the correlation id are all in hand, and the commonest way to land here is not
+     * corruption at all: it is {@code CodecRegistry.Entry.requireVersion} refusing a body version
+     * above this build's ceiling, which is precisely the cross-version case NDR2 exists to survive. A
+     * future release emitting {@code RegionProposal} v5 against {@code PROPOSAL_ENCODING_VERSION = 4}
+     * was dropped with no reply and no log line at any level — three lines below the branch that
+     * answers an unknown <i>kind</i> and explains why silence is the one answer a sender cannot act
+     * on.
+     *
+     * <p>A header that does not parse stays silent. For a bad magic or a truncated header that is
+     * forced — there is no kind and no correlation id to answer with, and replying to unframeable
+     * bytes would let anyone make this node emit a frame per packet. It is <i>not</i> forced for an
+     * epoch mismatch, where the magic has already matched and both fields sit at fixed offsets;
+     * {@code RejectCode.UNSUPPORTED_EPOCH} exists for exactly that and answering it is a separate,
+     * reviewable change rather than an impossibility. The two bounds from {@link #answerUnsupported}
+     * apply unchanged — never answer something already flagged {@code RESPONSE}, and never send more
+     * than one small frame back on the connection the frame arrived on.
+     *
+     * <p>What the answer buys today is a wire-visible refusal and a log line on the receiving side.
+     * No peer yet <i>consumes</i> an inbound {@code Nack} — {@code dispatch} has no arm for it — so a
+     * rejected sender still fails by timeout until the correlation table lands. That makes this the
+     * receiver-side half of the fix, and the reason the log line matters as much as the frame.
+     *
+     * <p>{@code MALFORMED_BODY} rather than a version-specific code: "the body did not parse as the
+     * kind claimed" is true of a rejected version, and appending to a frozen wire enum for a sharper
+     * word is a separate, reviewable change.
+     *
+     * @param from   the peer the frame arrived from.
+     * @param frame  the frame as received.
+     * @param cause  what {@code decodeFrame} threw; its message names the version or the field.
+     */
+    private void answerUndecodable(PeerAddress from, byte[] frame, RuntimeException cause) {
+        final dev.nodera.protocol.wire.NoderaFrame header;
+        try {
+            header = dev.nodera.protocol.wire.NoderaFrame.decode(frame);
+        } catch (RuntimeException unframeable) {
+            LOG.debug("Dropping an unframeable {}-byte frame from {}: {}",
+                    frame.length, from, cause.getMessage());
+            return;
+        }
+        if (dev.nodera.protocol.wire.FrameFlags.has(
+                header.flags(), dev.nodera.protocol.wire.FrameFlags.RESPONSE)) {
+            LOG.debug("Dropping an unreadable {} response from {}: {}",
+                    header.kind(), from, cause.getMessage());
+            return;
+        }
+        // WARN once per (peer, kind), DEBUG after. A rejected body version is not a one-off: a peer
+        // one release ahead emits it at commit cadence for as long as it stays connected, and a
+        // per-frame WARN would bury the faults an operator reads this log for under an expected
+        // condition. The gate is ordered after the RESPONSE check so a flood of response-flagged
+        // junk cannot fill the set either.
+        if (warnedUndecodable.add(from.toString() + '#' + header.kind())) {
+            LOG.warn("Refusing kind {} from {}: this build cannot read its body ({})",
+                    header.kind(), from, cause.getMessage());
+        } else {
+            LOG.debug("Refusing kind {} from {} again: {}",
+                    header.kind(), from, cause.getMessage());
+        }
+        try {
+            transport.send(from, WireCodec.encode(
+                    new dev.nodera.protocol.session.Nack(header.kind(),
+                            dev.nodera.protocol.session.RejectCode.MALFORMED_BODY,
+                            header.correlationId(),
+                            "this build cannot read the body of kind " + header.kind()),
+                    dev.nodera.protocol.wire.FrameFlags.RESPONSE, header.correlationId()));
+        } catch (RuntimeException unreachable) {
+            // Telling a peer we could not read it is best-effort by definition.
         }
     }
 

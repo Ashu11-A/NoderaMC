@@ -101,11 +101,6 @@ public final class OperatorBridge {
         apply(server, player, OpSyncDecision.Action.DEOP);
     }
 
-    /** @return whether this bridge currently ops the given player (test/diagnostic seam). */
-    public boolean opped(UUID player) {
-        return ourOps.contains(player);
-    }
-
     /**
      * Whether this player owns the integrated server they are playing on — the floor
      * {@link OpSyncDecision#decide(WorldRole, boolean, boolean)} refuses to go under, and the reason

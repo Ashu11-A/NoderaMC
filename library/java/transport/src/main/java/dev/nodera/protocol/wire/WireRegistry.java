@@ -334,11 +334,6 @@ public final class WireRegistry {
         return require(kind).name();
     }
 
-    /** Which plane governs a kind's body. */
-    public static MessagePlane planeOf(int kind) {
-        return require(kind).plane();
-    }
-
     /** The kinds on one plane, ascending. */
     public static List<WireKind> onPlane(MessagePlane plane) {
         return KINDS.stream().filter(k -> k.plane() == plane).toList();

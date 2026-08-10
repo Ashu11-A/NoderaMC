@@ -43,14 +43,10 @@ split keeps the first guarantee — `tasks.jar` carries `main` only, asserted on
 dev.nodera.peer               PeerRuntime: membership, gossip, heartbeats, GatewayElection,
 │                             TickSync, JoinAdmission, WorldReplicationService,
 │                             WorldGrantGossipService, PeerShutdownHook
-├── discovery/                PeerDirectory, ArchiveInventory (both LRU-bounded),
-│                             BootstrapClient (3 mechanisms), InvitationCodec,
-│                             CachedPeerStore, PersistentIdentityStore, TrackerClient,
-│                             PeerDiscoveryService
-├── archival/                 RendezvousArchivePolicy, ReplicationFactors, SeedFloorPolicy,
-│                             ArchiveAuditTask, ArchiveRepairService, ArchiveManager,
-│                             RetentionPolicy
-├── committee/                CommitteeManager — certified membership changes, rotation, resize
+├── discovery/                TrackerClient, PeerDiscoveryService, RendezvousDirectory,
+│                             ServiceScoreBoard, CommonsPresence, PersistentIdentityStore
+├── archival/                 RendezvousArchivePolicy, ReplicationFactors, ReplicationTarget,
+│                             ArchivePlacementPolicy, RetentionPolicy
 ├── validation/               WorkerValidationService — committee re-execution out of game
 ├── sync/                     EventSyncService — certified forward sync over the transport
 ├── metric/ · view/           per-peer meters and peer-facing view models
@@ -144,11 +140,12 @@ long-lived process, so closing Minecraft is a *player-session* leave rather than
 
 ## Tests
 
-857 Gradle test cases, including `SessionContinuityIT`, `DistributionIT`, `MultiBootstrapIT`,
-`ArchiveRepairIT`, `EncryptedDistributionIT`, `CrashRecoveryIT`, `ResidentQuorumIT`,
-`ByzantineMeshIT`, real-binary `TrackerServiceIT`, and — from the former `:worker` —
-`WorldContinuityIT`, `CompanionCrashSurvivalIT`, `SeedRegionVerbIT`, `WorldHostingPersistenceTest`
-and `HeadlessPeerMainStateTest`.
+835 XML-reported test cases (measured 2026-08-06), including `SessionContinuityIT`,
+`DistributionIT`, `DepartureIsRepairedByPlacementTest`, `EncryptedDistributionIT`,
+`EntityTransferCrashRecoveryIT`, `ResidentQuorumIT`, `WorkerQuorumValidationIT`, `ByzantineMeshIT`,
+real-binary `TrackerServiceIT`, and — from the former `:worker` — `WorldContinuityIT`,
+`CompanionCrashSurvivalIT`, `ControlVerbsIT` (every control verb, nested per verb),
+`WorldHostingPersistenceTest` and `HeadlessPeerMainStateTest`.
 
 ```bash
 ./gradlew :peer:test                                     # the gate (excludes the `structure` tag)

@@ -62,11 +62,6 @@ public final class WorldRegistryStore {
         load();
     }
 
-    /** @return the file this store reads and writes. */
-    public Path file() {
-        return file;
-    }
-
     /**
      * Read the registry from disk into memory. Called once at construction.
      *
