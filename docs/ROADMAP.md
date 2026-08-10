@@ -198,6 +198,15 @@ older issue or commit message is [frontend 14](frontend/Task.14.md).
 |---|---|---|---|
 | [1](testing/Task.1.md) | One tool: shell suites become Java scenarios | ✅ | worker 1, minecraft 5, server 1, network 15 |
 
+**2026-08-10 — the harness now tells the truth about itself, which every other category's live
+evidence depends on.** A fully-skipped `nodera-test run` used to exit 0 and render green
+([#256](https://github.com/Ashu11-A/NoderaMC/issues/256)); `LiveStack` started a dedicated server and
+two Minecraft clients without ever checking either answered (row T-5, retired); and a wait that
+expired because a 14 GB box could not sustain the topology named the validation lane rather than the
+machine (row T-6). No completion figure moves — this is the instrument, not the product — but every
+live claim recorded before this date should be re-read knowing the tool could not distinguish "the
+suite passed" from "the suite skipped".
+
 ### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
 
 Programme plan: [`plans/Plan.6.md`](plans/Plan.6.md).

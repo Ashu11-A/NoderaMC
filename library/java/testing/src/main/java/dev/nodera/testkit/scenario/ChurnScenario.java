@@ -79,7 +79,7 @@ public final class ChurnScenario implements Scenario {
             Path config = HostWorldSupport.stagedWorld(context);
             // Churn measures join/leave, not the ownership drive — keep the drive off so the
             // teleport script does not move players mid-cycle.
-            HostWorldSupport.setHostConfig(config, "debug", "regionDrive", "false");
+            LiveStack.setHostConfig(config, "debug", "regionDrive", "false");
         });
 
         context.stage("C1", "the world is hosted and the baseline join+leave registers", () -> {
@@ -97,7 +97,8 @@ public final class ChurnScenario implements Scenario {
                 int mark = hostLog.lineCount();
                 ManagedProcess client = stack.startClient("runClientJoin",
                         "client-joiner-" + index + ".log");
-                hostLog.awaitAfter("JoinerDev joined the game", Duration.ofSeconds(600), mark);
+                hostLog.awaitWithLagGuard("JoinerDev joined the game", Duration.ofSeconds(600),
+                        hostLogFile, mark);
                 // A random dwell rather than a fixed one: a cycle that always disconnects at the
                 // same point in the tick would only ever exercise one moment of the session.
                 Duration dwell = Duration.ofSeconds(dwellLength.nextInt(20) + 10);
@@ -105,7 +106,8 @@ public final class ChurnScenario implements Scenario {
                         + "s, then disconnecting");
                 context.settle(dwell);
                 HostWorldSupport.stopClient(client, JOINER_RUN);
-                hostLog.awaitAfter("JoinerDev left the game", Duration.ofSeconds(120), mark);
+                hostLog.awaitWithLagGuard("JoinerDev left the game", Duration.ofSeconds(120),
+                        hostLogFile, mark);
                 context.settle(Duration.ofSeconds(5));
             });
         }

@@ -131,9 +131,26 @@ public final class ScenarioContext {
         }
     }
 
-    /** Skip the scenario from inside a stage: this machine or this build cannot host it. */
+    /**
+     * Skip the scenario from inside a stage: this machine or this build cannot host it.
+     *
+     * <p>{@link SkipKind#CIRCUMSTANTIAL} by construction. A stage that discovers a compiled-out
+     * feature or an absent device is describing the environment it was handed, which is a reason a
+     * reader can act on. Use {@link #skipStructurally} for the other kind — the one where nothing
+     * about the environment explains it and the scenario could not have run anywhere.
+     */
     public void skip(String reason) {
-        throw new SkipSignal(reason);
+        throw new SkipSignal(SkipKind.CIRCUMSTANTIAL, reason);
+    }
+
+    /**
+     * Skip because the harness itself did not give this scenario a chance.
+     *
+     * <p>Never tolerated by the runner, with or without {@code --allow-skips}: a structural skip is
+     * a scenario that never runs, and it renders exactly like one that passed.
+     */
+    public void skipStructurally(String reason) {
+        throw new SkipSignal(SkipKind.STRUCTURAL, reason);
     }
 
     /** A message in the run log, for context a stage name cannot carry. */

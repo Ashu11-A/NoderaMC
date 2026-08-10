@@ -1,4 +1,4 @@
-package dev.nodera.testkit.scenario;
+package dev.nodera.testkit.harness;
 
 import org.junit.jupiter.api.Test;
 
@@ -30,9 +30,13 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * path it exists not to exercise; and {@code awaitRunJvmsGone} returned instantly having found
  * nothing to wait for.
  *
+ * <p>The capability lives on {@link ManagedProcess} rather than in a scenario support class: it is
+ * a fact about processes, and while it sat one layer up two places described one behaviour. These
+ * tests moved with it.
+ *
  * <p>Thread-context: ordinary JUnit. Every spawned child is reaped in a finally block.
  */
-class HostWorldSupportTest {
+class ManagedProcessTokenTest {
 
     /** Enough argv bytes to push the token past the JDK's 4096-byte view, as the real runs do. */
     private static final int PADDING_BYTES = 6000;
@@ -43,11 +47,11 @@ class HostWorldSupportTest {
         String token = "clientHostRunProgramArgs-" + UUID.randomUUID();
         Process child = spawnWithTrailingToken(token, null);
         try {
-            assertThat(HostWorldSupport.runJvmAlive(token))
+            assertThat(ManagedProcess.tokenAlive(token))
                     .as("a token in the last argument of an oversized command line must still match "
                             + "— this is the assertion ProcessHandle.info().commandLine() fails")
                     .isTrue();
-            assertThat(HostWorldSupport.findRunJvm(token)).hasValue(child.pid());
+            assertThat(ManagedProcess.findByToken(token)).hasValue(child.pid());
         } finally {
             child.destroyForcibly();
         }
@@ -62,7 +66,7 @@ class HostWorldSupportTest {
         // host died when the joiner left".
         Process daemon = spawnWithTrailingToken(token, "GradleDaemon");
         try {
-            assertThat(HostWorldSupport.runJvmAlive(token))
+            assertThat(ManagedProcess.tokenAlive(token))
                     .as("a process identifying itself as a Gradle daemon must never be a match, "
                             + "however many run tokens it carries")
                     .isFalse();
@@ -75,7 +79,7 @@ class HostWorldSupportTest {
     void anAbsentRunIsSimplyAbsent() {
         assumeProcFs();
 
-        assertThat(HostWorldSupport.runJvmAlive("clientNobodyRunProgramArgs-" + UUID.randomUUID()))
+        assertThat(ManagedProcess.tokenAlive("clientNobodyRunProgramArgs-" + UUID.randomUUID()))
                 .isFalse();
     }
 

@@ -8,6 +8,7 @@ import dev.nodera.testkit.suite.Scenario;
 import dev.nodera.testkit.suite.ScenarioContext;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Set;
 
@@ -54,9 +55,15 @@ public final class ContinuityScenario implements Scenario {
 
     @Override
     public Requirements requirements() {
-        // A GUI session for the two real clients, and about six gigabytes of free RAM: two full
-        // Minecraft clients in one machine's memory is the real constraint of this scenario.
-        return Requirements.liveClients(6);
+        // A GUI session for the two real clients, and eight gigabytes of free RAM. Six was measured
+        // from the clients alone and it was the wrong number: this scenario also runs three headless
+        // workers, a tracker, a rendezvous and the host's own integrated server, and on a 14 GB box
+        // reporting ~6 GiB available the whole arrangement did start — and then the host fell 1066
+        // ticks behind, which dropped the joiner's vanilla connection and failed S2c. A requirement
+        // that lets a run begin and not finish is worse than one that refuses it: the refusal names
+        // the machine in one line, and the run that starts spends forty minutes to name the wrong
+        // layer. Eight is the smallest figure under which the three 2026-08-04 runs did not survive.
+        return Requirements.liveClients(8);
     }
 
     @Override
@@ -64,6 +71,10 @@ public final class ContinuityScenario implements Scenario {
         LiveStack stack = context.stack();
         LogWatcher hostLog = context.log("client-host.log");
         LogWatcher joinLog = context.log("client-join.log");
+        // The hosting client's integrated server is what falls behind when this box cannot sustain
+        // the topology. Every wait below that can expire for that reason is handed this file, so the
+        // failure names the machine rather than the lane it happened to be waiting on.
+        Path hostLogFile = stack.logDir().resolve("client-host.log");
         // A one-element holder rather than a field: the runner may execute this instance more than
         // once in a queue, so nothing about a run may survive on the scenario itself.
         HostWorldSupport.HostedPair[] players = new HostWorldSupport.HostedPair[1];
@@ -83,7 +94,8 @@ public final class ContinuityScenario implements Scenario {
         });
 
         context.stage("S3", "the world archive is on the Nodera network (worker A seeding)", () -> {
-            hostLog.await("world archive seeded to the worker", Duration.ofSeconds(180));
+            hostLog.awaitWithLagGuard("world archive seeded to the worker",
+                    Duration.ofSeconds(180), hostLogFile);
             String state = context.worker(PlayerRole.PLAYER_ONE).state();
             context.checkAbsent(state, "\"maintained_pieces\":0,",
                     "host worker STATE reports zero maintained pieces");
@@ -101,7 +113,8 @@ public final class ContinuityScenario implements Scenario {
             // the current engine refuses, so the lane never boots and this wait would burn its whole
             // timeout with no stated cause — bail out the moment the bootstrap failure appears.
             HostWorldSupport.awaitMemberNodes(context, hostLog, "S2c");
-            joinLog.await("client validation lane active", Duration.ofSeconds(180));
+            joinLog.awaitWithLagGuard("client validation lane active", Duration.ofSeconds(180),
+                    hostLogFile);
         });
 
         context.stage("S4", "player A is gone", () ->

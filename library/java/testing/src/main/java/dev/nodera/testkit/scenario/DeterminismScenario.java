@@ -2,6 +2,7 @@ package dev.nodera.testkit.scenario;
 
 import dev.nodera.testkit.harness.HarnessException;
 import dev.nodera.testkit.harness.LiveStack;
+import dev.nodera.testkit.harness.LogWatcher;
 import dev.nodera.testkit.harness.Topology;
 import dev.nodera.testkit.mc.RconClient;
 import dev.nodera.testkit.suite.Requirements;
@@ -139,7 +140,7 @@ public final class DeterminismScenario implements Scenario {
             }
             long clientSide = 0;
             for (String gameDir : List.of("run-join", "run-join2", "run-join3")) {
-                for (String line : ServerLogs.window(stack.paths().gameLog(gameDir))) {
+                for (String line : LogWatcher.reader(stack.paths().gameLog(gameDir)).lines()) {
                     if (!line.contains("client validation lane active on")) {
                         continue;
                     }
@@ -241,8 +242,7 @@ public final class DeterminismScenario implements Scenario {
                     + " run nodera debug extract").orElse(""));
             append(transcript, "=== block capture ledger\n" + read(ledger));
 
-            int stalls = ServerLogs.count(ctx.log("server.log").file(),
-                    "A single server tick took");
+            int stalls = ctx.log("server.log").count("A single server tick took");
             double worst = worstTickStall(ctx.log("server.log").file());
 
             write(stack.resultsDir().resolve("phase1-numbers.json"),
@@ -265,10 +265,10 @@ public final class DeterminismScenario implements Scenario {
             // generates terrain the shorter scenarios never touch, which is why only this one sees
             // it. Failing on it would mean the soak can never pass on a world that happens to
             // generate a dungeon, and it says nothing about whether the validated lane diverged.
-            Pattern benign = Pattern.compile(ServerLogs.BENIGN_ERRORS.pattern()
+            Pattern benign = Pattern.compile(LogWatcher.BENIGN_ERRORS.pattern()
                     + "|A single server tick took|Failed to fetch mob spawner entity");
-            List<String> errors = ServerLogs.auditErrorsAfter(ctx.log("server.log").file(),
-                    soakMark[0], benign, ServerLogs.BENIGN_NETTY);
+            List<String> errors = ctx.log("server.log")
+                    .auditErrorsAfter(benign, LogWatcher.BENIGN_NETTY, soakMark[0]);
             ctx.check(errors.isEmpty(), "D4: the soak left errors in the server log: "
                     + String.join(" | ", errors));
 
@@ -299,14 +299,14 @@ public final class DeterminismScenario implements Scenario {
         List<String> hits = new ArrayList<>();
         try (Stream<Path> files = Files.walk(stack.logDir())) {
             files.filter(Files::isRegularFile).forEach(file ->
-                    ServerLogs.window(file).stream()
+                    LogWatcher.reader(file).lines().stream()
                             .filter(line -> line.contains("DIVERGENCE"))
                             .forEach(hits::add));
         } catch (IOException none) {
             // No log directory is not evidence of a divergence.
         }
         for (String gameDir : List.of("run-join", "run-join2", "run-join3")) {
-            ServerLogs.window(stack.paths().gameLog(gameDir)).stream()
+            LogWatcher.reader(stack.paths().gameLog(gameDir)).lines().stream()
                     .filter(line -> line.contains("DIVERGENCE"))
                     .forEach(hits::add);
         }
@@ -315,7 +315,7 @@ public final class DeterminismScenario implements Scenario {
 
     private static double worstTickStall(Path serverLog) {
         double worst = 0;
-        for (String line : ServerLogs.window(serverLog)) {
+        for (String line : LogWatcher.reader(serverLog).lines()) {
             Matcher matcher = TICK_STALL.matcher(line);
             while (matcher.find()) {
                 worst = Math.max(worst, Double.parseDouble(matcher.group(1)));
@@ -452,7 +452,7 @@ public final class DeterminismScenario implements Scenario {
     }
 
     private static String read(Path file) {
-        return String.join("\n", ServerLogs.window(file));
+        return String.join("\n", LogWatcher.reader(file).lines());
     }
 
     private static void write(Path file, String content) {

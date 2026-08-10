@@ -71,8 +71,8 @@ public final class OwnershipScenario implements Scenario {
             // Test-1 config on top of the standard staging: the ownership drive, plus a
             // ghost-captured overworld so spawn-area mobs do not instantly revoke every region
             // (ENTITY_EXCLUSION acceptance #3 — the drive needs regions to STAY delegated).
-            HostWorldSupport.setHostConfig(config, "debug", "regionDrive", "true");
-            HostWorldSupport.setHostConfig(config, "entity", "mobCaptureDimensions",
+            LiveStack.setHostConfig(config, "debug", "regionDrive", "true");
+            LiveStack.setHostConfig(config, "entity", "mobCaptureDimensions",
                     "[\"minecraft:overworld\"]");
             context.check(HostWorldSupport.containsAfter(config, 0,
                             "mobCaptureDimensions = [\"minecraft:overworld\"]"),
@@ -86,13 +86,14 @@ public final class OwnershipScenario implements Scenario {
             // timeout with no stated cause — bail out the moment the bootstrap failure appears
             // instead.
             HostWorldSupport.awaitMemberNodes(context, hostLog, "O1");
-            joinLog.await("client validation lane active", Duration.ofSeconds(180));
+            joinLog.awaitWithLagGuard("client validation lane active", Duration.ofSeconds(180),
+                    hostLogFile);
         });
 
         context.stage("O2", "the ownership drive ran and logged region enter/leave evidence", () -> {
-            hostLog.await("DRIVE step 1", Duration.ofSeconds(300));
-            hostLog.await("DRIVE step 2", Duration.ofSeconds(300));
-            hostLog.await("REGION: ", Duration.ofSeconds(120));
+            hostLog.awaitWithLagGuard("DRIVE step 1", Duration.ofSeconds(300), hostLogFile);
+            hostLog.awaitWithLagGuard("DRIVE step 2", Duration.ofSeconds(300), hostLogFile);
+            hostLog.awaitWithLagGuard("REGION: ", Duration.ofSeconds(120), hostLogFile);
             List<String> evidence = HostWorldSupport.readLines(hostLogFile).stream()
                     .filter(line -> line.contains("REGION: ") || line.contains("DRIVE "))
                     .toList();

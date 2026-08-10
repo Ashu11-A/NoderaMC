@@ -125,8 +125,14 @@ public final class MeshSoakScenario implements Scenario {
                     "client validation lane active");
             HostWorldSupport.transcript(context, "soak.log",
                     "=== client lane: " + lane.orElse("<none>"));
+            // The soak's own failure mode is capacity: a box that cannot sustain the drive falls
+            // behind and the lane never gets a tick to activate in. Say which happened.
+            java.util.OptionalInt behind = context.watch(serverLogFile).ticksBehind();
             context.check(lane.isPresent(),
-                    "the player's client lane never activated — nothing validated the load at all");
+                    "the player's client lane never activated — nothing validated the load at all"
+                    + (behind.isPresent() && behind.getAsInt() > LogWatcher.LAG_TICKS_THRESHOLD
+                        ? " (the server fell " + behind.getAsInt() + " ticks behind during the soak "
+                          + "— see " + serverLogFile + "; the machine, not the lane)" : ""));
             OptionalInt regions = HostWorldSupport.laneRegions(lane.get());
             context.check(regions.isPresent() && regions.getAsInt() > 0,
                     "the client lane reports no regions (got '" + lane.get() + "')");
