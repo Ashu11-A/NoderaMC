@@ -10,7 +10,7 @@
      host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-08-10 · **134 unit tests · 0 failing** (module
+**Category:** minecraft · **Last run:** 2026-08-10 · **139 unit tests · 0 failing** (module
 `neoforge-mod`), plus the live acceptance scenarios (now `dev.nodera.testkit.scenario`, run with `scripts/nodera-test.sh`)
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
@@ -85,7 +85,7 @@ run first — or alone on its own machine, which is what CI does.
 
 | Suite | What it proves | Duration |
 |---|---|---|
-| `e2e-continuity.sh` | The world survives its host: share → join → archive on the network → host killed → player B recovers and re-hosts | ~8 min |
+| `e2e-continuity.sh` | The world survives its host: share → join → archive on the network → host killed → player B recovers and re-hosts. **S2d (2026-08-10, MC-JOIN-2):** player B's session hand-off held its client thread for less than one tick — the mod logs the microseconds itself and the stage bounds them | ~8 min |
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
@@ -221,7 +221,7 @@ suites pass through it by design.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate **and its lockout** (`JoinGateThrottleIsWiredTest`, `JoinerIdentityTest` — a reconnect no longer buys a fresh password guess), crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, the in-game self-test drive, and the forward event-sync call sites (`EventSyncIsWiredTest`) | 134 | 🚧 |
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate **and its lockout** (`JoinGateThrottleIsWiredTest`, `JoinerIdentityTest` — a reconnect no longer buys a fresh password guess), crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, the in-game self-test drive, the forward event-sync call sites (`EventSyncIsWiredTest`), and the joiner bring-up's thread discipline and cancellability (`ClientBringUpIsOffTheRenderThreadTest`, `NoderaPeerServiceBringUpCancellationTest`) | 139 | 🚧 |
 
 Landmark unit tests:
 
@@ -230,6 +230,8 @@ Landmark unit tests:
 | `ShareOptionsTest` | The share value type: a password implies encryption, defaults are correct, copies are immutable, replication must be positive, and the password never appears in `toString` |
 | `CompanionGateTest` | Against a **real** loopback server socket: present ⇒ start, absent ⇒ an actionable abort, skew ⇒ the correct classification |
 | `VanillaCancelGateTest` | The rule "cancel vanilla only where the commit is synchronous and local" is pinned **Minecraft-free**, so it is testable rather than merely observed in a session |
+| `ClientBringUpIsOffTheRenderThreadTest` | MC-JOIN-2: `onServerSessionInfo` returns while a deliberately-held step of the bring-up is still blocked, and that step runs on `nodera-client-bringup` rather than the caller. Latch-based on purpose — the exit is a wall-clock claim, and a timing assertion on a shared machine is a flake generator |
+| `NoderaPeerServiceBringUpCancellationTest` | MC-JOIN-2's other half: a `stopClient` during a bring-up leaves no runtime, transport, identity or delegation behind, and does not wedge the next join. Cancellation is by generation counter, so the disconnect path never waits on the network work the bring-up was moved off the client thread to escape |
 | `NoderaPeerServiceIsBindFailureTest` | The cause-chain bind-failure classifier that decides retry-on-ephemeral versus degrade |
 | `WorldArchiverStreamingTest` | Continuous archive streaming cadence, the bounded final flush, and the seeded-version freshness marker |
 | `WorkerPiecesParserTest` / `PieceMapFeedTest` | The worker's piece reply becomes the grid — the seam that had never been called by anything |

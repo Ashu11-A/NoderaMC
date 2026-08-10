@@ -6,7 +6,7 @@
      the root README bar. Live observations count as evidence here ONLY when they name the log line
      or artifact that showed them. Never rewrite an old note. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-28 · Tasks completed: **5 / 11**
+**Category:** minecraft · **Last audit:** 2026-08-10 · Tasks completed: **5 / 11**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) ·
 retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -26,12 +26,62 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED | Defaults on; verified both ways in CI |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) | `ModTelemetryTest` (8) against a loopback worker; live pass pending |
 | [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED | `e2e-profile` R1 green: `nodera` attributed in a live dedicated-server capture |
-| [10](Task.10.md) | A world is shown only when it can be played | 🚧 IN PROGRESS | Readiness gate, thread discipline on join/host, capture defaults (MC-JOIN-1…6; MC-JOIN-4 RETIRING) |
+| [10](Task.10.md) | A world is shown only when it can be played | 🚧 IN PROGRESS | Readiness gate, thread discipline on join/host, capture defaults (MC-JOIN-1…6; MC-JOIN-2 and MC-JOIN-4 RETIRING). Deliverable 4 landed 2026-08-10 — the joiner's bring-up is off the client thread |
 | [11](Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ NOT STARTED | Duplicate entry points, overflowing panels, the footer drawn into the body (MC-GUI-1…5) |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The joiner's peer bring-up left the client render thread (#167, MC-JOIN-2)
+
+`ModNetworking.handleSessionOnClient` hopped the *whole* bring-up onto the client main thread, and
+the bring-up synchronously did a companion delegation exchange, an ephemeral socket bind, a relay
+reservation that iterates **every** configured rendezvous endpoint at five seconds to connect and
+ten to read, and then the bootstrap dial — while `onServerSessionInfo` held the singleton monitor
+that `stopClient` and `stopHosting` also want. Three black-holed relays is about ninety seconds of a
+client that has stopped drawing, and the player's only signal is a game that has hung.
+
+**What landed.** The hand-off now keeps only what has to be on the client thread — the `isHosting()`
+guard and reading `context.player()`'s UUID — and `onServerSessionInfo` records the session's world
+id, bootstrap route and a freshly generated identity under the monitor before handing everything else
+to a `nodera-client-bringup` daemon thread. That is `NoderaHost.armJoinGate`'s shape, and the Javadoc
+beside `LANE_LOCK` had already named this exact failure on the host side.
+
+Three parts of it are worth writing down because each was a decision rather than a move:
+
+- **The announce went with it.** It needs a live runtime, so it is posted once one exists.
+  `IPayloadContext.reply` sends on the listener the handler was invoked with, and the handler has
+  returned by then — so it rides `PacketDistributor.sendToServer`, which resolves the connection that
+  is live at send time. `NoderaNodeAnnouncePayload` is registered `playToServer`, which is what makes
+  that direction legal.
+- **Cancellation is by generation, never by the monitor.** `stopClient` bumps a counter and returns;
+  the in-flight bring-up notices at its next checkpoint and discards the socket, relay registration,
+  runtime and tracker client it built instead of publishing them. Guarding with the monitor would
+  have moved the ninety seconds from the render thread to the disconnect path.
+- **The hand-off measures itself.** It logs the microseconds it held the client thread, which is
+  exactly the quantity MC-JOIN-2's exit test bounds, and is what the new live stage asserts.
+
+**Evidence.** `ClientBringUpIsOffTheRenderThreadTest` (3) and
+`NoderaPeerServiceBringUpCancellationTest` (2), both green, and both failing on the pre-fix shape —
+the decisive assertion reports the slow step running on `"Test worker"`, the caller's own thread.
+`./gradlew check` green: 2264 Java tests passed, 0 failed; `neoforge-mod` 134 → 139.
+`ContinuityScenario` gained stage **S2d**, which bounds player B's client thread at one tick from the
+line the mod now prints.
+
+**What the row still needs.** S2d has not been run, and this box is blocked twice over. It answered
+`SKIPPED  continuity  only 5 GiB of RAM free, this scenario needs 6 GiB`, and even with the memory it
+could not have run: [#266](https://github.com/Ashu11-A/NoderaMC/issues/266) has the harness binding
+the product's own default control port while the machine's installed Nodera worker holds it. More
+importantly, S2d does not yet reproduce the exit test's own relay set. Black-holing the joiner's
+`nodera-client.toml` proves
+nothing on its own, because the mod follows the **worker's** live rendezvous selection whenever it
+has one (`NoderaPeerService.selectedRendezvousRoutes`); the joiner's worker has to be started with an
+unroutable `NODERA_RENDEZVOUS_ENDPOINTS` too, and `LiveStack.startWorkers` hands every worker the
+same list with `network.rendezvous_endpoints` marked restart-required. That is a harness gap, it is
+recorded as one in the stage's own comment, and MC-JOIN-2 stays open until it is closed and the run
+is read.
+
 
 ### 2026-08-06 — The non-delegable-entity refusal is retired, on purpose and on the record (#236)
 
