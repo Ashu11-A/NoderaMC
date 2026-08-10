@@ -66,6 +66,20 @@ public final class PeerNode implements AutoCloseable {
      */
     public static final String WORKER_VERSION = dev.nodera.core.NoderaConstants.PRODUCT_VERSION;
 
+    /**
+     * The loopback control port a worker binds when nothing says otherwise.
+     *
+     * <p>Public because it is a number other components must agree with rather than restate: the
+     * mod's {@code companion.controlEndpoint} default, the app's supervisor, the Android build, and
+     * — the reason it stopped being a literal — the live harness, whose regression test asserts its
+     * own port block never lands on the product's again. It did for a year, and a developer running
+     * the companion app could not execute a single live scenario because of it.
+     */
+    public static final int DEFAULT_CONTROL_PORT = 25610;
+
+    /** The P2P port a worker binds when nothing says otherwise. See {@link #DEFAULT_CONTROL_PORT}. */
+    public static final int DEFAULT_P2P_PORT = 25620;
+
     /** Counted down by {@link #close}; {@link #await} blocks on it. */
     private final CountDownLatch stopped = new CountDownLatch(1);
 
@@ -120,9 +134,9 @@ public final class PeerNode implements AutoCloseable {
         // Control stays environment-only: the desktop supervisor and its Rust client inherit the
         // same value. Android has no environment handoff and both sides deliberately keep 25610;
         // accepting an independent Java property here could strand the app on the wrong endpoint.
-        int controlPort = envInt("NODERA_CONTROL_PORT", 25610);
+        int controlPort = envInt("NODERA_CONTROL_PORT", DEFAULT_CONTROL_PORT);
         String bindHost = env("NODERA_P2P_BIND", "0.0.0.0");
-        int p2pPort = settingInt("NODERA_P2P_PORT", 25620);
+        int p2pPort = settingInt("NODERA_P2P_PORT", DEFAULT_P2P_PORT);
         // NODERA_P2P_PORT_RANGE=start-end widens the bind to the first free port in a range. A
         // single fixed port is forwardable but fails outright when anything else already holds it
         // (a second worker, a stale JVM, a dev client); an ephemeral port always binds but is not

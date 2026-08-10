@@ -20,57 +20,132 @@ import java.util.List;
  * <pre>
  *   2 players · 1 tracker · 1 rendezvous · 3 headless peers
  *
- *   peer 1  player 1's companion worker   control 25610 · p2p 25620   role PLAYER_ONE
- *   peer 2  player 2's companion worker   control 25611 · p2p 25621   role PLAYER_TWO
- *   peer 3  spare standalone headless     control 25612 · p2p 25622   role SPARE
+ *   peer 1  player 1's companion worker   control 26610 · p2p 26620   role PLAYER_ONE
+ *   peer 2  player 2's companion worker   control 26611 · p2p 26621   role PLAYER_TWO
+ *   peer 3  spare standalone headless     control 26612 · p2p 26622   role SPARE
  * </pre>
  *
  * <p>The spare peer has no client. It holds the swarm above the quorum floor and keeps seeding when
  * a player's worker dies with its game — which is exactly the situation the continuity and crash
  * scenarios create on purpose.
  *
- * <p>Thread-context: immutable value; {@link #awaitFreePorts} performs IO.
+ * <h2>Why the harness has its own port block, 1000 above the product's</h2>
+ *
+ * <p>This plan used to be the <b>product's</b> plan: tracker 25600, rendezvous 25601, worker control
+ * 25610+i, P2P 25620+i — the same numbers a shipped Nodera binds by default
+ * ({@code DefaultServices.DEVELOPMENT_TRACKER}, {@code PeerNode.DEFAULT_CONTROL_PORT},
+ * {@code PeerNode.DEFAULT_P2P_PORT}). So a developer with the companion app running could not run a
+ * single live scenario: the app holds 25610, the preflight below refused every run, and the more
+ * complete somebody's install the less of the suite they could execute. The live report of
+ * 2026-08-07 — 0 passed, 17 failed, every one of them "port 25600 is still held after 60s" — is what
+ * that looks like from the outside, and it was read at the time as a stale test stack.
+ *
+ * <p>So every port here is {@code portBase + offset}, and the offsets are exactly the historical
+ * ones: a base of {@value #PRODUCTION_PORT_BASE} reproduces the old numbers, and the default base of
+ * {@value #DEFAULT_PORT_BASE} shifts the whole block a thousand up, clear of anything the product
+ * binds. {@link #chosenBase()} then probes that block at startup and steps to the next one if
+ * anything at all is listening in it — a second harness, a leftover run, an unrelated service — and
+ * announces the block it settled on, so a failing run can be traced to the ports it actually used.
+ * {@code NODERA_E2E_PORT_BASE} pins it when a run has to be reproducible port for port.
+ *
+ * <p>Thread-context: immutable value; {@link #awaitFreePorts} and {@link #chosenBase} perform IO.
  */
 public record Topology(
         int players,
         int sparePeers,
         int trackers,
         int rendezvous,
-        int gamePort,
-        int trackerPort,
-        int rendezvousPort,
-        int workerControlBase,
-        int workerP2pBase,
-        int rconPort,
+        int portBase,
         String rconPassword,
         Duration joinTimeout,
         int timeoutMultiplier) {
 
+    /**
+     * The base the <b>product</b>'s own defaults sit on: 25575 RCON, 25600 tracker, 25610 control.
+     *
+     * <p>Named rather than implied, because the one thing the harness's base must never become
+     * again is this one. {@code HarnessPortPlanTest} asserts the two blocks stay disjoint.
+     */
+    public static final int PRODUCTION_PORT_BASE = 25500;
+
+    /** The harness's own base — the product's block plus 1000, reserved for test stacks. */
+    public static final int DEFAULT_PORT_BASE = 26500;
+
+    /** How far {@link #chosenBase} will walk, and in what step, when the default block is busy. */
+    private static final int BASE_STEP = 200;
+    private static final int BASE_ATTEMPTS = 8;
+
+    // The offsets within a block. Unchanged from the numbers this harness has always used, so that
+    // PRODUCTION_PORT_BASE + offset is the historical port and no scenario's expectations moved.
+    private static final int RCON_OFFSET = 75;
+    private static final int GAME_OFFSET = 99;
+    private static final int TRACKER_OFFSET = 100;
+    private static final int RENDEZVOUS_OFFSET = 101;
+    private static final int WORKER_CONTROL_OFFSET = 110;
+    private static final int WORKER_P2P_OFFSET = 120;
+    private static final int TRACKER_EXTRA_OFFSET = 140;
+    private static final int RENDEZVOUS_EXTRA_OFFSET = 150;
+    /** The last offset a block can use: extra rendezvous 150..159. */
+    private static final int LAST_OFFSET = 159;
+
     /** The standard topology every scenario gets unless it asks for something else. */
     public static Topology standard() {
-        return new Topology(2, 1, 1, 1, 25599, 25600, 25601, 25610, 25620, 25575, "nodera-dev",
+        return new Topology(2, 1, 1, 1, chosenBase(), "nodera-dev",
                 Duration.ofSeconds(300), multiplierFromEnvironment());
     }
 
     /** Same shape with a different player count (1 = single client, 3 = the disagreement floor). */
     public Topology withPlayers(int newPlayers) {
-        return new Topology(newPlayers, sparePeers, trackers, rendezvous, gamePort, trackerPort,
-                rendezvousPort, workerControlBase, workerP2pBase, rconPort, rconPassword,
+        return new Topology(newPlayers, sparePeers, trackers, rendezvous, portBase, rconPassword,
                 joinTimeout, timeoutMultiplier);
     }
 
     /** Same shape without the spare peer — the "can it survive below quorum" arrangement. */
     public Topology withSparePeers(int newSparePeers) {
-        return new Topology(players, newSparePeers, trackers, rendezvous, gamePort, trackerPort,
-                rendezvousPort, workerControlBase, workerP2pBase, rconPort, rconPassword,
+        return new Topology(players, newSparePeers, trackers, rendezvous, portBase, rconPassword,
                 joinTimeout, timeoutMultiplier);
     }
 
     /** Same shape with more discovery services — the migration and failover arrangements. */
     public Topology withServices(int newTrackers, int newRendezvous) {
-        return new Topology(players, sparePeers, newTrackers, newRendezvous, gamePort, trackerPort,
-                rendezvousPort, workerControlBase, workerP2pBase, rconPort, rconPassword,
+        return new Topology(players, sparePeers, newTrackers, newRendezvous, portBase, rconPassword,
                 joinTimeout, timeoutMultiplier);
+    }
+
+    /** Same shape on a different port block — the knob {@code NODERA_E2E_PORT_BASE} turns. */
+    public Topology withPortBase(int newPortBase) {
+        return new Topology(players, sparePeers, trackers, rendezvous, newPortBase, rconPassword,
+                joinTimeout, timeoutMultiplier);
+    }
+
+    /** RCON of the dedicated server this run stages. */
+    public int rconPort() {
+        return portBase + RCON_OFFSET;
+    }
+
+    /** The Minecraft port every client in this run dials. */
+    public int gamePort() {
+        return portBase + GAME_OFFSET;
+    }
+
+    /** The first (and usually only) tracker's port. */
+    public int trackerPort() {
+        return portBase + TRACKER_OFFSET;
+    }
+
+    /** The first (and usually only) rendezvous's port. */
+    public int rendezvousPort() {
+        return portBase + RENDEZVOUS_OFFSET;
+    }
+
+    /** Worker 0's control port; worker {@code i} adds {@code i}. */
+    public int workerControlBase() {
+        return portBase + WORKER_CONTROL_OFFSET;
+    }
+
+    /** Worker 0's P2P port; worker {@code i} adds {@code i}. */
+    public int workerP2pBase() {
+        return portBase + WORKER_P2P_OFFSET;
     }
 
     /** Total workers: one companion per player plus the spares. */
@@ -80,12 +155,12 @@ public record Topology(
 
     /** Control port of worker {@code index} (0-based). */
     public int workerControlPort(int index) {
-        return workerControlBase + index;
+        return workerControlBase() + index;
     }
 
     /** P2P port of worker {@code index} (0-based). */
     public int workerP2pPort(int index) {
-        return workerP2pBase + index;
+        return workerP2pBase() + index;
     }
 
     /** The role worker {@code index} is launched with. */
@@ -95,12 +170,12 @@ public record Topology(
 
     /** Tracker port {@code index} (0-based); extras live in their own block. */
     public int trackerPortAt(int index) {
-        return index == 0 ? trackerPort : 25640 + index;
+        return index == 0 ? trackerPort() : portBase + TRACKER_EXTRA_OFFSET + index;
     }
 
     /** Rendezvous port {@code index} (0-based). */
     public int rendezvousPortAt(int index) {
-        return index == 0 ? rendezvousPort : 25650 + index;
+        return index == 0 ? rendezvousPort() : portBase + RENDEZVOUS_EXTRA_OFFSET + index;
     }
 
     /** {@code host:port} for every tracker, in announce order. */
@@ -124,7 +199,7 @@ public record Topology(
     /** Every port this topology is about to bind. */
     public List<Integer> allPorts() {
         List<Integer> ports = new ArrayList<>();
-        ports.add(gamePort);
+        ports.add(gamePort());
         for (int i = 0; i < trackers; i++) {
             ports.add(trackerPortAt(i));
         }
@@ -156,22 +231,100 @@ public record Topology(
      * <p>Bounded rather than instant: suites run back to back, and a killed JVM can hold its
      * listener for a few seconds. Failing on the first probe fails a healthy stack; waiting forever
      * hides a foreign occupant. A genuinely foreign process (a dev stack, a stale client) never
-     * frees up and still fails, with the port named.
+     * frees up and still fails — and the failure names the process holding the port, because
+     * "port 25610 is still held" on its own sent every reader hunting a leaked test stack when the
+     * answer was the reader's own companion app.
      *
      * @param timeout how long a single port may stay busy.
-     * @throws HarnessException naming the port that stayed busy.
+     * @throws HarnessException naming the port that stayed busy and who is holding it.
      */
     public void awaitFreePorts(Duration timeout) {
         for (int port : allPorts()) {
             long deadline = System.nanoTime() + timeout.toNanos();
             while (isBound(port)) {
                 if (System.nanoTime() > deadline) {
-                    throw new HarnessException("port " + port + " is still held after "
-                            + timeout.toSeconds() + "s — stop the other stack first "
-                            + "(scripts/dev.sh? a stale client JVM?)");
+                    throw new HarnessException(PortHolder.describeHeldPort(port, timeout)
+                            + " — free it, or move this run's whole block with "
+                            + "NODERA_E2E_PORT_BASE=<base> (currently " + portBase + ")");
                 }
                 sleep(Duration.ofSeconds(2));
             }
+        }
+    }
+
+    /**
+     * The port block this JVM's scenarios run on, decided once and announced.
+     *
+     * <p>Computed lazily and memoised: {@code standard()} is called by every scenario and a base
+     * that changed between two calls would give the runner and the stack different plans.
+     */
+    public static int chosenBase() {
+        return ChosenBase.VALUE;
+    }
+
+    /** Every port a block can contain, whatever topology is built on it — what the probe checks. */
+    static List<Integer> blockPorts(int base) {
+        List<Integer> ports = new ArrayList<>();
+        ports.add(base + RCON_OFFSET);
+        for (int offset = GAME_OFFSET; offset <= LAST_OFFSET; offset++) {
+            ports.add(base + offset);
+        }
+        return ports;
+    }
+
+    /** Lazy holder: the probe runs on first use and never again. */
+    private static final class ChosenBase {
+        static final int VALUE = choose();
+
+        private static int choose() {
+            String pinned = System.getenv("NODERA_E2E_PORT_BASE");
+            if (pinned != null && !pinned.isBlank()) {
+                try {
+                    int base = Integer.parseInt(pinned.trim());
+                    announce(base, "pinned by NODERA_E2E_PORT_BASE");
+                    return base;
+                } catch (NumberFormatException notANumber) {
+                    throw new HarnessException("NODERA_E2E_PORT_BASE='" + pinned
+                            + "' is not a port number");
+                }
+            }
+            int firstBusyBase = -1;
+            int firstBusyPort = -1;
+            for (int attempt = 0; attempt < BASE_ATTEMPTS; attempt++) {
+                int base = DEFAULT_PORT_BASE + attempt * BASE_STEP;
+                int busy = firstBoundPort(base);
+                if (busy < 0) {
+                    announce(base, attempt == 0 ? "free" : "the default block was busy");
+                    return base;
+                }
+                if (firstBusyBase < 0) {
+                    firstBusyBase = base;
+                    firstBusyPort = busy;
+                }
+            }
+            // Nothing free anywhere in the walk. Fall back to the documented default rather than
+            // guessing: awaitFreePorts is about to fail, and it names the holder, which is a far
+            // better diagnosis than a run on a block nobody can predict.
+            announce(DEFAULT_PORT_BASE, "no free block in " + BASE_ATTEMPTS + " attempts; "
+                    + PortHolder.describeHeldPort(firstBusyPort, Duration.ZERO)
+                    + " in block " + firstBusyBase);
+            return DEFAULT_PORT_BASE;
+        }
+
+        private static int firstBoundPort(int base) {
+            for (int port : blockPorts(base)) {
+                if (isBound(port)) {
+                    return port;
+                }
+            }
+            return -1;
+        }
+
+        private static void announce(int base, String why) {
+            System.out.println("nodera-test: port block " + base + " (" + why + ") — tracker "
+                    + (base + TRACKER_OFFSET) + ", rendezvous " + (base + RENDEZVOUS_OFFSET)
+                    + ", worker control " + (base + WORKER_CONTROL_OFFSET) + "+i, p2p "
+                    + (base + WORKER_P2P_OFFSET) + "+i, game " + (base + GAME_OFFSET));
         }
     }
 

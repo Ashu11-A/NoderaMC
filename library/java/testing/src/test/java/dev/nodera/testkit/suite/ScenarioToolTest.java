@@ -124,10 +124,23 @@ class ScenarioToolTest {
 
     @Test
     void timeoutsScaleTogetherRatherThanOneAtATime() {
-        Topology slow = new Topology(2, 1, 1, 1, 25599, 25600, 25601, 25610, 25620, 25575,
+        Topology slow = new Topology(2, 1, 1, 1, Topology.DEFAULT_PORT_BASE,
                 "nodera-dev", Duration.ofSeconds(300), 3);
 
         assertThat(slow.scaled(Duration.ofSeconds(60))).isEqualTo(Duration.ofSeconds(180));
+    }
+
+    @Test
+    void freeMemoryIsRoundedRatherThanTruncatedToAWholeGibibyte() {
+        // The old form divided by 1024 twice, so 5110 MiB — ten mebibytes short of five gibibytes —
+        // was reported as 4 and skipped every scenario with a floor of 5. A skip is now RED, so the
+        // truncation did not just under-report, it failed runs the machine could host.
+        assertThat(Requirements.roundedToGib(5110)).isEqualTo(5);
+        assertThat(Requirements.roundedToGib(4802)).isEqualTo(5);
+        assertThat(Requirements.roundedToGib(4300))
+                .as("a machine genuinely short of the floor still reports short")
+                .isEqualTo(4);
+        assertThat(Requirements.roundedToGib(0)).isEqualTo(0);
     }
 
     @Test
