@@ -72,6 +72,26 @@ that category's own sub-deliverable ledger, preserved because the milestone note
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-10 — Windows cannot exec a shell script, and that reddened every pull request
+
+`app/ui`'s `layout-workspace` suite drove `scripts/test-counts.sh --runners` with `execFileSync` on
+the script itself. Windows cannot exec a `.sh` at all, so on the two Windows legs that call raised
+`EFTYPE`, the package's `build` script exited 1, and the release run published no `.msi`. That is
+where the damage started rather than where it was seen: `web/scripts/fetch-release.mjs` fails closed
+when the `latest` release is missing an asset its download manifest names, so the missing installers
+turned `web · amd64`, `web · arm64` and `companion` red on **every open pull request**, including
+pull requests touching no web file. Three jobs and one release away from the error that named this
+suite.
+
+The suite now invokes the script through `bash` with a repository-relative path, which is a POSIX
+path on every platform and resolves against Git Bash on the Windows runners. Driving the rule rather
+than restating it was the right design and is unchanged — only the way the process is started moved.
+
+Evidence: `bun run build` in `app/ui` — the exact command the Windows legs run — **73 tests, 0
+failed, exit 0**. The four suites that read `dist/assets/` still fail when the file is run alone,
+which is why the package's `build` script is `tsc && vite build && node --test` and not the test
+command by itself.
+
 ### 2026-08-05 — The enforcement table reads as a table, and four buttons become one
 
 Plan 11 phase 4 (issue #213). `settings.rs`'s `ENFORCEMENT` is what decides the badge beside every

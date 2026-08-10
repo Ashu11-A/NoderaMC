@@ -70,7 +70,16 @@ test("every package declaring a suite has a script that runs it and counts the r
   // rule itself; it is driven here rather than restated, because a second copy of a rule is how this
   // tree ends up with two that disagree. It reads the manifest and greps `scripts/`, so it needs
   // neither bun nor cargo and costs this suite a few milliseconds.
-  const rows = execFileSync(path.join(repositoryDirectory, "scripts/test-counts.sh"), ["--runners"], {
+  //
+  // Invoked through `bash` rather than executed directly, and given a repository-relative path.
+  // Windows cannot exec a `.sh` file at all — `execFileSync` on one raises `EFTYPE`, which is how
+  // both Windows legs of the release run died inside this package's `build` script, which is how
+  // the `latest` release lost both `.msi` assets, which is how `web/scripts/fetch-release.mjs`
+  // then failed closed and turned `web` and `companion` red on every open pull request, including
+  // pull requests touching no web file at all. The error names this suite; the damage was three
+  // jobs away. Git Bash is on PATH on GitHub's Windows runners, and passing the path relative to
+  // `cwd` keeps it a POSIX path on every platform.
+  const rows = execFileSync("bash", ["scripts/test-counts.sh", "--runners"], {
     cwd: repositoryDirectory,
     encoding: "utf8",
   }).trim().split("\n");
