@@ -73,17 +73,24 @@ public final class ScenarioRunner {
                     List.of(), started, Duration.between(started, Instant.now()), resultsDir);
         }
 
-        Topology topology = scenario.topology();
         ScenarioContext context = null;
-        try (LiveStack stack = new LiveStack(paths, topology, resultsDir, keepRunning)) {
-            context = new ScenarioContext(stack, scenario.id());
-            stack.acquireLock(Duration.ofMinutes(15));
-            stack.startInfrastructure();
-            scenario.run(context);
-            stack.collectArtefacts();
-            return new ScenarioResult(scenario.id(), scenario.title(), List.copyOf(scenario.tags()),
-                    StageResult.Outcome.PASSED, "", context.stages(), started,
-                    Duration.between(started, Instant.now()), resultsDir);
+        try {
+            // Before the topology is asked for, not after. A scenario that has to build its own
+            // second network can only say which address the stack must bind once that network
+            // exists, and the topology is the last thing decided before the stack binds.
+            scenario.prepare(paths);
+            Topology topology = scenario.topology();
+            try (LiveStack stack = new LiveStack(paths, topology, resultsDir, keepRunning)) {
+                context = new ScenarioContext(stack, scenario.id());
+                stack.acquireLock(Duration.ofMinutes(15));
+                stack.startInfrastructure();
+                scenario.run(context);
+                stack.collectArtefacts();
+                return new ScenarioResult(scenario.id(), scenario.title(),
+                        List.copyOf(scenario.tags()), StageResult.Outcome.PASSED, "",
+                        context.stages(), started, Duration.between(started, Instant.now()),
+                        resultsDir);
+            }
         } catch (SkipSignal skip) {
             return new ScenarioResult(scenario.id(), scenario.title(), List.copyOf(scenario.tags()),
                     StageResult.Outcome.SKIPPED, skip.getMessage(),
@@ -94,6 +101,11 @@ public final class ScenarioRunner {
                     StageResult.Outcome.FAILED, describe(failure),
                     context == null ? List.of() : context.stages(), started,
                     Duration.between(started, Instant.now()), resultsDir);
+        } finally {
+            // After the stack is down, and after every outcome. Whatever `prepare` built lives
+            // OUTSIDE this JVM — a container network survives the process that forgot it, and the
+            // next run then fails creating a network that already exists.
+            scenario.cleanUp();
         }
     }
 

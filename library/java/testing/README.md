@@ -22,8 +22,19 @@ substitute genuinely buys something.
 dev.nodera.testkit
 ├── LoopbackTransport      an in-JVM PeerTransport for multi-peer scenarios without sockets
 ├── FakeRegion             region/snapshot builders for engine and consensus tests
-└── FixtureWriter/Reader   golden canonical frames — emit from Java, compare byte-exactly
+├── FixtureWriter/Reader   golden canonical frames — emit from Java, compare byte-exactly
+├── harness/               the live stack: topology, ports, processes, control clients
+├── suite/                 the scenario contract, the registry, the runner and its report
+└── scenario/              one class per live acceptance scenario
 ```
+
+**A scenario may build something before the stack does.** `Scenario.prepare` runs *before*
+`topology()` is asked for, and `cleanUp` runs in a `finally` after teardown. Almost nothing needs it
+— setting up inside a stage keeps the work in the report — and it exists for the one case where it
+cannot be done later: `CrossMachineScenario` creates two container networks and only then knows which
+address the stack must bind, and the stack binds before `run` is called. `SeparateNetwork` is that
+lab: two Docker bridges, a router container between them, and a joining peer whose default route is
+deleted, so "cross-machine" is a fact about the run rather than a description of a diagram.
 
 ## Why it is shaped this way
 
@@ -49,7 +60,7 @@ is a small step away from that, so the bar for adding one is high.
 
 ## Tests
 
-14 tests covering the helpers themselves — a broken test library produces false confidence everywhere
+49 tests covering the helpers themselves — a broken test library produces false confidence everywhere
 else.
 
 ```bash

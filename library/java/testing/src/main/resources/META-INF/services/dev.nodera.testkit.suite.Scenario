@@ -15,6 +15,7 @@ dev.nodera.testkit.scenario.ChurnScenario
 dev.nodera.testkit.scenario.CommandsScenario
 dev.nodera.testkit.scenario.ContinuityScenario
 dev.nodera.testkit.scenario.CrashScenario
+dev.nodera.testkit.scenario.CrossMachineScenario
 dev.nodera.testkit.scenario.DeterminismScenario
 dev.nodera.testkit.scenario.EndpointScenario
 dev.nodera.testkit.scenario.FarlandsScenario

@@ -1,5 +1,6 @@
 package dev.nodera.testkit.suite;
 
+import dev.nodera.testkit.harness.TestPaths;
 import dev.nodera.testkit.harness.Topology;
 
 import java.util.Set;
@@ -54,6 +55,37 @@ public interface Scenario {
     /** The topology to build for this scenario. */
     default Topology topology() {
         return Topology.standard();
+    }
+
+    /**
+     * Build whatever this scenario needs to exist <b>before</b> the live stack starts.
+     *
+     * <p>Almost nothing needs this: the runner already builds the artefacts and brings up the
+     * services, and a scenario that sets something up here rather than in a stage has hidden it from
+     * the report. The one case it exists for is a scenario whose <i>addressing</i> is not known until
+     * something has been created — the cross-machine run creates two container networks and can only
+     * then say which address the stack must bind, and the stack binds before {@link #run} is called.
+     *
+     * <p>A machine that cannot host what this builds throws {@link SkipSignal}: that is a
+     * circumstance, exactly as an unmet {@link Requirements} is, and the runner reports it the same
+     * way. Anything else thrown is a failure.
+     *
+     * @param paths the resolved layout, for a scenario that has to name a built artefact.
+     * @throws Exception whatever went wrong; {@link SkipSignal} to skip.
+     */
+    default void prepare(TestPaths paths) throws Exception {
+        // Most scenarios need nothing before the stack exists.
+    }
+
+    /**
+     * Undo {@link #prepare}, whatever happened.
+     *
+     * <p>Called by the runner in a {@code finally}, after the stack has been torn down, and only on
+     * a run that reached {@code prepare}. It must be idempotent and must not throw: a teardown that
+     * fails after a failing run replaces the run's own cause with its own.
+     */
+    default void cleanUp() {
+        // Most scenarios build nothing to undo.
     }
 
     /**

@@ -239,8 +239,27 @@ public record Topology(
                 || !"127.0.0.1".equals(serviceAdvertiseAddress());
     }
 
+    /**
+     * The four addresses, resolved the same way: environment, then system property, then loopback.
+     *
+     * <h2>Why a system property is a legitimate second source</h2>
+     *
+     * <p>The environment is how a person or a workflow says "this run is off-box", and it stays
+     * first. It cannot be how a <b>scenario</b> says it: a scenario that builds its own second
+     * network measures the address it must advertise from the network it just created, at which
+     * point its own JVM is already running — and Java has no supported way for a process to add a
+     * variable to its own environment. Without this fallback such a scenario would have to either
+     * demand that the caller predict the address (a hard-coded subnet, which collides with whatever
+     * else the machine runs) or re-exec itself.
+     *
+     * <p>The property is deliberately spelled exactly like the variable, so there is one name to
+     * grep for and no second vocabulary to keep in agreement with the first.
+     */
     private static String address(String variable) {
         String value = System.getenv(variable);
+        if (value == null || value.isBlank()) {
+            value = System.getProperty(variable);
+        }
         return value == null || value.isBlank() ? "127.0.0.1" : value.trim();
     }
 

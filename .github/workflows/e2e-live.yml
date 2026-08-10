@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           known=$(scripts/nodera-test.sh list | awk 'NR > 1 && NF { print $1 }')
           all=(continuity crash pickup mobs pearl password rekey commands farlands \
-               ownership-follow mesh-soak determinism profile)
+               ownership-follow mesh-soak determinism profile cross-machine)
           if [[ -z "${REQUESTED// /}" ]]; then
             picked=("${all[@]}")
           else
@@ -85,7 +85,9 @@ jobs:
     # 45 minutes fits every suite except a long determinism soak, whose whole point is duration —
     # issue #5's acceptance is a 2-hour run, dispatched with SOAK_SECONDS=7200. The nightly runs
     # the short version, so the ceiling only has to accommodate the dispatch.
-    timeout-minutes: ${{ matrix.suite == 'determinism' && 200 || 45 }}
+    # `cross-machine` also builds and installs the real Tauri installer before it starts, which no
+    # other suite pays for; 45 minutes is the scenario's budget and not the leg in front of it.
+    timeout-minutes: ${{ matrix.suite == 'determinism' && 200 || (matrix.suite == 'cross-machine' && 80 || 45) }}
     strategy:
       fail-fast: false
       matrix:
@@ -113,10 +115,39 @@ jobs:
           (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
             -x test -x check
+      # ------------------------------------------------------------------------------------
+      # The `cross-machine` suite alone: L-47's exit test is ONE JOB doing all four things, so
+      # the install and the gate live here rather than in a job whose green somebody would have
+      # to combine with this one's by hand.
+      # ------------------------------------------------------------------------------------
+      - name: Tauri system deps (cross-machine only)
+        if: matrix.suite == 'cross-machine'
+        run: sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.suite == 'cross-machine'
+      - name: Build the companion UI (cross-machine only)
+        if: matrix.suite == 'cross-machine'
+        run: scripts/build-app-ui.sh
+      # Deliverable 3: the job's entry point is an INSTALLED app, not a build tree. The script
+      # exports NODERA_E2E_WORKER_BIN / NODERA_E2E_APP_BIN into the job environment from what
+      # the package actually installed, and the live stack launches those.
+      - name: Install the app (cross-machine only)
+        if: matrix.suite == 'cross-machine'
+        run: scripts/install-app.sh
+      # The same both-ways gate the companion job runs — repeated here, deliberately, because
+      # L-47's exit sentence is one job that installs AND verifies the gate AND hosts AND joins.
+      # Splitting it across two jobs is how "all four are green somewhere" quietly replaces
+      # "all four were true at once".
+      - name: Gate both ways on the installed build (cross-machine only)
+        if: matrix.suite == 'cross-machine'
+        run: ./gradlew :peer:test --tests 'dev.nodera.peer.control.CompanionGateTest'
       - name: ${{ matrix.suite }} under Xvfb
         env:
           # Only the determinism scenario reads it; empty leaves the scenario's own default.
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
+          # `cross-machine` refuses to fall back to the checkout's own build: it just installed a
+          # package, and a silent fall back would report the installer half as green without it.
+          NODERA_E2E_REQUIRE_INSTALLED: ${{ matrix.suite == 'cross-machine' && '1' || '' }}
         run: |
           NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
             scripts/nodera-test.sh run ${{ matrix.suite }} --no-build
@@ -127,6 +158,7 @@ jobs:
           name: e2e-${{ matrix.suite }}-logs
           path: |
             run/results/${{ matrix.suite }}/
+            run/cross-machine-docker.log
             build/reports/nodera/TEST-REPORT.md
             build/reports/nodera/test-report.json
             endpoints/neoforge-mod/run-host/logs/

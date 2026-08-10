@@ -296,7 +296,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 446 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 189 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 158 | ✅ |
-| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 46 | ✅ |
+| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 49 | ✅ |
 | `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 850 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 114 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 134 | 🚧 |

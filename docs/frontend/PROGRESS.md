@@ -8,7 +8,7 @@
      verbatim; only task NUMBERS inside them were rewritten by the 2026-08-05 merge (mobile N is now
      frontend N+11). -->
 
-**Category:** frontend · **Last audit:** 2026-08-05 · Tasks completed: **10 / 20**
+**Category:** frontend · **Last audit:** 2026-08-10 · Tasks completed: **10 / 20**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md) · refactoring
@@ -25,7 +25,7 @@ register: [`REFACTORING.md`](REFACTORING.md).
 | [1](Task.1.md) | Scaffold + supervisor | ✅ COMPLETED | Attach mode; workspace-excluded crate |
 | [2](Task.2.md) | Live metrics dashboard | ✅ COMPLETED | Real worker data; 65 crate tests; Home now splits worlds you administer from worlds you support ([worker 6](../peer/Task.6.md)) |
 | [3](Task.3.md) | Packaging + CI | 🚧 IN PROGRESS | Build job green; installers and per-OS autostart remain |
-| [4](Task.4.md) | End-to-end acceptance | ⏳ BLOCKED | Gate-both-ways green; cross-machine half needs worker 3 + minecraft 1 |
+| [4](Task.4.md) | End-to-end acceptance | 🚧 IN PROGRESS | Installer entry point + routed second network landed; the `e2e-live / cross-machine` run is the exit |
 | [5](Task.5.md) | Telemetry consent | 🚧 IN PROGRESS | Modal + Privacy screen + 5 tests; a component test for button parity remains |
 | [6](Task.6.md) | Dashboard API + live link | ✅ COMPLETED | `NODERA-WATCH` push (9 ms measured), typed Rust model, 92 crate tests |
 | [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED | LAN modal + Join a world + invitations + mod installer; 107 crate tests |
@@ -71,6 +71,44 @@ that category's own sub-deliverable ledger, preserved because the milestone note
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The job installs the app, and the joining peer is somewhere else
+
+Issue #189, L-47. Two thirds of the product's own sentence were green and had been for months; the
+missing third was that **nothing installed anything** and **both sides shared a loopback**. Task 4's
+header had also been claiming ⏳ BLOCKED on two things that were already discharged — worker 3's
+announce timer (deliverable 7 ✅) and minecraft 1 (✅ COMPLETED, driving real clients under Xvfb) —
+which is corrected here, because a stale blocker stops people looking.
+
+*The installer.* `scripts/install-app.sh` builds the real `.deb` through `scripts/release.sh
+--component app`, installs it with `apt-get`, and exports `NODERA_E2E_WORKER_BIN` /
+`NODERA_E2E_APP_BIN` from `dpkg -L`. The asset name comes from `scripts/lib/release.sh` (the one
+naming table; never a glob, never a name in YAML) and the installed paths come from the package, so
+neither can drift. `TestPaths` honours the two variables and the live stack launches what was
+installed. The companion job's `cd app && cargo build --release` is gone.
+
+*The second network.* `CrossMachineScenario` (`cross-machine`, tags `live`) builds two Docker bridge
+networks joined by a router container; the joining worker runs on the far one with its **default
+route deleted**, and the host stack binds the host bridge's address specifically rather than
+`0.0.0.0`, so it is not listening on the far bridge at all. The decisive stage is the negative one:
+X3 stops the router and requires the far peer to lose all reach, then restarts it and requires the
+reach back. Every route assertion is on `NODERA-STATE.self_route` — the node's own account of itself
+— never on "it connected", which is the false green `docs/frontend/Task.4.md` names.
+
+Evidence: `CrossMachineWiringTest` fails before the harness learned to take an address from a system
+property (`expected: "172.31.60.1"`, 3 tests / 1 failed) and passes after (3/3); `:testing:test`
+49 passed / 0 failed / 0 skipped; the routed topology was measured by hand on this machine — far peer
+to a host-side service **exit 0 with payload** while the router ran, **exit 124** with it stopped,
+**exit 0** again on restart, and the peer's own loopback carrying nothing. The installed
+`nodera-headless` was booted inside the scenario's Alpine JRE image and announced, found seeders and
+replicated a world archive, which is why the image carries no build step.
+
+Not done, and named rather than implied: **the exit run itself.** `e2e-live / cross-machine` is
+nightly-and-dispatch and the reference box could not host it — its Docker is rootless, so bridge
+gateways are addresses in a user namespace and no container can reach a host service (the scenario
+now says exactly that and skips), and the machine had 2 GiB free against the scenario's 4. Task 4
+deliverable 5 also stays 🚧: the joining side is a real *peer*, not a real *client*. L-47 is
+therefore RETIRING, not RETIRED.
 
 ### 2026-08-05 — The enforcement table reads as a table, and four buttons become one
 

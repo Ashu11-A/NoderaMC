@@ -261,8 +261,18 @@ jobs:
             run/totals/site.json
           if-no-files-found: error
           retention-days: 1
-      - name: Build the companion app
-        run: cd app && cargo build --release
+      # INSTALL, do not `cargo run` — `docs/frontend/Task.4.md`, deliverable 3, and the first clause
+      # of L-47's exit test. This step used to be `cd app && cargo build --release`, which produced a
+      # binary the job then ran out of the build tree: the install path, where icons, autostart,
+      # bundled runtimes, resource paths and permissions actually break, was never touched by any
+      # job. `scripts/install-app.sh` builds the real `.deb` through `scripts/release.sh --component
+      # app`, installs it, and exports the two paths the PACKAGE reports — asset name from the one
+      # naming table, installed paths from `dpkg -L`, neither of them written down in this file.
+      #
+      # It replaces the plain build rather than sitting beside it: `tauri build` compiles the same
+      # release binary, so the app's own tests and clippy below still find a warm target directory.
+      - name: Package and install the companion app
+        run: scripts/install-app.sh
       # The app's own tests have never run in CI, which is how the settings model, the
       # NODERA-CONFIG golden string and the worker's spawn environment were all covered by tests
       # that only ever ran on somebody's laptop. `nodera-app` is outside the cargo workspace, so
@@ -307,6 +317,16 @@ jobs:
         run: ./gradlew :peer:test --tests 'dev.nodera.peer.control.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
         run: ./gradlew :peer:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
+      # The half of L-47 this job CANNOT do, said out loud rather than left to be inferred from a
+      # green tick. Everything above runs on one machine and one loopback; "and your friend can
+      # still join from somewhere else" is the `cross-machine` scenario in `e2e-live`, which
+      # installs the same package and then proves the join crossed a router. This step is the
+      # pointer, and it is here because a reader looking for cross-machine acceptance looks at the
+      # job that says "companion" first.
+      - name: Where the cross-machine half of this claim is proved
+        run: |
+          printf 'The installed app was exercised here: %s\n' "$NODERA_E2E_APP_BIN"
+          printf 'The separately-networked join is e2e-live / cross-machine (nightly + dispatch).\n'
 
   # M-5's exit job. Java 21 type-pattern switches (`case SomeType v ->`) compile to an
   # `invokedynamic` on `java.lang.runtime.SwitchBootstraps`; ART does not implement it and D8 cannot
