@@ -759,7 +759,21 @@ public final class LiveStack implements AutoCloseable {
 
     private ManagedProcess startGradle(String name, String task, String logName) {
         ManagedProcess process = ManagedProcess.start(name, paths.root(), logDir.resolve(logName),
-                ManagedProcess.env("JAVA_TOOL_OPTIONS", ""),
+                ManagedProcess.env("JAVA_TOOL_OPTIONS", "",
+                        // Where a scripted joiner connects. The run tasks used to carry the literal
+                        // "127.0.0.1:25599", which is the PRODUCT's game port — correct only for as
+                        // long as the harness bound that port too. Since #266 the harness runs on
+                        // its own block, so the server comes up on topology.gamePort() while a
+                        // client still dialling 25599 takes "Connection refused" and sits on a
+                        // DisconnectedScreen until the stage times out, reporting "player B never
+                        // joined": a sentence about the product, for a stale address in a build
+                        // script.
+                        //
+                        // Set for EVERY Gradle run this stack starts, not only the client ones. The
+                        // variable is read at configuration time, and a server task that configured
+                        // the run tasks without it would leave the stale address behind for the
+                        // client task that follows.
+                        "NODERA_E2E_GAME_ADDRESS", "127.0.0.1:" + topology.gamePort()),
                 List.of(paths.root().resolve("gradlew").toString(), task, "--console=plain"));
         started.push(process);
         return process;

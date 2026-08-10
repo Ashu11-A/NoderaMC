@@ -1,13 +1,13 @@
 {
   "note": "Ratchet for `scripts/loc-metrics.py`. Every number below is lines of git-tracked source, classified by the lexer in `scripts/lib/loc_classify.py`. They may only go DOWN \u2014 raising a limit to make a build green defeats the point of measuring, so a rise fails the gate. When a rise is deliberate, run `scripts/loc-metrics.py --baseline` and commit the new file in the SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) are measured but excluded from these limits, because appending a wire kind must never fail a size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes deleting documentation the cheapest way to go green is pointed at the wrong thing. What these limits do NOT cover, stated so the total has a denominator: the programme's own tooling, 11 `.py` files (3,434 code lines) and 25 `.sh` files (3,821), 7,255 code lines in all -- roughly 4.4% of the tree, and rising, because this tooling is inside its own blind spot. Counting them needs a `#`-comment lexer for two more languages, here-documents and docstrings included, and until that exists moving logic into a script still reads as reduction.",
-  "measured": "2026-08-10 at d135609 on the full tree, by `scripts/loc-metrics.py --baseline`.",
+  "measured": "2026-08-10 at 145abfd on the full tree, by `scripts/loc-metrics.py --baseline`.",
   "limits": {
     "java.main.code": 56846,
     "java.main.comment": 33930,
-    "java.test.code": 56649,
-    "java.test.comment": 13155,
-    "kotlin.main.code": 4015,
-    "kotlin.main.comment": 1043,
+    "java.test.code": 56650,
+    "java.test.comment": 13168,
+    "kotlin.main.code": 4018,
+    "kotlin.main.comment": 1059,
     "kotlin.test.code": 21,
     "kotlin.test.comment": 34,
     "rust.main.code": 19698,
