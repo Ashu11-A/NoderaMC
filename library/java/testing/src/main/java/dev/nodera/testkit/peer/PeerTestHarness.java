@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -135,23 +136,6 @@ public final class PeerTestHarness implements AutoCloseable {
     /** As {@link #transport(NodeId)}, for an identity. */
     public LoopbackTransport transport(NodeIdentity self) {
         return transport(self.nodeId());
-    }
-
-    /**
-     * Bootstrap a peer runtime over {@code transport}.
-     *
-     * @param identity     the node's identity.
-     * @param capabilities what it announces it can do.
-     * @param transport    the carrier.
-     * @param config       the keep-alive shape — {@link #FAST} or {@link PeerRuntimeConfig#defaults()}.
-     * @return the started runtime.
-     */
-    public PeerRuntime runtime(NodeIdentity identity, NodeCapabilities capabilities,
-                               PeerTransport transport, PeerRuntimeConfig config) {
-        PeerRuntime runtime = PeerRuntime.bootstrap(identity, capabilities, transport,
-                () -> MeshNode.ROUTE, config, null);
-        onClose(runtime::stop);
-        return runtime;
     }
 
     // -------------------------------------------------------------------------------------------
@@ -386,7 +370,13 @@ public final class PeerTestHarness implements AutoCloseable {
         private final String label;
         private NodeIdentity identity = NodeIdentity.generate();
         private EnumSet<PeerRole> roles = EnumSet.of(PeerRole.FULL_ARCHIVE);
-        private PeerRuntimeConfig runtimeConfig = PeerRuntimeConfig.defaults();
+        /**
+         * The keep-alive shape. Not a builder option: no control-lane suite has ever wanted
+         * anything but the production default here — {@link PeerTestHarness#FAST} belongs to the mesh
+         * lanes, whose assertions are about frames arriving — so there is nothing for a setter to
+         * disagree about yet. Add one back with the suite that needs it, not before.
+         */
+        private final PeerRuntimeConfig runtimeConfig = PeerRuntimeConfig.defaults();
         private Duration controlTimeout = Duration.ofSeconds(30);
         private Path stateDir;
         private boolean sharedTracker;
@@ -412,12 +402,6 @@ public final class PeerTestHarness implements AutoCloseable {
         /** The roles the worker announces. Defaults to {@link PeerRole#FULL_ARCHIVE} alone. */
         public WorkerNodeBuilder roles(PeerRole first, PeerRole... rest) {
             this.roles = EnumSet.of(first, rest);
-            return this;
-        }
-
-        /** The keep-alive shape. Defaults to {@link PeerRuntimeConfig#defaults()}. */
-        public WorkerNodeBuilder runtimeConfig(PeerRuntimeConfig value) {
-            this.runtimeConfig = value;
             return this;
         }
 
@@ -487,8 +471,10 @@ public final class PeerTestHarness implements AutoCloseable {
         /**
          * Wire the {@code NODERA-CONFIG} seams — the live objects a configuration push re-bounds.
          *
-         * <p>Requires {@link #withReplication()} and an archive: without them the verb would report
-         * successes it did not perform.
+         * <p>Requires {@link #withReplication()} and an archive — checked in {@link #build()}, which
+         * says which call is missing. Without them the verb answers the keys behind the absent seam
+         * {@code rejected}, which is the handler being honest and a test asserting {@code applied}
+         * failing for a reason that is not the product's.
          */
         public WorkerNodeBuilder withConfigSeams() {
             this.configSeams = true;
@@ -510,6 +496,7 @@ public final class PeerTestHarness implements AutoCloseable {
          * @throws IOException if the control endpoint could not bind.
          */
         public WorkerNode build() throws IOException {
+            requireStatedPreconditions();
             NodeCapabilities capabilities = NodeCapabilities.initial().withRoles(roles);
             LoopbackTransport transport = network.register(identity.nodeId());
             transport.start();
@@ -571,6 +558,31 @@ public final class PeerTestHarness implements AutoCloseable {
         }
 
         /**
+         * The options whose own javadoc states a requirement, checked before anything is built.
+         *
+         * <p>Each requirement was stated and enforced nowhere, so failing it named the harness's
+         * internals instead of the missing call: {@code withDeletion} dereferenced a null
+         * {@code stateDir} building the tombstone store, {@code withConfigSeams} dereferenced a null
+         * archive reaching for its content lane, and a config plane without a replication lane came
+         * up perfectly happy and then answered every replication key {@code rejected} — a
+         * disagreement between two builder calls, reported as a product verdict.
+         */
+        private void requireStatedPreconditions() {
+            if (deletionMembers != null) {
+                Objects.requireNonNull(stateDir,
+                        "withDeletion(...) needs stateDir(...): the tombstone store lives under it");
+            }
+            if (configSeams) {
+                Objects.requireNonNull(contentStore, "withConfigSeams() needs archive(...) or "
+                        + "inMemoryArchive(): the content lane is one of the seams it re-bounds");
+                if (!replicate) {
+                    throw new IllegalStateException("withConfigSeams() needs withReplication(): "
+                            + "without it every replication key answers rejected, not applied");
+                }
+            }
+        }
+
+        /**
          * The control handler, built through the constructor that matches this worker's SHAPE.
          *
          * <p>{@link WorkerControlHandler} publishes one overload per embedding — no config plane,
@@ -583,6 +595,16 @@ public final class PeerTestHarness implements AutoCloseable {
          * referenced by nothing at all.
          *
          * <p>So the shape decides, which is also what each suite did before it moved here.
+         *
+         * <p><b>The shape is the union of the seams, not the first one matched.</b> The ladder used
+         * to test {@code keys} first and then pass {@code null} into the config slot of the
+         * thirteen-argument constructor, so {@code stateDir(dir).withReplication().withConfigSeams()}
+         * built a worker that answered {@code NODERA-CONFIG} with {@code NODERA-ERR unsupported} —
+         * the harness silently dropping one of the two lanes the test asked for. No suite combined
+         * them, so nothing caught it; a suite that did would have read the failure as the product's.
+         * The seams are therefore built once, up front, and the ladder only chooses which
+         * constructor is wide enough to carry the ones that are present. Every shape the builder can
+         * express is carried by some constructor, so there is no combination left to reject.
          */
         private WorkerControlHandler handler(NodeCapabilities capabilities, PeerRuntime runtime,
                                              WorldHostingService hosting,
@@ -590,15 +612,17 @@ public final class PeerTestHarness implements AutoCloseable {
                                              WorldReplicationService replication,
                                              WorldKeyStore keys) {
             TrafficMeter meter = new TrafficMeter();
+            WorkerControlHandler.ConfigSeams config = configSeams
+                    ? new WorkerControlHandler.ConfigSeams(archive.content(), replication, null,
+                            tracker(), diskStore())
+                    : null;
             if (keys != null) {
                 return new WorkerControlHandler(label, identity, capabilities, runtime, meter,
-                        hosting, null, archive, null, null, null, null, keys);
+                        hosting, null, archive, null, null, config, null, keys);
             }
-            if (configSeams) {
+            if (config != null) {
                 return new WorkerControlHandler(label, identity, capabilities, runtime, meter,
-                        hosting, null, archive, null, null,
-                        new WorkerControlHandler.ConfigSeams(archive.content(), replication, null,
-                                tracker(), diskStore()));
+                        hosting, null, archive, null, null, config);
             }
             return new WorkerControlHandler(label, identity, capabilities, runtime, meter, hosting,
                     null, archive);
