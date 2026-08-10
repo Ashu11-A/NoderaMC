@@ -6,7 +6,7 @@
      the root README bar. Live observations count as evidence here ONLY when they name the log line
      or artifact that showed them. Never rewrite an old note. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-28 · Tasks completed: **5 / 11**
+**Category:** minecraft · **Last audit:** 2026-08-10 · Tasks completed: **5 / 11**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) ·
 retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -26,12 +26,49 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED | Defaults on; verified both ways in CI |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) | `ModTelemetryTest` (8) against a loopback worker; live pass pending |
 | [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED | `e2e-profile` R1 green: `nodera` attributed in a live dedicated-server capture |
-| [10](Task.10.md) | A world is shown only when it can be played | 🚧 IN PROGRESS | Readiness gate, thread discipline on join/host, capture defaults (MC-JOIN-1…6; MC-JOIN-4 RETIRING) |
+| [10](Task.10.md) | A world is shown only when it can be played | 🚧 IN PROGRESS | Readiness gate, thread discipline on join/host, capture defaults (MC-JOIN-1…6; MC-JOIN-3 and MC-JOIN-4 RETIRING) |
 | [11](Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ NOT STARTED | Duplicate entry points, overflowing panels, the footer drawn into the body (MC-GUI-1…5) |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — Sharing a world stopped happening on the thread that opens it (MC-JOIN-3, #164)
+
+`NoderaHost.activate` ran the whole of a share inline on its caller, and its caller is the server
+thread: a companion mint with its own timeouts, a P2P bind, a relay reservation that iterates *every*
+configured rendezvous endpoint at five seconds to connect and ten to read, a tracker announce, the
+join gate's memory-hard KDF, the worker's HOST verb and a `Files.walk` of the entire save. On an
+integrated server that thread is the one behind the singleplayer loading screen.
+
+The split landed as **`HostActivation`** — a Minecraft-free class that cannot name a
+`MinecraftServer`, so it cannot read the level name, the save path or the player list from the wrong
+thread; it is handed a snapshot and an executor and nothing else. Four steps stayed behind on
+purpose, and each is named in the code with its reason: `WorldGenesisService.ensure` digests **live
+chunk sections**, the host identity load is its signer, `openGameServer` calls vanilla's
+`publishServer`, and `grantHostOperator` walks the player list. None of the four speaks to the
+network, which is why leaving them there does not touch this row's exit clause.
+
+Two behaviours improved as a consequence rather than as a goal. The join password gate is now armed
+**before** the game port is opened — it used to be the other way round, so a password-protected world
+answered dials with `NOT_GATED` for as long as the KDF took. And a share can now be abandoned:
+`deactivate` and `onServerStopping` bump a generation counter and return, so unsharing no longer
+queues behind a relay reservation with eighty seconds left to run.
+
+**Evidence.** `HostActivationIsOffTheServerThreadTest` (3) and
+`HostActivationCompletionRunsOnTheServerThreadTest` (2), both latch-based and never timed — a timing
+assertion on a shared box is a flake generator, so the wall-clock claim is decomposed into facts a
+latch settles. Verified failing first by restoring the pre-fix shape (calling the bring-up inline
+instead of on the thread): 4 of the 5 failed, the decisive one reading `Expecting actual: "Test
+worker" not to be equal to: "Test worker"`, and the run itself took 1 m 30 s because with the
+bring-up inline the caller is the thread that waits. `neoforge-mod` 134 → 139.
+
+**Not claimed:** the live half. The exit is a wall-clock claim about a real world load with every
+relay black-holed, and no live scenario can be run on this machine right now
+([#266](https://github.com/Ashu11-A/NoderaMC/issues/266)) — nor would the obvious stage prove
+anything if it could ([#267](https://github.com/Ashu11-A/NoderaMC/issues/267): the mod follows the
+*worker's* live rendezvous selection, so black-holing a client config file changes a value nothing
+consults). MC-JOIN-3 is therefore `RETIRING`, not retired.
 
 ### 2026-08-06 — The non-delegable-entity refusal is retired, on purpose and on the record (#236)
 
