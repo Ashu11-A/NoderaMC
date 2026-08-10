@@ -52,6 +52,34 @@ that. The cost is that a trailing `// see foo` on a code line counts as a refere
 missed detection rather than a wrong accusation.
 
 ===============================================================================================
+WHICH DECLARATIONS ARE ASKED, AND WHICH ARE NOT
+===============================================================================================
+
+A gate that overstates its coverage is worse than a narrow one, because the green tick is read as a
+statement about everything. So, exactly:
+
+  ASKED, Rust — `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub type`, `pub const`,
+  `pub static`, and `pub` struct FIELDS, in every crate `layout.properties` registers, on the lines
+  `loc_classify.split_test_blocks` calls production.
+
+  ASKED, TypeScript — `export function|const|let|var|class|type|interface|enum X` and
+  `export default function X`, in every registered package.
+
+  NOT ASKED — `pub(crate)` and friends, which are a module-internal decision rather than an exported
+  surface; anything a macro generates, because the name is not in the text; `#[no_mangle]` ABI entry
+  points, which the JVM reaches by a mangled name (`NoderaCore.kt`'s `external fun nativeStart`);
+  the ten names in `UNIVERSAL`; re-exports, since the declaration is what must justify itself;
+  Java, which has `./gradlew :peer:structureReport` and a longer-standing budget; and Kotlin, which
+  has no extractor here — `app/android/kotlin/**` is asked nothing by anybody, and that is the next
+  hole in this family of checks rather than a decision.
+
+The count of what was not asked is printed beside the count of what was, on every run.
+
+For a long time this section would have read "`pub fn` and named TS exports, and nothing else" — 458
+`pub` items and every `pub` field outside the check that was named "every exported symbol has a call
+site". See `RUST_PUB_ITEM`.
+
+===============================================================================================
 USAGE
 ===============================================================================================
 
@@ -115,8 +143,32 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # ------------------------------------------------------------------ what a declaration looks like
 
-# `pub fn name`, `pub async fn name`, `pub const fn name`, `pub unsafe fn name`.
-RUST_PUB_FN = re.compile(r"^\s*pub\s+(?:(?:async|const|unsafe|extern\s+\"[^\"]*\")\s+)*fn\s+([a-z_][a-z0-9_]*)")
+# Any named `pub` item: `pub fn`, `pub async fn`, `pub const fn`, `pub unsafe fn`, `pub extern "C"
+# fn`, and equally `pub struct`, `pub enum`, `pub trait`, `pub type`, `pub const`, `pub static`.
+#
+# For a long time this was `pub … fn` alone, and that was the defect rather than a limit: the header
+# below cites, as the motivation for the whole check, that "`rendezvous`'s
+# `circuit_idle_timeout_seconds` was loaded, env-overridable and validated, and nothing read it" — a
+# struct FIELD, which a `fn` regex cannot see. The check was named "every exported symbol has a call
+# site" while 458 `pub` items (210 struct, 183 const, 50 enum, 11 trait, 3 type, 1 static) and every
+# `pub` field were outside it, so the exact defect quoted as the reason it exists could be
+# reintroduced under a green gate.
+RUST_PUB_ITEM = re.compile(
+    r"^\s*pub\s+(?:(?:async|const|unsafe|extern\s+\"[^\"]*\")\s+)*"
+    r"(?P<kind>fn|struct|enum|trait|type|const|static)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+)
+
+# `pub name: Type` — a struct field, the shape of the symbol quoted above. A field's reference is a
+# `config.field` read anywhere in the tree, which is what the identifier index already answers.
+RUST_PUB_FIELD = re.compile(r"^\s*pub\s+(?P<name>[a-z_][a-z0-9_]*)\s*:\s*[^:=]")
+
+# `#[no_mangle]` (and its `#[unsafe(no_mangle)]` spelling) marks the fn below it as an ABI entry
+# point, reached from another language by its MANGLED name — `Java_dev_nodera_app_NoderaCore_
+# nativeStart` is called by the JVM for `NoderaCore.kt`'s `external fun nativeStart`, and that name
+# is nowhere in the tree as text. Asking a text index for its call site can only produce a false
+# accusation, so the item is not asked. This is the one exemption granted by a declaration's own
+# attribute rather than by its name.
+RUST_NO_MANGLE = re.compile(r"^\s*#\[(?:unsafe\s*\(\s*)?no_mangle")
 
 # `export function X`, `export const X`, `export class X`, `export type X`, `export interface X`,
 # `export enum X`. NOT `export { a, b }` and NOT `export … from …`: a re-export is a second name for
@@ -126,13 +178,25 @@ TS_EXPORT = re.compile(
     r"(?:function|const|let|var|class|type|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
 )
 
-# Rust's own tests are not production call sites, and neither is a test module's helper.
-CFG_TEST = re.compile(r"^\s*#\[cfg\(test\)\]")
+# `export default function X` — the same declaration with the default slot, and the shape every page
+# component in `web/src/pages/**` uses, plus `app/ui/src/TrackerStores.tsx` and
+# `web/src/components/Shell.tsx`. `TS_EXPORT` cannot match it: `default` sits where the keyword goes.
+TS_EXPORT_DEFAULT = re.compile(
+    r"^\s*export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+)
 
 # A name so generic that "somebody, somewhere, wrote this word" is not evidence of anything. These
 # are skipped rather than reported: flagging them would produce noise, and clearing them would
-# produce a false clean bill.
-UNIVERSAL = {"new", "default", "main", "from", "into", "get", "set", "run", "next", "len", "name"}
+# produce a false clean bill. Every one of them is trait-shaped or language-mandated — `new`,
+# `default`, `from`, `into`, `next`, `len` are the names Rust's own traits and conventions force, and
+# `main` is the entry point the toolchain calls.
+#
+# `run` used to be in here and has been removed. It is not a trait name in this tree, it is what a
+# service's entry point is called — eight `pub fn run` were exempt from the question by name alone,
+# on the crates whose whole purpose is to be started. An exemption list is a hole in a gate, and this
+# one was letting through exactly the symbols the gate exists for. `get`/`set` stay: they are the
+# accessor convention, and the count of them is printed with the verdict so the scope is visible.
+UNIVERSAL = {"new", "default", "main", "from", "into", "get", "set", "next", "len", "name"}
 
 
 def tracked_files() -> list[pathlib.Path]:
@@ -172,11 +236,52 @@ def identifiers_in(text: str) -> dict[str, int]:
     return found
 
 
-def declarations(files: list[pathlib.Path]) -> list[dict]:
-    """Every `pub fn` and every named TypeScript export, with where it was declared."""
+def _production_lines(text: str) -> list[tuple[int, str]]:
+    """The lines of a Rust file that are not inside a `#[cfg(test)]` item, with their real numbers.
+
+    `loc_classify.split_test_blocks` is this tree's one definition of which lines of a `.rs` file are
+    test code — `loc-metrics.py` counts `rust.test` with it — so this check asks it rather than
+    keeping a second opinion. It answers in text and a declaration needs its line number, so every
+    line carries its number through the split and the numbers are read back off the production half.
+    The tag is appended, holds no brace and cannot start a line, so it is invisible to both the
+    `#[cfg(test)]` match and the brace count the split is made of.
+
+    What this replaced was a flag that latched on the first line matching `#[cfg(test)]` and never
+    reset. `^\\s*` matches an INDENTED attribute, and this tree puts `#[cfg(test)]` on individual
+    accessors inside `impl` blocks near the top of its biggest service files
+    (`tracker/src/service.rs:102`, `tracker/src/services.rs:190`, `tracker/src/deletion.rs:69`,
+    `rendezvous/src/service.rs:87`, `library/rust/nodera-core/src/api/commands.rs:117`), so the latch
+    excused every `pub fn` below those lines for the life of the file: 28 of this tree's 721
+    production `pub fn`, including `handle_frame` and `sweep` on the tracker, `handle_frame` and
+    `drain` on the rendezvous, and `delete_world` in the very Tauri command file the header cites as
+    the check's motivation. The run then printed "every exported symbol is referenced somewhere
+    else", which is the one sentence this file exists to be able to say.
+
+    Scope, not a keyword, is therefore what decides — and asking the shared splitter is what keeps
+    the answer right when the splitter improves: it is being taught, separately, that a `#[cfg(test)]`
+    on an unbraced item (`#[cfg(test)] mod test_support;`, real at `tracker/src/main.rs:31` and
+    `rendezvous/src/main.rs:33`) ends at that item's semicolon rather than at the next depth-0 brace.
+    """
+    tagged = "\n".join(f"{line}\0{number}" for number, line in enumerate(text.splitlines(), start=1))
+    main_text, _ = loc_classify.split_test_blocks(tagged, "rust")
+    out: list[tuple[int, str]] = []
+    for tagged_line in main_text.splitlines():
+        line, _, number = tagged_line.rpartition("\0")
+        out.append((int(number), line))
+    return out
+
+
+def declarations(files: list[pathlib.Path]) -> tuple[list[dict], dict[str, int]]:
+    """Every `pub` Rust item and field and every named TypeScript export, with where it was declared.
+
+    Returns the declarations and a census of what was deliberately NOT asked, because a check that
+    reports only the population it inspected reads as though it inspected everything. The verdict
+    line prints both.
+    """
     rust_roots = {name: directory for name, directory in layout.crates().items()}
     ts_roots = {name: directory for name, directory in layout.packages().items()}
     out: list[dict] = []
+    not_asked = {"universal": 0, "abi": 0}
 
     for path in files:
         suffix = path.suffix.lower()
@@ -190,24 +295,34 @@ def declarations(files: list[pathlib.Path]) -> list[dict]:
             owner = _owner(path, rust_roots)
             if owner is None:
                 continue
-            in_test_module = False
-            for number, line in enumerate(read(path).splitlines(), start=1):
-                if CFG_TEST.match(line):
-                    in_test_module = True
-                if in_test_module:
+            abi = False
+            for number, line in _production_lines(read(path)):
+                if RUST_NO_MANGLE.match(line):
+                    abi = True
                     continue
-                match = RUST_PUB_FN.match(line)
-                if match and match.group(1) not in UNIVERSAL:
-                    out.append(_record("rust", owner, path, number, match.group(1)))
+                match = RUST_PUB_ITEM.match(line) or RUST_PUB_FIELD.match(line)
+                if match is None:
+                    continue
+                if abi:
+                    not_asked["abi"] += 1
+                elif match.group("name") in UNIVERSAL:
+                    not_asked["universal"] += 1
+                else:
+                    out.append(_record("rust", owner, path, number, match.group("name")))
+                abi = False
         elif suffix in {".ts", ".tsx", ".mts", ".mjs"}:
             owner = _owner(path, ts_roots)
             if owner is None or "node_modules" in path.parts or "generated" in path.parts:
                 continue
             for number, line in enumerate(read(path).splitlines(), start=1):
-                match = TS_EXPORT.match(line)
-                if match and match.group(1) not in UNIVERSAL:
+                match = TS_EXPORT.match(line) or TS_EXPORT_DEFAULT.match(line)
+                if match is None:
+                    continue
+                if match.group(1) in UNIVERSAL:
+                    not_asked["universal"] += 1
+                else:
                     out.append(_record("ts", owner, path, number, match.group(1)))
-    return out
+    return out, not_asked
 
 
 def _owner(path: pathlib.Path, roots: dict[str, pathlib.Path]) -> str | None:
@@ -276,7 +391,7 @@ def audit() -> dict:
         for name, count in identifiers_in(test_text).items():
             from_tests.setdefault(name, {})[key] = count
 
-    declared = declarations(files)
+    declared, not_asked = declarations(files)
     unreferenced: list[dict] = []
     test_only: list[dict] = []
     local_only: list[dict] = []
@@ -298,6 +413,7 @@ def audit() -> dict:
     return {
         "files_searched": len(searchable),
         "symbols_inspected": len(declared),
+        "not_asked": not_asked,
         "unreferenced": sorted(unreferenced, key=order),
         "test_only": sorted(test_only, key=order),
         "local_only": sorted(local_only, key=order),
@@ -337,9 +453,15 @@ def main() -> int:
     if args.json:
         print(json.dumps({**report, "flagged": flagged}, indent=2))
     else:
+        # The exemptions are printed beside the count, because "989 symbols inspected" beside a clean
+        # verdict reads as a statement about the whole tree, and a reader cannot tell from it that a
+        # `pub fn run` was never asked.
         print(
             f"reference-check: {report['symbols_inspected']} exported symbol(s) inspected across "
-            f"{report['files_searched']} searched file(s)"
+            f"{report['files_searched']} searched file(s); not asked: "
+            f"{report['not_asked']['universal']} whose name is one of "
+            f"{', '.join(sorted(UNIVERSAL))}, and {report['not_asked']['abi']} `#[no_mangle]` ABI "
+            "entry point(s) reached by a mangled name"
         )
         print("-- nothing anywhere names these:")
         for row in report["unreferenced"]:
