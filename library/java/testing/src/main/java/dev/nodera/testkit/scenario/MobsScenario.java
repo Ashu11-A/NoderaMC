@@ -52,6 +52,21 @@ public final class MobsScenario implements Scenario {
 
     private static final int MOB_COUNT = 3;
 
+    /**
+     * The one line G2b is about, anchored on enough of it to name only that line.
+     *
+     * <p>{@code "stays vanilla"} alone is emitted by three places in
+     * {@code EntityCaptureBridge}: the {@code LANE:} line this stage waits for, and the two
+     * {@code catch} blocks that report a drop or a pickup falling back to vanilla after a
+     * submission failed. The stage takes the <b>last</b> match, so in a run where the item lane is
+     * also failing the anchor resolves to a different event and the assertions below then complain
+     * that the lane did not say the region survives — blaming a log collision on the product. The
+     * same rule {@code SpawnedService} follows for {@code name + ": listening on "}: anchor on
+     * enough of the message that only its producer can write it.
+     */
+    private static final String LEFT_TO_VANILLA =
+            "modelled by this build's engine and stays vanilla";
+
     /** A first-capture line that names a hostile rather than an ambient animal. */
     private static final Pattern HOSTILE_GHOST =
             Pattern.compile("GHOST:.*minecraft:(zombie|skeleton|creeper|spider)");
@@ -181,7 +196,7 @@ public final class MobsScenario implements Scenario {
             // the species named: the nether is full of striders, magma cubes and piglins, every one
             // of them unmodelled, so the line fires seconds after the player arrives — correctly,
             // and by the rule this stage is about. It is emitted once per region.
-            if (!serverLog.pollFor("stays vanilla", Duration.ofSeconds(180), netherMark[0])) {
+            if (!serverLog.pollFor(LEFT_TO_VANILLA, Duration.ofSeconds(180), netherMark[0])) {
                 // Self-diagnosing: the summon is proven above, so silence here is genuinely the
                 // lane's. Say WHICH silence it is — the candidates read very differently.
                 HostWorldSupport.transcript(context, "mobs.log",
@@ -209,7 +224,7 @@ public final class MobsScenario implements Scenario {
             }
 
             String vanilla = HostWorldSupport
-                    .lastMatchAfter(serverLogFile, netherMark[0], "stays vanilla").orElse("");
+                    .lastMatchAfter(serverLogFile, netherMark[0], LEFT_TO_VANILLA).orElse("");
             HostWorldSupport.transcript(context, "mobs.log", "=== left to vanilla: " + vanilla);
             context.checkContains(vanilla, "keeps validating",
                     "the lane reported an unmodelled species without saying the region survives it");

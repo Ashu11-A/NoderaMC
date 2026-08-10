@@ -103,14 +103,27 @@ final class ManifestIndexStore {
         }
     }
 
-    /** Forget one manifest, when retention trims it. */
+    /**
+     * Forget one manifest, when retention trims it.
+     *
+     * <p>Catches {@link RuntimeException} as well as {@link IOException}, the same way {@link #put}
+     * does, because {@link #inside} answers with the file system: a manifest that is a symlink out of
+     * the directory, or a path it cannot resolve at all, is reported as
+     * {@link IllegalArgumentException}. That has to cost this one cache entry and no more. Callers
+     * are start-up ({@code restoreFromIndex}, the last statement of the archive service's
+     * constructor) and eviction, so an escaping throw would deny the worker its archive service
+     * outright rather than leave one stale file behind.
+     */
     void remove(String worldIdHex, PieceManifest manifest) {
         try {
             Path root = root();
             Files.deleteIfExists(inside(root, fileName(worldIdHex, laneOf(manifest),
                     manifest.manifestRoot())));
-        } catch (IOException ignored) {
+        } catch (IOException | RuntimeException degraded) {
             // A manifest that outlives its content is re-trimmed on the next pass.
+            LOG.warn("could not forget the manifest for {} v{} — it will be re-trimmed on the next "
+                            + "pass: {}", worldIdHex, manifest.version().value(),
+                    degraded.toString());
         }
     }
 

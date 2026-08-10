@@ -49,6 +49,20 @@ final class ArchiveMesh implements AutoCloseable {
     private final List<Node> nodes = new ArrayList<>();
     private final List<String> undeliverable = new CopyOnWriteArrayList<>();
 
+    /**
+     * Set before the close loop, so the recorded list holds only frames that failed while the mesh
+     * was live.
+     *
+     * <p>{@link #close()} walks the nodes one at a time, closing each node's service before its
+     * transport — so between the first and the last there is a window in which one node is shut down
+     * and its neighbours are still running and still able to send to it. A frame that lands in that
+     * window is not the mesh failing to deliver the test's subject; it is the test being over. Every
+     * entry recorded here has to be the former, because that is what the assertion at the end of
+     * {@code close()} claims it is, and a teardown artefact reported as a delivery failure is a
+     * failure whose cause is in this file.
+     */
+    private volatile boolean tearingDown;
+
     private ArchiveMesh() {
     }
 
@@ -124,6 +138,9 @@ final class ArchiveMesh implements AutoCloseable {
                 try {
                     node.service.onMessage(from, WireCodec.decode(frame));
                 } catch (RuntimeException undelivered) {
+                    if (tearingDown) {
+                        return; // the test is over; see the field's javadoc
+                    }
                     undeliverable.add(node.identity.nodeId() + " could not take a "
                             + frame.length + "-byte frame from " + from + ": " + undelivered);
                 }
@@ -210,9 +227,15 @@ final class ArchiveMesh implements AutoCloseable {
      *
      * <p>Order matters and was inconsistent across the copies: services close first, so a service
      * shutting down cannot be handed a frame by a transport that is still running.
+     *
+     * <p>Recording stops before the first node is touched ({@link #tearingDown}), so what this
+     * asserts on is exactly the set of frames that went missing while the test was running. The
+     * assertion itself stays: it is the only thing standing between a renumbered wire tag and a
+     * 30–60 s fetch timeout with no stated cause.
      */
     @Override
     public void close() {
+        tearingDown = true;
         for (Node node : nodes) {
             node.closeQuietly();
         }

@@ -6,7 +6,6 @@ import dev.nodera.core.action.GameAction;
 import dev.nodera.core.action.PlaceBlockAction;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.RegionId;
-import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
@@ -17,9 +16,12 @@ import dev.nodera.testkit.engine.EngineFixtures;
  *
  * <p>Everything unsigned this class used to hold — the world seed, the vertical extent,
  * {@code uniformColumn} and {@code fullUniformSnapshot} — was a second copy of
- * {@link EngineFixtures}' in the same source set, one package away, and is now a delegation. What
- * is left is the half that is genuinely this module's: an envelope carrying a real Ed25519
- * signature, which an engine fixture must not build because the engine never verifies signatures.
+ * {@link EngineFixtures}' in the same source set, one package away. The two with a caller here are
+ * kept as delegations; the vertical extent and {@code uniformColumn} had none once the committee
+ * suites moved onto this fixture, so they are gone rather than left as an alias of
+ * {@code EngineFixtures} that reads as this module's own. What is left is the half that is genuinely
+ * this module's: an envelope carrying a real Ed25519 signature, which an engine fixture must not
+ * build because the engine never verifies signatures.
  *
  * <p>The world seed is a default, not a constant of the system — {@link PeerTestHarness} takes it
  * as a named parameter because at least one suite deliberately runs on a different one.
@@ -31,22 +33,7 @@ public final class RegionFixtures {
     /** The seed nearly every committee test runs on. Overridable per node; never assumed. */
     public static final long WORLD_SEED = EngineFixtures.WORLD_SEED;
 
-    /** Vanilla's overworld floor, which the flat-world rules are written against. */
-    public static final int MIN_Y = EngineFixtures.MIN_Y;
-
-    /** Sections per column at that floor. */
-    public static final int SECTION_COUNT = EngineFixtures.SECTION_COUNT;
-
     private RegionFixtures() {}
-
-    /**
-     * A column whose every section holds one block state.
-     *
-     * @param stateId the block state to fill with.
-     */
-    public static ChunkColumnState uniformColumn(int chunkX, int chunkZ, int stateId) {
-        return EngineFixtures.uniformColumn(chunkX, chunkZ, stateId);
-    }
 
     /**
      * A complete 8×8-column region at {@link SnapshotVersion#INITIAL} and tick 0, filled uniformly.
