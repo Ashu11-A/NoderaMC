@@ -1,5 +1,8 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.endpoint.paper.world.CrossRegionCommit;
+import dev.nodera.endpoint.paper.world.FoliaOwnershipProbe;
+import dev.nodera.endpoint.paper.world.NoderaFoliaRegionMap;
 import dev.nodera.peer.control.CompanionClient;
 import dev.nodera.core.region.RegionAlignment;
 import org.bukkit.Bukkit;
@@ -26,6 +29,8 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
     private EndpointPlatform platform = EndpointPlatform.UNKNOWN;
     private EndpointConfig config;
     private EndpointPeerLink peerLink;
+    private NoderaFoliaRegionMap regionMap;
+    private CrossRegionCommit crossRegionCommit;
 
     @Override
     public void onEnable() {
@@ -45,10 +50,18 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
                     + RegionAlignment.regionsPerSectionAxis(exponent)
                     * RegionAlignment.regionsPerSectionAxis(exponent)
                     + " Nodera regions per Folia section, none split");
+            regionMap = NoderaFoliaRegionMap.regionised(exponent, ownershipProbe());
         } else {
             getLogger().info("ALIGN-1 preflight not applicable: "
                     + platform.label() + " has one tick thread");
+            regionMap = NoderaFoliaRegionMap.singleThreaded();
         }
+        // Stage 1 of L-64: the endpoint can now SAY which regions share a thread, and a delta that
+        // spans two that do not is refused with a named error rather than raced. The joint-transfer
+        // commit that makes such a span atomic is built (CrossRegionCommit.joint) and is not wired
+        // here, because nothing on this path delegates a region yet — server tasks 2 and 3.
+        crossRegionCommit = CrossRegionCommit.refusing(regionMap);
+        getLogger().info(regionMap.describe());
 
         config = readConfig();
         var problems = config.problems();
@@ -123,12 +136,51 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
             peerLink.close();
             peerLink = null;
         }
+        if (crossRegionCommit != null) {
+            crossRegionCommit.close();
+            crossRegionCommit = null;
+        }
         getLogger().info("Nodera endpoint stopped (" + platform.label() + ")");
     }
 
     /** @return whether this endpoint currently has a worker answering. */
     public boolean linked() {
         return peerLink != null && peerLink.linked();
+    }
+
+    /** @return which Nodera regions this platform writes on one thread (server task 3, L-64). */
+    public NoderaFoliaRegionMap regionMap() {
+        return regionMap;
+    }
+
+    /** @return the gate every multi-region delta passes before a write (server task 4, L-64). */
+    public CrossRegionCommit crossRegionCommit() {
+        return crossRegionCommit;
+    }
+
+    /**
+     * The platform's own region-ownership answer, or none.
+     *
+     * <p>The overworld is the right world to bind: it is the one an endpoint's regions are
+     * delegated in today, and a probe bound to a world that does not exist would answer about the
+     * wrong regioniser rather than refusing.
+     */
+    private NoderaFoliaRegionMap.ExecutionOwnership ownershipProbe() {
+        // Self-catching on purpose. This runs inside onEnable on a tick thread, the seam it looks
+        // for is resolved reflectively against a platform we do not compile against, and an
+        // unresolvable probe is already a supported answer — so there is no surprise here worth
+        // refusing to enable over, and an uncaught one on a Folia tick thread stops the server.
+        try {
+            var worlds = getServer().getWorlds();
+            if (worlds.isEmpty()) {
+                return NoderaFoliaRegionMap.ExecutionOwnership.UNANSWERABLE;
+            }
+            return FoliaOwnershipProbe.resolve(getServer(), worlds.getFirst());
+        } catch (RuntimeException | LinkageError unresolvable) {
+            getLogger().warning("could not resolve the platform's region ownership (" + unresolvable
+                    + "); a delta spanning two Folia sections will be refused rather than raced");
+            return NoderaFoliaRegionMap.ExecutionOwnership.UNANSWERABLE;
+        }
     }
 
     /**

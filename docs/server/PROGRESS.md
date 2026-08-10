@@ -6,7 +6,7 @@
      root README bar. Live observations count as evidence ONLY when they name the log line or
      artifact that showed them. Never rewrite an old note. -->
 
-**Category:** server · **Last audit:** 2026-07-28 · Tasks completed: **1 / 10**
+**Category:** server · **Last audit:** 2026-08-10 · Tasks completed: **1 / 10**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 [`REFERENCE.md`](REFERENCE.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
@@ -21,8 +21,8 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 |---|---|---|---|
 | [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains. `NoderaScheduler` seam + ArchUnit ban deferred to tasks 3–5 |
 | [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` parsed/validated/enforced (`EndpointConfig`, 9 tests); **external worker link shipped** (`EndpointPeerLink` + `ControlClient`, E4 green). **L-71 retired 2026-07-26**. The in-process `PeerRuntime` remains; `embedded` does nothing (follow-on scope) |
-| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS — **custody half blocked** | **L-63 retired 2026-07-26** (multi-view planning) still holds. **L-62 retired 2026-07-28 and REOPENED 2026-08-06**: `CustodyDigest`, `CustodyAudit` and both their suites were deleted 2026-08-06 (`0b02aa5`, #210) as unreachable, taking the row's exit test with them, so deliverables 2 and 4 are **withdrawn** and 3 ("the digest on the announce") is **blocked on a class that no longer exists** — do not pick it up before reading the decision note in [`Task.3.md`](Task.3.md). Actionable remainder: the custody tiebreak, `NoderaFoliaRegionMap` |
-| [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
+| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS — **custody half blocked** | **L-63 retired 2026-07-26** (multi-view planning) still holds. **L-62 retired 2026-07-28 and REOPENED 2026-08-06**: `CustodyDigest`, `CustodyAudit` and both their suites were deleted 2026-08-06 (`0b02aa5`, #210) as unreachable, taking the row's exit test with them, so deliverables 2 and 4 are **withdrawn** and 3 ("the digest on the announce") is **blocked on a class that no longer exists** — do not pick it up before reading the decision note in [`Task.3.md`](Task.3.md). Actionable remainder: the custody tiebreak, and `/nodera regions --folia` — `NoderaFoliaRegionMap` itself landed 2026-08-10 with task 4's cross-region gate |
+| [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | 🚧 IN PROGRESS | Owns L-64. Format-level `.mca` replacement is refused (§C). **Deliverable 6 only, 2026-08-10:** the cross-Folia-region delta has a detector (`NoderaFoliaRegionMap`), a named refusal (`CrossRegionRefusedException`, wired at enable) and a joint-transfer commit (`CrossRegionCommit.joint` over the real `EntityTransferCoordinator` + durable `TransferStore`). 15 new unit/IT tests. L-64 stays OPEN: the live half needs a delegated region (tasks 2–3) and a Folia build of the pinned version (L-66). Deliverables 1–5, 7, 8 untouched |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED | Owns L-70. Admission is `registryFingerprint` equality |
@@ -33,6 +33,47 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — the cross-Folia-region delta is detectable, refusable, and commitable (issue #179)
+
+`endpoints/paper-plugin` had four classes and no `world/` package, so **nothing on the plugin path
+could tell whether two Nodera regions were written by one thread**. L-64's refusal was therefore a
+documented intention rather than a mechanism: a cross-region delta was not refused, it was not
+detected.
+
+Three things landed in `dev.nodera.endpoint.paper.world`:
+
+- `NoderaFoliaRegionMap.shareExecutionThread` — task 3 deliverable 7. One tick thread ⇒ always
+  shares; one Folia section ⇒ always shares, by ALIGN-1 arithmetic and **without a runtime call**;
+  wider ⇒ the platform's own `isOwnedByCurrentRegion`, reached reflectively by `FoliaOwnershipProbe`
+  so no Folia jar is needed to compile or to test; unanswerable ⇒ **does not share**, because a
+  refusal beats a degrade. Built at enable and logged.
+- Stage 1 — `CrossRegionCommit.requireJointCriticalSection` throws `CrossRegionRefusedException`
+  (`NODERA-XREGION-REFUSED`) naming both regions, the transfer, that nothing was written, and the
+  resync fix. Evidence: `CrossRegionCommitTest` asserts the message positively and that the durable
+  `TransferStore` the refusal was holding has **zero** records afterwards.
+- Stage 2 — `CrossRegionCommit.joint` parks both regions from their own threads, runs the real
+  `EntityTransferCoordinator` on a third (`nodera-xregion-commit`), and resumes each with its own
+  certified delta. Evidence: `CrossFoliaRegionCommitIT` — the joint certificate carries two
+  independent quorum proofs, the `TransferStore` walks PREPARED → ACCEPTED → APPLIED → COMMITTED,
+  and two one-sided failures (the target's state moving between certification and the paired CAS; a
+  region thread that never parks) leave **both** regions untouched with neither version advanced.
+
+The engine primitives this reuses — `EntityTransferCoordinator`, `JointTransferApprover`,
+`EntityTransferCertificate`, `TransferStore` — existed and had **zero production call sites**. This
+is the first one. No second engine and no second world writer was introduced.
+
+**L-64 stays OPEN.** Three of its four exit clauses are met; "across two **Folia** region threads"
+is not, and cannot be here: nothing delegates a region on this path yet (tasks 2–3) and Folia
+publishes no build of the pinned Minecraft version (L-66). The row's exit column now records the
+clause-by-clause state so the next reader does not have to re-derive it.
+
+**CI can now run the server suites at all.** No workflow ever staged a Paper or Folia jar, so
+`endpoint`, `folia` and `plugins` reported SKIP on every machine including the runners — a
+*structural* skip, which `docs/testing/Task.0.md` bans. `scripts/stage-server-jars.sh` resolves both
+through the PaperMC **v3 (fill)** API (v2 is sunset, HTTP 410), checksum-verified, and
+`e2e-live.yml` calls it and puts the three suites on the matrix. `e2e-folia` F1 gained one
+assertion: the plugin must report which regions share an execution thread.
 
 ### 2026-08-06 — L-62 REOPENED: the exit test that retired it no longer exists
 

@@ -7,8 +7,8 @@
      repair goes through WorldMutationApplier. Stage 3 (an NMS adapter) is a LAST RESORT and arrives
      with a version matrix and a test or not at all. Keep this header accurate. -->
 
-**Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-64 · **Last audit:** 2026-07-28
+**Status:** 🚧 IN PROGRESS
+**Category:** server · **Owns:** L-64 · **Last audit:** 2026-08-10
 **Depends on:** [server 3](Task.3.md), [engine 6](../engine/Task.6.md), [network 3](../network/Task.3.md), [network 9](../network/Task.9.md)
 **Consumed by:** [server 5](Task.5.md), [server 8](Task.8.md)
 
@@ -29,7 +29,31 @@ the world and stays synchronized with its peer" is a mechanism rather than a pro
 
 ## Status detail
 
-Not started.
+In progress, and only deliverable 6 has moved. **The cross-Folia-region delta now has a detector, a
+refusal, and a commit path.** Before 2026-08-10 nothing on the plugin path could answer "are these
+two regions written by one thread?", so the delta this task exists to handle could not be detected,
+let alone refused — the plugin was four classes with no `world/` package at all.
+
+What landed (`endpoints/paper-plugin/.../endpoint/paper/world/`):
+
+- `NoderaFoliaRegionMap.shareExecutionThread` — one tick thread ⇒ always; same Folia section ⇒
+  always, by ALIGN-1 arithmetic and no runtime call; a wider span ⇒ the platform's own answer via
+  `FoliaOwnershipProbe` (reflection, so neither the compile classpath nor the unit tests need a
+  Folia jar); **unanswerable ⇒ does not share**. This is [3](Task.3.md)'s deliverable 7, consumed
+  here.
+- **Stage 1** — `CrossRegionCommit.requireJointCriticalSection` throws
+  `CrossRegionRefusedException` (code `NODERA-XREGION-REFUSED`) naming both regions, the transfer,
+  that nothing was written, and the resync fix. Wired into `NoderaEndpointPlugin.onEnable`, which
+  logs what it resolved (`e2e-folia` F1 asserts the line).
+- **Stage 2** — `CrossRegionCommit.joint` runs the real `EntityTransferCoordinator` over
+  `WorldMutationApplier`, certified by `EntityTransferCertificate` and journalled to the durable
+  `TransferStore` through `TransferStoreJournal`. Nothing here is a new engine: the primitives
+  existed and had **zero production call sites**; this is the first one.
+
+What has not: the joint path is **not enabled on a running endpoint**, because nothing delegates a
+region on this path yet ([2](Task.2.md), [3](Task.3.md)), so there is no live cross-region delta to
+drive and no way to prove the commit on Folia's own threads. [L-64](LIMITATIONS.md) therefore stays
+OPEN — see its row for exactly which clause is unmet. Deliverables 1–5, 7 and 8 are untouched.
 
 ## Dependencies
 
@@ -47,7 +71,7 @@ Not started.
 | 3 | `EndpointChunkGate` — `ChunkEditability` wired to certified-state arrival + `ChunkLoadEvent` | ⬜ |
 | 4 | `CustodyReconciler` — boot walk + continuous per-region digest comparison, repair via the applier | ⬜ |
 | 5 | Save-boundary archive cadence (`WorldSaveEvent`, `ChunkUnloadEvent`, `EntitiesUnloadEvent`, timer) | ⬜ |
-| 6 | Cross-Folia-region deltas: refuse with a named error (stage 1), then joint-transfer commit (stage 2) | ⬜ |
+| 6 | Cross-Folia-region deltas: refuse with a named error (stage 1), then joint-transfer commit (stage 2) | 🚧 stage 1 shipped and wired at enable; stage 2 shipped and proven headlessly over two real threads, **not** enabled on a live endpoint (no delegated region yet) |
 | 7 | Adopt-from-network world bootstrap (`NODERA-ARCHIVE` fetch → unpack → adopt identity → join session) | ⬜ |
 | 8 | *(optional, gated)* stage 3: a version-pinned `paperweight-userdev` chunk-IO adapter | ⬜ |
 
@@ -96,14 +120,39 @@ contract is what keeps a partial repair impossible.
 Two Nodera regions may sit in different Folia regions, and Folia cannot put two region threads in one
 critical section. The answer is **not** a lock.
 
-- **Stage 1 (ships first).** A multi-region delta whose regions do not share an execution thread is
-  **refused** with a named error and the caller resyncs. Loud and correct beats fast and racy;
-  [L-64](LIMITATIONS.md) records the gap with its exit test.
-- **Stage 2.** The delta becomes a **prepare/commit** across the two region threads, certified with
-  the *joint transfer certificates* and journalled with the *durable transfer stages* that
-  `storage` already carries for exactly this shape of problem. Either both sides commit or neither
-  does. It is atomic in the sense that matters, not instantaneous — and ALIGN-1 keeps it rare, since
-  four Nodera regions share every Folia section.
+- **Stage 1 (shipped 2026-08-10).** A multi-region delta whose regions do not share an execution
+  thread is **refused** with a named error and the caller resyncs. Loud and correct beats fast and
+  racy; [L-64](LIMITATIONS.md) records the gap with its exit test.
+- **Stage 2 (shipped 2026-08-10; not live).** The delta becomes a **prepare/commit** across the two
+  region threads, certified with the *joint transfer certificates* and journalled with the *durable
+  transfer stages* that `storage` already carries for exactly this shape of problem. Either both
+  sides commit or neither does. It is atomic in the sense that matters, not instantaneous — and
+  ALIGN-1 keeps it rare, since four Nodera regions share every Folia section.
+
+#### Why the joint commit cannot deadlock
+
+Folia's regioniser **refuses recursive operation**, and an uncaught exception on a tick thread halts
+the scheduler and stops the whole server. So the obvious shape — thread A takes region A and blocks
+until thread B hands over region B — is not slow here, it is a server-wide stall. It is also
+unnecessary, because the commit does not need both threads at once:
+
+> **The commit does not join two threads. It moves both regions' authority onto a third.**
+
+Each region thread is *sent* a task that captures its own committed snapshot and pipeline and
+completes a future — it captures nothing about the other region and waits for nothing. When both
+futures have completed, observed by composition on `CrossRegionCommit`'s own `nodera-xregion-commit`
+thread (never a region thread), the whole coordinator runs there against the canonical applier,
+touching no Bukkit state and therefore needing no region ownership. Each thread is then *sent* its
+own certified delta to project.
+
+A deadlock needs a cycle in the wait-for graph. Region threads never wait — every cross-thread step
+is a message, never a `get`, a `join`, or a lock — so only one node in that graph has an outgoing
+edge, and a graph like that has no cycle. The wait is additionally bounded by a park timeout, and a
+park that never arrives resumes the side that did.
+
+Atomicity lives on the canonical side, not the projection: both regions commit in one two-pass
+compare-and-set on one thread. A projection that fails afterwards is repaired by the custody
+reconciler (deliverable 4), never by half-committing.
 
 ### Adopt-from-network bootstrap
 
@@ -118,8 +167,14 @@ The reverse — generate a fresh world, certify genesis, publish, seed — is th
 
 ## Files
 
-- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/world/{BukkitWorldView,EndpointChunkGate,CustodyReconciler,SaveBoundaryArchiver,WorldAdoptionService}.java`
-- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/world/CrossRegionCommit.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/paper/world/{BukkitWorldView,EndpointChunkGate,CustodyReconciler,SaveBoundaryArchiver,WorldAdoptionService}.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/paper/world/{NoderaFoliaRegionMap,FoliaOwnershipProbe,CrossRegionCommit,CrossRegionRefusedException,TransferStoreJournal}.java`
+
+> **The package is `dev.nodera.endpoint.paper.world`, not `dev.nodera.endpoint.world`** as earlier
+> drafts of this file said. `dev.nodera.endpoint.world` already exists in `:endpoint` (the per-world
+> durable stores), and `:endpoint` is fat-jarred **inside** the plugin — so the original path would
+> have split one package across two jars and merged it back at package time. The plugin's own tree
+> is where a Paper-side class belongs anyway.
 
 ## Testing
 
@@ -129,9 +184,19 @@ The reverse — generate a fresh world, certify genesis, publish, seed — is th
   same delta commits once the state arrives.
 - `CustodyReconcilerTest` — a divergent region is repaired through the applier and logged; a repair
   the applier refuses is retried, never forced; a clean world produces no repairs at all.
-- `CrossFoliaRegionCommitIT` — stage 1 refuses with a named error; stage 2 commits a joint transfer
-  across two Folia region threads atomically, and a failure on one side commits neither.
-  **This is L-64's exit.**
+- `NoderaFoliaRegionMapTest` (7) — one tick thread shares everything; two regions in one Folia
+  section share **without asking the platform**; a wider span is the platform's answer and an
+  unanswerable one is a refusal; two dimensions are never one thread; a splitting grid exponent is
+  refused with the ALIGN-1 message.
+- `CrossRegionCommitTest` (4) — stage 1: the refusal names both regions, the transfer, that nothing
+  was written and the resync fix, and the durable `TransferStore` it was holding has **zero**
+  records afterwards. Asserted positively on the message, not merely that something threw.
+- `CrossFoliaRegionCommitIT` (4) — stage 1 refuses with a named error; stage 2 commits a joint
+  transfer across two region threads atomically, and a failure on one side commits neither (two
+  shapes: the target's state moving between certification and the paired CAS, and a region thread
+  that never reaches its park point). **This is L-64's exit, and it is only half met**: the threads
+  are real and separate, but they are not Folia's — see the suite's own header, and L-64's row, for
+  what that does and does not prove. There is deliberately no `assumeTrue` in the file.
 - `WorldAdoptionIT` — a world id on the network becomes a served world folder on a fresh endpoint,
   byte-exact against the seeder.
 - Live (`e2e-endpoint.sh` P1, `e2e-folia.sh` F4): the endpoint adopts a world from the network; a
@@ -143,10 +208,13 @@ The reverse — generate a fresh world, certify genesis, publish, seed — is th
 2. ⬜ A divergent world folder converges on the certified state through the applier, with every repair
    logged.
 3. ⬜ A `world.save()` produces a new archive version another peer can fetch.
-4. ⬜ A cross-Folia-region delta is refused (stage 1) / commits atomically (stage 2) — never partially.
+4. 🚧 A cross-Folia-region delta is refused (stage 1) / commits atomically (stage 2) — never
+   partially. Stage 1 is met and wired at enable; stage 2's code and headless proof are met over two
+   real threads; what is unmet is that those threads are Folia's on a running endpoint.
 5. ⬜ An endpoint adopts a world from the network by id and serves it.
 6. ⬜ Removing the plugin leaves a world a plain Paper server opens without complaint.
 
 ## Limitations
 
-- **L-64** — a delta spanning two Folia regions is refused until the joint-transfer path lands.
+- **L-64** — the joint-transfer path exists and is proven headlessly; the row stays OPEN until it
+  runs on two real Folia region threads on a delegated region.

@@ -25,6 +25,15 @@ dependencies {
     implementation(project(":endpoint"))
 
     testImplementation(project(":core"))
+    // CrossFoliaRegionCommitIT drives the REAL engine primitives — WorldMutationApplier,
+    // RegionPipeline, EntityTransferCoordinator, JointTransferApprover — over the real durable
+    // TransferStore. Both arrive transitively as `api` from `:peer`; naming them here is what says
+    // the suite depends on them directly rather than by accident. `:testing` supplies
+    // EngineFixtures, so the snapshots the suite commits are the same ones every other engine
+    // suite commits.
+    testImplementation(project(":engine"))
+    testImplementation(project(":storage"))
+    testImplementation(project(":testing"))
 }
 
 // The harness stages `endpoints/paper-plugin/build/libs/nodera-paper.jar` (TestPaths), so the

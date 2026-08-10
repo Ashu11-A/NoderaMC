@@ -7,15 +7,30 @@
      SKIPPED naming the LIMITATIONS.md row that blocks it, and the suite exits 0 — a nightly run must
      read as "not built yet", never as "broken". Update this file whenever a script gains a stage. -->
 
-**Category:** server · **Last run:** 2026-07-28 · **20 unit tests · 0 failing** (module
-`paper-plugin`: `EndpointConfigTest` 9 · `EndpointPlatformTest` 5 · `EndpointPeerLinkTest` 6),
+**Category:** server · **Last run:** 2026-08-10 · **35 unit tests · 0 failing** (module
+`paper-plugin`: `EndpointConfigTest` 9 · `EndpointPlatformTest` 5 · `EndpointPeerLinkTest` 6 ·
+`NoderaFoliaRegionMapTest` 7 · `CrossRegionCommitTest` 4 · `CrossFoliaRegionCommitIT` 4),
 plus **3 scripted live suites, green for the built subset**: `e2e-endpoint.sh` against a real Paper
 1.21.1 (including **E4**: the server JVM is SIGKILLed and the world stays hosted by its worker — L-71's
 exit), `e2e-folia.sh` against a real Folia (ALIGN-1 passes at the platform default and **refuses** at
-grid-exponent 2), and `e2e-plugins.sh` for co-existence with a staged corpus. The mixed-client
-headline stages (P2–P8, F2–F6, WorldEdit certification) report `SKIPPED` naming the open row that
-blocks each. The register previously said all three suites were committed when only the harness
-library was; they exist now ([L-61](LIMITATIONS.md) retired 2026-07-26).
+grid-exponent 2), and `e2e-plugins.sh` for co-existence with a staged corpus. The register
+previously said all three suites were committed when only the harness library was; they exist now
+([L-61](LIMITATIONS.md) retired 2026-07-26).
+
+> **Correction, 2026-08-10 — the mixed-client stages are ABSENT, not skipped.** This file used to
+> say "the mixed-client headline stages (P2–P8, F2–F6, WorldEdit certification) report `SKIPPED`
+> naming the open row that blocks each". They do not, because they do not exist: the shell → Java
+> conversion carried over `EndpointScenario` **E0–E4**, `FoliaScenario` **F0–F2** and
+> `PluginsScenario` **C0–C2** and nothing else. Five limitation rows (L-65, L-67, L-68, L-69, L-70)
+> name P- and F- stages that exist in no form on this tree; until those stages are written, none of
+> those rows has a runnable exit test. A row whose exit test is a stage that was never converted is
+> not "blocked", it is unmeasurable, and this file said the opposite.
+
+> **The three suites can now actually run.** Nothing in `.github/` had ever staged a Paper or Folia
+> jar, so `ServerEndpointSupport.skipReason` fired on every machine including CI and the three
+> scenarios had never executed anywhere. `scripts/stage-server-jars.sh` resolves both through the
+> PaperMC **v3 (fill)** API with a checksum check, and `.github/workflows/e2e-live.yml` calls it and
+> carries `endpoint`, `folia` and `plugins` on its matrix (2026-08-10, server task 4).
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
@@ -40,7 +55,9 @@ mixed-client suites stay blocked on [L-66](LIMITATIONS.md).
 # Part 1 — The scripted live suites
 
 The three suites extend the same launcher every other live suite uses
-(`scripts/lib/e2e-main.sh`) with a Paper/Folia half (`scripts/lib/e2e-server.sh`). No suite starts a
+(`scripts/lib/e2e-main.sh`) with a Paper/Folia half
+(`dev.nodera.testkit.scenario.ServerEndpointSupport`; the former `scripts/lib/e2e-server.sh` was
+deleted in the shell → Java conversion). No suite starts a
 service itself: the topology, the port plan, the lock, and the log audit are set in exactly one place.
 
 ## 1.1 Running
@@ -55,9 +72,10 @@ scripts/nodera-test.sh run endpoint folia  # through the batch runner (holds the
 ```
 
 Requirements: the Rust toolchain, a GUI session (or Xvfb) for the **modded** client, ~6 GB free RAM,
-and a pinned Paper/Folia jar. The suites download nothing: `scripts/lib/e2e-server.sh` resolves a jar
+and a pinned Paper/Folia jar. The suites download nothing: `ServerEndpointSupport` resolves a jar
 from `NODERA_PAPER_JAR` / `NODERA_FOLIA_JAR`, or from `run/servers/`, and reports `SKIPPED` if neither
-is present — so a local run and a CI run execute the same code path.
+is present — so a local run and a CI run execute the same code path. Stage the jars with
+`scripts/stage-server-jars.sh [paper|folia]`, which is exactly what CI calls.
 
 ## 1.2 The suites
 
@@ -145,7 +163,9 @@ the suite **names the ones it dropped**, rather than quietly testing less.
 The **modded** client is a real NeoForge client launched through Gradle quick play, exactly as the
 `minecraft` suites launch theirs.
 
-The **unmodified** client is `scripts/lib/vanilla-bot.py`: a Minecraft-protocol client that performs
+The **unmodified** client is `dev.nodera.testkit.scenario.ServerVanillaBot` (the former
+`scripts/lib/vanilla-bot.py`, deleted in the shell → Java conversion): a Minecraft-protocol client
+that performs
 the handshake, offline-mode login, and play-state exchange, and can move, chat, run a command, and
 drop an item. It is deliberately **not** a second launched game —
 
@@ -178,7 +198,7 @@ commit as the capability.
 
 # Part 2 — Unit and integration tests
 
-The module exists: 5 main classes + 3 test classes = **20 unit tests, 0 failing**. Counts come from
+The module exists: 9 main classes + 6 test classes = **35 unit tests, 0 failing**. Counts come from
 the `./gradlew check` XML reports and are a **separate** module total (`:paper-plugin`), not a subset
 of another module's.
 
@@ -209,7 +229,9 @@ of another module's.
 | `CustodyDigestTest` | *(deleted 2026-08-06 with `CustodyDigest` — same lane)* | [3](Task.3.md) | ⬜ withdrawn |
 | `EndpointConfigTest` (custody clauses) | The configured claim parses to `CustodyClass.FULL` and an omitted one defaults to `VIEW` — the only custody assertions left in the tree | [3](Task.3.md) | ✅ |
 | `BukkitWorldViewTest` | `MutableWorldView` conformance against the same contract `InMemoryWorldView` satisfies | [4](Task.4.md) | ⬜ |
-| `CrossFoliaRegionCommitIT` | A joint-transfer prepare/commit across two Folia region threads is atomic; a one-sided failure commits neither | [4](Task.4.md) | ⬜ |
+| `NoderaFoliaRegionMapTest` | Which regions one thread writes: one tick thread shares everything; two regions in one Folia section share **without asking the platform**; a wider span is the platform's answer and an unanswerable one is a refusal; two dimensions are never one thread | [3](Task.3.md)/[4](Task.4.md) | ✅ (7) |
+| `CrossRegionCommitTest` | Stage 1: a span across two Folia threads is refused with `NODERA-XREGION-REFUSED` naming both regions, the transfer, that nothing was written and the resync fix — and the durable `TransferStore` it held has **zero** records afterwards | [4](Task.4.md) | ✅ (4) |
+| `CrossFoliaRegionCommitIT` | A joint-transfer prepare/commit across two region threads is atomic; a one-sided failure commits neither | [4](Task.4.md) | 🚧 (4) — green over two REAL but ordinary threads. The clause "two **Folia** region threads" is unmet and the suite's own header says so. **No `assumeTrue`**: it runs on every machine |
 | `BukkitEntityAdaptersTest` | Bukkit and NeoForge adapters emit byte-identical `PersistedEntityState` — the anti-drift test | [5](Task.5.md) | ⬜ |
 | `CaptureFailureContainmentTest` | A throwing runtime drops one entity's capture; the region and the server survive | [5](Task.5.md) | ⬜ |
 | `TenantIdTest` | Determinism across restarts, distinctness across endpoints, never collides with a real `NodeId` | [6](Task.6.md) | ⬜ |
