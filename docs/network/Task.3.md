@@ -6,7 +6,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED (live forward sync + manager wiring → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-08-01
+**Category:** network · **Owns:** — · **Last audit:** 2026-08-10
 **Depends on:** [network 1](Task.1.md), [engine 1](../engine/Task.1.md)
 **Consumed by:** [network 4](Task.4.md), [network 9](Task.9.md), [worker 2](../peer/Task.2.md), [minecraft 5](../minecraft/Task.5.md)
 
@@ -114,7 +114,12 @@ and the durability tests run against the real tier.
 3. ✅ A forcibly killed writer reopens clean with an unbroken chain.
 4. ✅ Corrupt blobs fail their own reads.
 5. ✅ The client tier never evicts an assigned region's current state, and eviction signals repair.
-6. ⏳ Live: new-peer forward sync on a real mesh.
+6. ⏳ Live: new-peer forward sync on a real mesh. **2026-08-10:** the run that would satisfy
+   this is `nodera-test run mesh-soak`, which until now neither asserted the clause nor drove
+   anything a committee could see — its block load was `/fill`, a direct world write that fires
+   no capture event (see [#160](https://github.com/Ashu11-A/NoderaMC/issues/160) and the L-30
+   row). The scenario now drives `/nodera debug drive` and asserts two workers' non-zero
+   `committee_commits` in stage S2b; the run itself is still outstanding.
 
 ## Limitations
 

@@ -6,14 +6,15 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-08-06 · **802 XML-reported · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-08-10 · **808 XML-reported · 0 failing · 0 skipped**
 
 > Counts above are `:core:test` + `:engine:test` + `:testing:test` from the nine-module run recorded
 > in commit `44069df` — the JUnit XML of that run is where README's module table was re-measured, and
-> this register carries the same three cells rather than a second measurement. The run is dated
+> this register carries the same three cells rather than a second measurement. Re-measured 2026-08-10:
+> `:testing:test` gained the two cases of `ValidatedLoadIsCapturedTest` (46 → 48). The run is dated
 > 2026-08-06, after the Plan 11 round 2 reduction (issue #210) deleted the shadow-validation and
 > central-coordinator clusters and 21 of their dedicated test files. The whole Java tree comes to
-> **2,271 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
+> **2,273 tests / 0 failed** as the sum of README's nine measured module cells; to
 > measure it rather than add it up, run `scripts/test-totals.sh --java`. The **2,238** this file used
 > to carry predates that re-measurement and never agreed with README.
 

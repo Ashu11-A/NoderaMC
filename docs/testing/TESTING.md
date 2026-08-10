@@ -5,14 +5,14 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-08-06, the nine-module run recorded in commit `44069df` ·
-**44 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
+**Category:** testing · **Last run:** 2026-08-10 (`./gradlew check`, this branch) ·
+**48 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
 scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
 the smoke test that all twenty resolve.
 
-Whole-tree Java total for that same run: **2,271 tests · 0 failed · 0 skipped**. That figure is the
+Whole-tree Java total for that same run: **2,273 tests · 0 failed · 12 skipped**. That figure is the
 sum of the nine per-module counts README's module table carries — core 314, engine 446, transport
-189, storage 158, testing 46, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
+189, storage 158, testing 48, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
 where a reader should go for the per-module breakdown. To measure it rather than add it up, run
 `scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
 suite that skipped into green cannot contribute to the number.

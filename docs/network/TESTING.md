@@ -13,7 +13,7 @@ recorded in commit `44069df`. Worker cases are also described under the worker c
 
 > Re-measured on 2026-08-06 after the Plan 11 round 2 reduction (issue #210), which deleted the
 > archival audit triangle and the second discovery resolver from `:peer` along with their dedicated
-> suites. The whole Java tree comes to **2,271 tests / 0 failed / 0 skipped** as the sum of README's
+> suites. The whole Java tree comes to **2,273 tests / 0 failed** as the sum of README's
 > nine measured module cells; to measure it rather than add it up, run `scripts/test-totals.sh
 > --java`. The **2,238** this file used to carry predates that re-measurement, as did `transport`
 > 186 and `peer` 835. The Rust count is unchanged by round 2, which touched no `nodera-codec` source.
