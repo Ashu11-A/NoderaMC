@@ -1,4 +1,4 @@
-"""Line classification for the three source languages in this tree.
+"""Line classification for the four source languages in this tree.
 
 Every line of a source file is exactly one of three things — ``code``, ``comment`` or ``blank`` —
 and the whole point of this module is that the answer comes from a lexer rather than from a regex.
@@ -21,6 +21,11 @@ Languages, and what each one needs beyond ``//`` and ``/* */``:
 
 ``java``
     Text blocks (``\"\"\" … \"\"\"``, 13 files here). Block comments do not nest.
+``kotlin``
+    Raw strings spelled the same way Java spells a text block, and block comments that DO nest.
+    Otherwise it lexes as Java does, which is why it shares Java's rules here rather than getting a
+    scanner of its own: no regex literal, no raw-string prefix, the same ``//``, ``/* */`` and
+    ``'c'``. The 30 ``.kt``/``.kts`` files are the Android front end and the Gradle build logic.
 ``rust``
     Raw strings (``r"…"``, ``r#"…"#``, ``br#"…"#``, 57 files here), lifetimes and loop labels that
     look like an unterminated character literal, and block comments that DO nest.
@@ -33,7 +38,8 @@ Usage::
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
     import loc_classify
 
-    loc_classify.language_of(path)        # "java" | "rust" | "ts" | None
+    loc_classify.language_of(path)        # "java" | "kotlin" | "rust" | "ts" | None
+    loc_classify.extensions()             # every suffix the module counts
     loc_classify.classify(path)           # Counts(code=…, comment=…, blank=…)
     loc_classify.classify_text(src, "rust")
     loc_classify.is_generated(path)       # header says a generator wrote it
@@ -65,9 +71,24 @@ _EXTENSIONS = {
     ".js": "ts",
     ".mjs": "ts",
     ".cjs": "ts",
+    # Kotlin was missing until 2026-08-09, and it is the same hole as `.mjs` in the one language
+    # with an actively-developed front end: 30 tracked files carrying 4,033 code lines — the whole
+    # Android app (`ui/Settings.kt` alone is 1,654 lines) and every Gradle build script and
+    # convention plugin — sat outside the ratchet, so moving Java or TypeScript into `.kt` read as
+    # pure reduction. It showed up structurally too: `--by-module` reported `nodera-app` as its
+    # 818-line Tauri shell, and the registered `build-logic` component did not appear in the table
+    # at all, because every file it owns is `.kt` or `.kts`.
+    ".kt": "kotlin",
+    ".kts": "kotlin",
 }
 
-LANGUAGES = ("java", "rust", "ts")
+LANGUAGES = ("java", "kotlin", "rust", "ts")
+
+# Where one language's rule is another's too. Kotlin spells a raw string the way Java spells a text
+# block, and nests its block comments the way Rust does; naming the sets is what keeps `_scan_line`
+# from growing a per-language branch for each of them.
+_TEXT_BLOCK_LANGUAGES = frozenset({"java", "kotlin"})
+_NESTING_COMMENT_LANGUAGES = frozenset({"kotlin", "rust"})
 
 # How many lines from the top of a file are searched for a generator's disclaimer. Generators in
 # this tree put it in the first comment block; five lines covers all of them without matching a
@@ -116,6 +137,15 @@ def language_of(path: str | pathlib.Path) -> str | None:
     return _EXTENSIONS.get(pathlib.Path(path).suffix.lower())
 
 
+def extensions() -> frozenset[str]:
+    """Every suffix this module counts, so a caller cannot keep a second list that drifts from it.
+
+    `scripts/loc-metrics.py` asks git for exactly these — an extension known here but not asked for
+    there is a file the ratchet never sees, which is the shape of both holes this table has had.
+    """
+    return frozenset(_EXTENSIONS)
+
+
 def is_generated(path: str | pathlib.Path) -> bool:
     """True when the file's header says a generator produced it."""
     try:
@@ -156,9 +186,9 @@ def classify_partitioned(text: str, lang: str) -> tuple[Counts, Counts]:
     because the split was made by Gradle source set; `.mjs` was reported as nothing at all because
     the split was made by extension. In each case the tree was fine and the question was wrong.
 
-    Java and TypeScript return everything as production here; their test code is identified by path
-    in ``scripts/loc-metrics.py``, which is the correct split for languages that keep tests in
-    separate files.
+    Java, Kotlin and TypeScript return everything as production here; their test code is identified
+    by path in ``scripts/loc-metrics.py``, which is the correct split for languages that keep tests
+    in separate files.
     """
     main_text, test_text = split_test_blocks(text, lang)
     return classify_text(main_text, lang), classify_text(test_text, lang)
@@ -194,7 +224,16 @@ def split_test_blocks(text: str, lang: str) -> tuple[str, str]:
 
 
 def _block_end(lines: list[str], start: int) -> int:
-    """The last line of the braced item beginning at or just after ``start``.
+    """The last line of the item beginning at or just after ``start``.
+
+    Two shapes reach here and the terminator that appears first decides which. A braced item —
+    ``#[cfg(test)] mod tests { … }`` — ends where its brace depth returns to zero. An unbraced one —
+    ``#[cfg(test)] mod test_support;``, the idiomatic way to gate a whole test-support *file* — ends
+    at its own semicolon, and reading that as braced is not a hypothetical: it ran past the item
+    to the next depth-0 ``}`` and handed 32 lines of `tracker/src/main.rs` to the test bucket —
+    nine `use` lines and the entire body of `async fn main`, the entry point of a shipped service —
+    with `rendezvous/src/main.rs` doing the same. A gate only fails on a rise, so 54 lines leaving
+    `rust.main.code` passed green and were stamped as reduction.
 
     Brace counting is enough here and string-aware lexing is not needed: an unbalanced brace inside
     a string literal in a test module would have to survive `cargo fmt` and `rustc`, and the failure
@@ -203,12 +242,35 @@ def _block_end(lines: list[str], start: int) -> int:
     depth = 0
     opened = False
     for index in range(start, len(lines)):
-        depth += lines[index].count("{") - lines[index].count("}")
-        if "{" in lines[index]:
+        line = lines[index]
+        if not opened and _terminates_unbraced(line):
+            return index
+        depth += line.count("{") - line.count("}")
+        if "{" in line:
             opened = True
         if opened and depth <= 0:
             return index
     return len(lines) - 1
+
+
+def _terminates_unbraced(line: str) -> bool:
+    """True when this line ends an item with ``;`` before any brace has opened.
+
+    Skipped: comment lines, because a ``;`` in the doc comment above a braced module is not that
+    module's end, and lines that are nothing but an attribute, because ``#[cfg(test)]`` on its own
+    terminates nothing. An attribute *followed by* the item — ``#[cfg(test)] mod test_support;`` on
+    one line — is not skipped, which is the whole case this exists for.
+    """
+    stripped = line.strip()
+    if stripped.startswith(("//", "/*", "*")):
+        return False
+    if stripped.startswith(("#[", "#!")) and stripped.endswith("]"):
+        return False
+    semicolon = line.find(";")
+    if semicolon < 0:
+        return False
+    brace = line.find("{")
+    return brace < 0 or semicolon < brace
 
 
 def classify_text(text: str, lang: str) -> Counts:
@@ -336,7 +398,7 @@ def _scan_line(
 
         if char == '"':
             saw_code = True
-            if lang == "java" and line.startswith('"""', index):
+            if lang in _TEXT_BLOCK_LANGUAGES and line.startswith('"""', index):
                 found = _find_unescaped(line, index + 3, '"""')
                 if found < 0:
                     state = "text"
@@ -376,13 +438,13 @@ def _scan_line(
 
 
 def _resume_block(line: str, index: int, lang: str, depth: int) -> tuple[int, str, int]:
-    """Consume block-comment text from `index`. Rust nests its block comments; Java and TS do not.
+    """Consume block-comment text from `index`. Rust and Kotlin nest block comments; Java does not.
 
     Returns the position after the comment closed, plus the state to carry to the next line.
     """
     length = len(line)
     while index < length:
-        if lang == "rust" and line.startswith("/*", index):
+        if lang in _NESTING_COMMENT_LANGUAGES and line.startswith("/*", index):
             depth += 1
             index += 2
             continue
