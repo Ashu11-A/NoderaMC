@@ -16,7 +16,6 @@ nodera-service = { workspace = true }
 nodera-telemetry = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
-toml = { workspace = true }
 thiserror = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
@@ -24,6 +23,9 @@ sha2 = { workspace = true }
 [dev-dependencies]
 ed25519-dalek = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+# Test-only. Production TOML parsing goes through `nodera_service::config::load_toml`, which owns the
+# error type; the only `toml::` calls here build fixtures and assert the round trip.
+toml = { workspace = true }
 
 [build-dependencies]
 # The `VERSION` stamp, shared with the other services. No dependencies of its own, so it costs

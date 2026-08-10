@@ -66,9 +66,9 @@ pub fn load_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Confi
 
 /// What the shared startup path needs of a service's configuration.
 ///
-/// Implemented by [`crate::service_config!`] rather than by hand: every method already exists as an
-/// inherent one on each `Config`, so the impl is a forwarding shim and writing it out three times
-/// would be the duplication this trait exists to remove.
+/// Implemented by [`crate::service_config!`] rather than by hand: every method is either an inherent
+/// one each `Config` already has or a one-line field write, so the impl is a shim and writing it out
+/// three times would be the duplication this trait exists to remove.
 pub trait ServiceConfig: Sized + Default {
     /// Load and validate a file.
     fn load(path: &Path) -> Result<Self, Box<dyn std::error::Error>>;
@@ -80,10 +80,12 @@ pub trait ServiceConfig: Sized + Default {
     /// Reject values that would disable a bound rather than tune it.
     fn validate(&self) -> Result<(), Box<dyn std::error::Error>>;
 
-    /// The address to listen on.
-    fn bind_addr(&self) -> SocketAddr;
-
     /// Replace the address to listen on (the `--bind` flag).
+    ///
+    /// Write-only on purpose. [`configure`] is the only generic consumer of this trait and it never
+    /// needs to read the address back — each `main` reads its own `bind_addr` **field** at the point
+    /// it binds, which for telemetry is thirty lines of unrelated setup later. A matching getter
+    /// existed here, was implemented three times by the macro below, and had no caller anywhere.
     fn set_bind_addr(&mut self, addr: SocketAddr);
 }
 
@@ -105,10 +107,6 @@ macro_rules! service_config {
 
             fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
                 <$config>::validate(self).map_err(Into::into)
-            }
-
-            fn bind_addr(&self) -> std::net::SocketAddr {
-                self.bind_addr
             }
 
             fn set_bind_addr(&mut self, addr: std::net::SocketAddr) {

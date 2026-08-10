@@ -457,11 +457,6 @@ pub enum Enforcement {
     Never { reason: &'static str },
 }
 
-/// Every settings key, and how it is meant to be enforced.
-///
-/// The two `Never` rows are a recorded product decision: both controls stay in the UI, permanently
-/// badged with the reason, rather than being deleted — removing them would silently drop settings
-/// users have already saved, and would hide the fact that the limitation is known.
 /// `Live`, confirmed by the named key. See [`Enforcement::Live`] for when it is not the key itself.
 const fn live(confirmed_by: &'static str) -> Enforcement {
     Enforcement::Live { confirmed_by }
@@ -477,6 +472,11 @@ const fn never(reason: &'static str) -> Enforcement {
     Enforcement::Never { reason }
 }
 
+/// Every settings key, and how it is meant to be enforced.
+///
+/// The two `Never` rows are a recorded product decision: both controls stay in the UI, permanently
+/// badged with the reason, rather than being deleted — removing them would silently drop settings
+/// users have already saved, and would hide the fact that the limitation is known.
 pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     (
         "appearance.theme",

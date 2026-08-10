@@ -255,9 +255,42 @@ impl DeletedWorlds {
         })
     }
 
+    /// Delete the tombstone from disk, printing the report when it cannot be deleted.
     fn remove_file(&self, world_id_hex: &str) {
-        if let Some(path) = self.file_for(world_id_hex) {
-            let _ = std::fs::remove_file(path);
+        if let Err(report) = self.try_remove_file(world_id_hex) {
+            eprintln!("nodera-tracker: {report}");
+        }
+    }
+
+    /// Delete the tombstone from disk, returning what the operator needs to read when it fails.
+    ///
+    /// The mirror image of [`Self::try_persist`], and it fails the same way round. [`Self::forget`]
+    /// removes the entry from memory and returns `true`, so the owner is told their world is back —
+    /// but [`Self::restore`] re-reads this directory at every start, so a failed unlink means the
+    /// next start reads the tombstone back and the world is deleted again, and again after that,
+    /// with a verified revival already applied and forgotten. `let _ = std::fs::remove_file(path)`
+    /// made that whole sequence silent, which is the same silence [`Self::try_persist`] was split
+    /// out to end.
+    ///
+    /// # Returns
+    /// `Ok(())` when the file is gone, was never there, or was never promised (a memory-only cache,
+    /// or an id with no file name). `Err` carries the operator-facing sentence, naming the path, the
+    /// cause and the consequence.
+    fn try_remove_file(&self, world_id_hex: &str) -> Result<(), String> {
+        let Some(path) = self.file_for(world_id_hex) else {
+            // Memory-only, or an id that is not hex: nothing was ever written under this name, so
+            // there is nothing to unlink and nothing to report.
+            return Ok(());
+        };
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            // Already absent is the outcome that was asked for, not a failure to produce it.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!(
+                "cannot delete {}: {e} — the deletion is undone in memory but not on disk, so the \
+                 next restart will read it back and delete the world again",
+                path.display()
+            )),
         }
     }
 
@@ -541,6 +574,71 @@ mod tests {
         assert!(report.contains("not hex"), "{report}");
         assert!(report.contains("forgotten at restart"), "{report}");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The persist guards run backwards, which is the half that was still `let _ =`. The owner's
+    /// revival is verified and applied, `forget` returns `true`, the unlink fails — and every restart
+    /// for the next 120 days reads the tombstone back and deletes the world again. The only thing
+    /// that can break that loop is a line in the log.
+    ///
+    /// The path is made a non-empty directory, which `remove_file` refuses with `EISDIR` for every
+    /// user including root. A read-only parent directory would not.
+    #[test]
+    fn a_failed_unlink_is_reported() {
+        let dir = scratch("unlink");
+        let tombstone = tombstone();
+        let cache = DeletedWorlds::new(Some(dir.clone()));
+        let occupied = dir.join(format!("{}.tombstone", tombstone.world_id_hex()));
+        std::fs::create_dir_all(occupied.join("in-the-way")).expect("occupy the path");
+
+        let report = cache
+            .try_remove_file(&tombstone.world_id_hex())
+            .expect_err("a non-empty directory cannot be unlinked with remove_file");
+
+        assert!(report.contains("cannot delete"), "{report}");
+        assert!(report.contains("delete the world again"), "{report}");
+        assert!(
+            report.contains(&tombstone.world_id_hex()),
+            "the report names the file: {report}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Nothing to unlink is the outcome that was asked for. A memory-only cache never wrote a file
+    /// and a deletion pruned after a revival has nothing left, so neither may report — otherwise the
+    /// report that matters is buried under one per prune tick.
+    #[test]
+    fn an_absent_file_is_not_a_failed_unlink() {
+        assert_eq!(
+            DeletedWorlds::new(None).try_remove_file(&tombstone().world_id_hex()),
+            Ok(())
+        );
+        let dir = scratch("absent");
+        let cache = DeletedWorlds::new(Some(dir.clone()));
+        assert_eq!(cache.try_remove_file(&tombstone().world_id_hex()), Ok(()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A revival on a persisted cache really does take the file away — the guard must not have turned
+    /// the successful path into a no-op.
+    #[test]
+    fn a_revival_removes_the_tombstone_from_disk() {
+        let dir = scratch("revive");
+        let tombstone = tombstone();
+        let mut cache = DeletedWorlds::new(Some(dir.clone()));
+        assert!(cache.remember(&tombstone));
+        let file = dir.join(format!("{}.tombstone", tombstone.world_id_hex()));
+        assert!(file.exists(), "the deletion was persisted");
+
+        assert!(cache.forget(&revival()));
+
+        assert!(!file.exists(), "and the revival unlinked it");
+        assert!(
+            DeletedWorlds::new(Some(dir.clone())).is_empty(),
+            "so a restart does not delete the world again"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
