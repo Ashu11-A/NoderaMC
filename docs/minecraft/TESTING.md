@@ -10,7 +10,7 @@
      host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-08-10 · **134 unit tests · 0 failing** (module
+**Category:** minecraft · **Last run:** 2026-08-10 · **138 unit tests · 0 failing** (module
 `neoforge-mod`), plus the live acceptance scenarios (now `dev.nodera.testkit.scenario`, run with `scripts/nodera-test.sh`)
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
@@ -221,7 +221,7 @@ suites pass through it by design.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate **and its lockout** (`JoinGateThrottleIsWiredTest`, `JoinerIdentityTest` — a reconnect no longer buys a fresh password guess), crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, the in-game self-test drive, and the forward event-sync call sites (`EventSyncIsWiredTest`) | 134 | 🚧 |
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate **and its lockout** (`JoinGateThrottleIsWiredTest`, `JoinerIdentityTest` — a reconnect no longer buys a fresh password guess), crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, the in-game self-test drive, the forward event-sync call sites (`EventSyncIsWiredTest`), and the render-on-arrival apply path (`RegionApplyQueueTest` — the cumulative-arrival filter, and the call sites that make it run) | 138 | 🚧 |
 
 Landmark unit tests:
 

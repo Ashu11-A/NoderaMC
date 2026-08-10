@@ -129,6 +129,54 @@ final class RegionRoundTripTest {
         assertThat(mine.piecesChangedSince(theirs.chunkIndex())).isEmpty();
     }
 
+    /** One piece's bytes, cut out of the blob exactly as a downloader receives them. */
+    private static Bytes pieceBytes(RegionSnapshotSplitter.Layout layout, Piece piece) {
+        byte[] payload = new byte[(int) piece.length()];
+        System.arraycopy(layout.blob().toArray(), (int) piece.offset(), payload, 0, payload.length);
+        return Bytes.unsafeWrap(payload);
+    }
+
+    @Test
+    void everyPieceDecodesToItsOwnColumnsWithoutTheRestOfTheRegion() {
+        // The property PieceSplitter's header has always claimed and nothing ever spent: "a piece
+        // must be independently usable, not merely independently transferable … cutting mid-record
+        // would produce pieces that verify by hash yet decode to nothing on their own, which defeats
+        // render-on-arrival". This is render-on-arrival's whole basis (network L-33).
+        RegionSnapshot original = snapshot(4, 1, 42);
+        RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(original);
+
+        List<ChunkColumnState> recovered = new ArrayList<>();
+        for (Piece piece : layout.manifest().pieces()) {
+            recovered.addAll(RegionSnapshotSplitter.columnsIn(
+                    layout.manifest(), piece.index(), pieceBytes(layout, piece)));
+        }
+
+        assertThat(recovered)
+                .as("the union of what every piece carries is exactly the region's columns, so a "
+                        + "receiver can draw each one the moment its piece verifies")
+                .containsExactlyInAnyOrderElementsOf(original.chunks());
+    }
+
+    @Test
+    void aPieceCarryingNoColumnAndAManifestThatCannotSayBothDecodeToNothing() {
+        RegionSnapshot original = snapshot(5, 0, 7);
+        RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(original);
+
+        // Piece 0 is the frame header alone under a per-column cut: it belongs to no column, and
+        // answering with one here would put terrain on screen that nobody sent.
+        assertThat(RegionSnapshotSplitter.columnsIn(layout.manifest(), 0,
+                pieceBytes(layout, layout.manifest().pieces().get(0))))
+                .isEmpty();
+
+        // And a v1 manifest cannot map pieces to columns at all, so it renders nothing early rather
+        // than guessing — the same honest degradation piecesChangedSince makes.
+        PieceManifest v1 = PieceManifest.of(layout.manifest().region(), layout.manifest().version(),
+                layout.manifest().tick(), layout.manifest().regionRoot(), layout.manifest().blob(),
+                layout.manifest().totalLength(), layout.manifest().pieces());
+        assertThat(v1.hasChunkIndex()).isFalse();
+        assertThat(RegionSnapshotSplitter.columnsIn(v1, 1, layout.blob())).isEmpty();
+    }
+
     private static int indexOfColumn(RegionSnapshotSplitter.Layout layout, int x, int z) {
         List<ChunkColumnState> columns = layout.snapshot().chunks();
         for (int i = 0; i < columns.size(); i++) {

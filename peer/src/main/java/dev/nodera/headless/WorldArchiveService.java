@@ -8,6 +8,8 @@ import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.ChunkStampBook;
 import dev.nodera.core.state.HybridClock;
+import dev.nodera.distribution.ChunkLockEditability;
+import dev.nodera.distribution.ChunkLockMap;
 import dev.nodera.distribution.ContentTransferService;
 import dev.nodera.distribution.PieceDownloader;
 import dev.nodera.distribution.PieceManifest;
@@ -196,6 +198,50 @@ public final class WorldArchiveService implements AutoCloseable {
     private final Set<Bytes> fetching = ConcurrentHashMap.newKeySet();
 
     /**
+     * Which columns of a region being downloaded right now have actually arrived (L-33).
+     *
+     * <p>The producer the lock map never had. {@link PieceDownloader} has always been able to unlock
+     * a piece as it verifies, and {@link ChunkLockEditability} has always been able to turn that into
+     * an applier verdict — but the single production {@code download} call passed {@code null} for
+     * the map and nothing anywhere called {@code track}, so the guard described a state no map was
+     * ever in. Registered here, one map per node, because that is where a fetch begins and ends:
+     * {@link #download} tracks a v2 manifest before the first request goes out and forgets the
+     * region in its {@code finally}, so a region is locked for exactly as long as content for it is
+     * in flight and no longer.
+     *
+     * <p>Keyed by {@link RegionId}, which names a dimension and not a world. A worker is seated for
+     * one session at a time, so a collision would need two worlds downloading the same region
+     * coordinates at the same moment; the effect if it ever happened is a slightly wider lock window
+     * during a download, never a lost write — the applier aborts a whole delta rather than
+     * half-applying one.
+     */
+    private final ChunkLockMap chunkLocks = new ChunkLockMap();
+
+    /**
+     * The L-33 edit guard, ready to install on {@link dev.nodera.coordinator.WorldMutationApplier}.
+     *
+     * <p>Handed to the validation lane by {@link PeerNode} so a mutation aimed at a column whose
+     * piece has not arrived aborts its delta before any write, and every other mutation is
+     * untouched. See {@link ChunkLockEditability#whileFetching} for why absence must fail open.
+     *
+     * @return the seam; never null, and safe to hold across fetches.
+     * @Thread-context any thread.
+     */
+    public dev.nodera.coordinator.WorldMutationApplier.ChunkEditability chunkEditability() {
+        return ChunkLockEditability.whileFetching(chunkLocks);
+    }
+
+    /**
+     * @param region a region.
+     * @return whether a download is tracking its arrival right now.
+     * @Thread-context any thread. Package-private: a test has to be able to observe the lock window
+     *     from outside without being handed the map itself.
+     */
+    boolean isTrackingArrival(RegionId region) {
+        return chunkLocks.trackedRoot(region) != null;
+    }
+
+    /**
      * worldIdHex → manifest roots the tracker says at least one peer holds pieces of.
      *
      * <p>The difference between a version that exists and a version that can be obtained. A live
@@ -241,6 +287,14 @@ public final class WorldArchiveService implements AutoCloseable {
      * budget — a re-resolve that only happens after the fetch has already given up is no use.
      */
     private static final Duration STALL_RESOLVE = Duration.ofSeconds(20);
+
+    /**
+     * How often a running download looks at what has arrived — the render clock (L-33).
+     *
+     * <p>Kept well under a server tick's worth of columns so a receiver applying two columns a tick
+     * is never waiting on this loop, and well above a busy-wait so a stalled fetch costs nothing.
+     */
+    private static final long PROGRESS_SLICE_MILLIS = 100L;
 
     /** worldIdHex → the last holder set resolved for it, with the moment it was resolved. */
     private final Map<String, CachedHolders> holderCache = new ConcurrentHashMap<>();
@@ -635,8 +689,42 @@ public final class WorldArchiveService implements AutoCloseable {
      */
     public dev.nodera.core.state.RegionSnapshot fetchRegion(
             String worldIdHex, RegionId region, Bytes wantRoot, java.time.Duration timeout) {
+        return fetchRegion(worldIdHex, region, wantRoot, timeout, null);
+    }
+
+    /**
+     * As {@link #fetchRegion(String, RegionId, Bytes, java.time.Duration)}, reporting each column as
+     * it arrives (L-33's render half).
+     *
+     * @param onArrival called with the columns verified so far, every time the set grows; may be
+     *                  {@code null} to wait for the whole region as before.
+     * @Thread-context any thread; blocking. {@code onArrival} runs on the calling thread.
+     */
+    public dev.nodera.core.state.RegionSnapshot fetchRegion(
+            String worldIdHex, RegionId region, Bytes wantRoot, java.time.Duration timeout,
+            RegionArrival onArrival) {
         return fetchRegionFrom(worldIdHex, region, wantRoot,
-                resolveSeeders(Bytes.fromHex(worldIdHex)), timeout);
+                resolveSeeders(Bytes.fromHex(worldIdHex)), timeout, onArrival);
+    }
+
+    /**
+     * Columns of a region that have arrived and verified, while the rest are still in flight.
+     *
+     * <p>What "render on arrival" means at this layer: the receiver is handed a
+     * {@link dev.nodera.core.state.RegionSnapshot} holding only the columns whose pieces have been
+     * hash-checked against the manifest, and is handed a bigger one every time that set grows. It is
+     * a real snapshot — canonically encodable, applicable column by column — so the caller that owns
+     * a live level can write what has landed without knowing anything about pieces.
+     */
+    @FunctionalInterface
+    public interface RegionArrival {
+
+        /**
+         * @param partial   the columns verified so far, as a snapshot of the region.
+         * @param verified  pieces verified.
+         * @param total     pieces in the manifest.
+         */
+        void arrived(dev.nodera.core.state.RegionSnapshot partial, int verified, int total);
     }
 
     /**
@@ -648,6 +736,18 @@ public final class WorldArchiveService implements AutoCloseable {
     public dev.nodera.core.state.RegionSnapshot fetchRegionFrom(
             String worldIdHex, RegionId region, Bytes wantRoot,
             Set<NodeId> seeders, java.time.Duration timeout) {
+        return fetchRegionFrom(worldIdHex, region, wantRoot, seeders, timeout, null);
+    }
+
+    /**
+     * As {@link #fetchRegionFrom(String, RegionId, Bytes, Set, java.time.Duration)}, reporting each
+     * column as it arrives.
+     *
+     * @Thread-context any thread except the runtime state thread (blocks).
+     */
+    public dev.nodera.core.state.RegionSnapshot fetchRegionFrom(
+            String worldIdHex, RegionId region, Bytes wantRoot,
+            Set<NodeId> seeders, java.time.Duration timeout, RegionArrival onArrival) {
         Objects.requireNonNull(worldIdHex, "worldIdHex");
         Objects.requireNonNull(region, "region");
         PieceManifest manifest = regionManifestFor(worldIdHex, region, wantRoot);
@@ -657,7 +757,8 @@ public final class WorldArchiveService implements AutoCloseable {
                     + (wantRoot == null ? "" : " at index root " + wantRoot.toShortHex(6)));
         }
         long deadline = System.nanoTime() + timeout.toNanos();
-        byte[] blob = download(worldIdHex, manifest, seeders, deadline, (verified, total) -> { });
+        byte[] blob = download(worldIdHex, manifest, seeders, deadline,
+                onArrival == null ? (verified, total) -> { } : arrivalReporter(manifest, onArrival));
         // The blob must hash to the root the committee certified, or this is not the region it
         // claims to be. The pieces were each verified on arrival; this checks that they were also
         // the RIGHT pieces, assembled in the right order.
@@ -1603,6 +1704,62 @@ public final class WorldArchiveService implements AutoCloseable {
     }
 
     /**
+     * Turn "n of m pieces verified" into "here are the columns you can draw now" (L-33).
+     *
+     * <h2>Why the store is the source and not the reassembler</h2>
+     *
+     * <p>Every verified piece is written to the content store <b>before</b> the download is allowed
+     * to call itself finished — that ordering is {@code PieceDownloader.persistTo}'s whole reason for
+     * existing — so the store is the one place that already knows, correctly and without a second
+     * copy of the bytes, exactly which pieces have passed the manifest's hash. Reading it back costs
+     * a lookup per newly arrived piece and nothing at all for pieces already reported.
+     *
+     * <p>Each report carries every column verified so far, not only the new ones. A receiver writing
+     * into a live level is then idempotent by construction: it may drop a report, apply them out of
+     * order, or start listening late, and the next one still describes the whole of what has landed.
+     *
+     * @return a progress sink to hand {@link #download}. Stateful: one per fetch.
+     */
+    private ArchiveProgress arrivalReporter(PieceManifest manifest, RegionArrival onArrival) {
+        BitSet reported = new BitSet(manifest.pieceCount());
+        List<dev.nodera.core.state.ChunkColumnState> arrived = new ArrayList<>();
+        return (verified, total) -> {
+            BitSet held = content.heldPieces(manifest.manifestRoot());
+            boolean grew = false;
+            for (int piece = held.nextSetBit(0); piece >= 0; piece = held.nextSetBit(piece + 1)) {
+                if (reported.get(piece)) {
+                    continue;
+                }
+                reported.set(piece);
+                Optional<Bytes> payload = content.pieceBytes(manifest.manifestRoot(), piece);
+                if (payload.isEmpty()) {
+                    continue;
+                }
+                List<dev.nodera.core.state.ChunkColumnState> columns =
+                        dev.nodera.distribution.RegionSnapshotSplitter.columnsIn(
+                                manifest, piece, payload.get());
+                if (!columns.isEmpty()) {
+                    arrived.addAll(columns);
+                    grew = true;
+                }
+            }
+            if (!grew) {
+                return;
+            }
+            try {
+                onArrival.arrived(new dev.nodera.core.state.RegionSnapshot(
+                        manifest.region(), manifest.version(), manifest.tick(),
+                        List.copyOf(arrived)), verified, total);
+            } catch (RuntimeException consumerFailed) {
+                // A consumer that cannot take an early column must never fail the transfer: the
+                // whole region is still on its way and still verified against the certified root.
+                LOG.debug("early column delivery for {} refused: {}",
+                        manifest.region(), consumerFailed.toString());
+            }
+        };
+    }
+
+    /**
      * As {@link #fetchArchive}, from an explicit candidate-seeder set (routes must already be
      * known from the tracker or learned traffic) — the tracker-free path for tests and
      * pre-resolved callers.
@@ -1763,7 +1920,16 @@ public final class WorldArchiveService implements AutoCloseable {
         // download started would leave a window in which a manifest learned from the network could
         // evict the thing being fetched — which is the exact race this guards.
         fetching.add(manifest.manifestRoot());
-        PieceDownloader downloader = content.download(manifest, null);
+        // L-33: from here until the `finally`, this region's columns are locked against editing
+        // except where a verified piece has landed. Only a v2 manifest can say which piece carries
+        // which column, so a v1 manifest (and every whole-save archive, which has no chunk index at
+        // all) tracks nothing and stays fully editable — the honest degradation, and the same one
+        // `piecesChangedSince` makes.
+        boolean tracked = manifest.hasChunkIndex();
+        if (tracked) {
+            chunkLocks.track(manifest, manifest.pieceOfChunk());
+        }
+        PieceDownloader downloader = content.download(manifest, tracked ? chunkLocks : null);
         adoptPiecesAlreadyHere(manifest, downloader, alreadyHeld);
         Set<Integer> all = new HashSet<>();
         for (int i = 0; i < manifest.pieceCount(); i++) {
@@ -1832,15 +1998,25 @@ public final class WorldArchiveService implements AutoCloseable {
             int lastVerified = downloader.verifiedCount();
             long lastProgressAt = System.nanoTime();
             long lastReportAt = lastProgressAt;
+            long lastNudgeAt = lastProgressAt;
             while (true) {
                 try {
-                    Bytes blob = completion.get(2, TimeUnit.SECONDS);
+                    // A short slice, because this is also the render clock (L-33): the caller is told
+                    // what has arrived only as often as this loop wakes, and a two-second slice meant
+                    // a region that transferred in one second was reported once, at the end — which
+                    // is precisely the "a region renders only after its whole snapshot arrives"
+                    // behaviour the row is about. The nudge below still runs on its own two-second
+                    // cadence, so a bounded seeder is not asked any more often than before.
+                    Bytes blob = completion.get(PROGRESS_SLICE_MILLIS, TimeUnit.MILLISECONDS);
                     LOG.info("Fetched world archive {} v{} — {} byte(s) from {} seeder(s)",
                             shortId(worldIdHex), manifest.version().value(), blob.length(),
                             holders.size());
                     return blob.toArray();
                 } catch (TimeoutException stalled) {
-                    downloader.retryPending();
+                    if (System.nanoTime() - lastNudgeAt >= TimeUnit.SECONDS.toNanos(2)) {
+                        lastNudgeAt = System.nanoTime();
+                        downloader.retryPending();
+                    }
                 }
                 long now = System.nanoTime();
                 int verified = downloader.verifiedCount();
@@ -1898,6 +2074,13 @@ public final class WorldArchiveService implements AutoCloseable {
             // Released whatever happened. A root left in here would be pinned against every future
             // retention pass — the fetch would be over and the policy would never reclaim it.
             fetching.remove(manifest.manifestRoot());
+            // And released for the same reason, in the same direction: a region left tracked after a
+            // fetch that FAILED would stay locked against editing for the rest of the session, which
+            // is the fail-closed disaster this guard has to avoid rather than cause. The lock exists
+            // to cover the window in which content is arriving; the window is over here.
+            if (tracked) {
+                chunkLocks.forget(manifest.region());
+            }
             // Now that the download is no longer protected, apply the policy that was held off
             // while it ran, so a fetch does not leave superseded versions seeded behind it.
             NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);

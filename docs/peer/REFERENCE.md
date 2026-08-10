@@ -119,10 +119,10 @@ and advertises the manifest on its next tracker announce. Reply:
 tracker, downloads + verifies every piece, and writes the archive blob to the destination path.
 Reply: `NODERA-OK <byteCount> <version>`. Additive.
 
-### `PROGRESS` — interim progress on an in-flight `ARCHIVE` fetch
+### `PROGRESS` — interim progress on an in-flight `ARCHIVE` or `FETCH_REGION` fetch
 
-`NODERA-PROGRESS <verified> <total>`, written by the worker on the same connection before the
-terminal `OK`/`ERR` line.
+`NODERA-PROGRESS <verified> <total> [stagedPathB64]`, written by the worker on the same connection
+before the terminal `OK`/`ERR` line.
 
 **Why a fetch has to speak while it works.** The caller's `timeoutSeconds` was being spent twice,
 meaning two different things: the worker treats it as a *stall* budget — a transfer that keeps moving
@@ -135,6 +135,14 @@ So the worker says how far it has got, and each line is liveness — the same re
 keepalive instead of letting the reader guess what silence means. A client that does not understand
 this line must ignore it and keep reading, which is what makes the addition safe against an older
 peer on either side.
+
+**The third token, and why it rides this line rather than a new verb.** On `FETCH_REGION` the worker
+also names a file holding the region's columns that have *verified so far*, encoded exactly like the
+finished region (network L-33). The rule the paragraph above already stated — a client that does not
+understand a line must ignore it and keep reading — is precisely what makes an extra token safe, so
+render-on-arrival cost the control plane no new verb and no compatibility story: a companion built
+before this change reads the two counts it knows and is otherwise unaffected, and a worker built
+before it simply never sends a third token.
 
 ### `SEED_REGION` — seed one committed region snapshot (worker L-41)
 
@@ -167,6 +175,13 @@ it.
 rather than whatever is newest; omit it for "whatever you have". Reuse is decided below this, by
 piece hash, so a caller that already holds most of the region pays for the columns that differ
 whether or not it names a root.
+
+**It speaks while it works (network L-33).** Pieces are cut at chunk-column boundaries, so a verified
+piece decodes to its own columns without the rest of the blob — a property `PieceSplitter` has always
+cut for and nothing spent until 2026-08-10. The worker now writes the columns verified so far to
+`<destPath>.partial` — whole, then moved into place, so a reader never sees a half-written file — and
+names it on a `NODERA-PROGRESS` line. Each staging is cumulative, so a caller may drop any of them
+and still be correct. The terminal reply and `destPath` are byte-for-byte what they always were.
 
 Why a file path and not the bytes: same as `SEED_REGION`.
 

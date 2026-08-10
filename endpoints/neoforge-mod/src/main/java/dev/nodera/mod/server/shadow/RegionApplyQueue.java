@@ -54,15 +54,63 @@ public final class RegionApplyQueue {
         final RegionId region;
         final java.util.List<ChunkColumnState> columns;
         final Runnable onDone;
+        /**
+         * Columns already written for this arrival, packed as {@code (chunkX << 32) | chunkZ}.
+         *
+         * <p>Carried across the successive offers of one arriving region (see
+         * {@link #offerArriving}). Without it each larger partial would restart at column 0 and
+         * rewrite everything that had already landed — correct, because the bytes are identical, but
+         * quadratic in the number of reports.
+         */
+        final java.util.Set<Long> written;
         int next;
 
         Pending(ServerLevel level, RegionId region, java.util.List<ChunkColumnState> columns,
-                Runnable onDone) {
+                Runnable onDone, java.util.Set<Long> written) {
             this.level = level;
             this.region = region;
             this.columns = columns;
             this.onDone = onDone;
+            this.written = written;
         }
+    }
+
+    private static long key(ChunkColumnState column) {
+        return (((long) column.chunkX()) << 32) | (column.chunkZ() & 0xFFFFFFFFL);
+    }
+
+    /**
+     * The columns of an arrival that are not on the ground yet.
+     *
+     * <p>Separated from {@link #enqueue} because it is the only part of the arriving path that has a
+     * decision in it, and the rest of this class cannot be exercised without a live
+     * {@link ServerLevel}. A partial arrival is <b>cumulative</b> — every report carries everything
+     * verified so far — so without this filter the second report would rewrite the first one's
+     * columns, the third the first two, and a region delivered in eight reports would cost thirty-six
+     * region-writes instead of one.
+     *
+     * @param written the coordinates already written for this arrival.
+     * @param columns the columns the newest report carries.
+     * @return those not yet written, in the order given.
+     * @Thread-context any thread; pure.
+     */
+    static java.util.List<ChunkColumnState> stillToWrite(
+            java.util.Set<Long> written, java.util.List<ChunkColumnState> columns) {
+        if (written.isEmpty()) {
+            return columns;
+        }
+        java.util.List<ChunkColumnState> remaining = new java.util.ArrayList<>(columns.size());
+        for (ChunkColumnState column : columns) {
+            if (!written.contains(key(column))) {
+                remaining.add(column);
+            }
+        }
+        return remaining;
+    }
+
+    /** @param column a column. @return its packed coordinate key, for {@link #stillToWrite}. */
+    static long coordinateOf(ChunkColumnState column) {
+        return key(column);
     }
 
     /**
@@ -75,17 +123,63 @@ public final class RegionApplyQueue {
      * @Thread-context any thread.
      */
     public void offer(ServerLevel level, RegionSnapshot snapshot, Runnable onDone) {
+        enqueue(level, snapshot, onDone, false);
+    }
+
+    /**
+     * Queue the columns of a region that have arrived so far, continuing the one before it (L-33).
+     *
+     * <p>The render half of the async chunk pipeline, from this side. The fetch lane hands over a
+     * growing, always-complete set of verified columns while the rest of the region is still in
+     * flight; each call supersedes the last and keeps the record of what has already been written,
+     * so the queue writes only what is new and a player watching sees terrain fill in rather than a
+     * region that appears all at once at the end.
+     *
+     * <p>Cumulative by contract, so a dropped, late or duplicated report costs nothing.
+     *
+     * @param level    the level to write into.
+     * @param snapshot the columns verified so far.
+     * @Thread-context any thread.
+     */
+    public void offerArriving(ServerLevel level, RegionSnapshot snapshot) {
+        enqueue(level, snapshot, null, true);
+    }
+
+    private void enqueue(ServerLevel level, RegionSnapshot snapshot, Runnable onDone,
+                         boolean continuing) {
         Objects.requireNonNull(level, "level");
         Objects.requireNonNull(snapshot, "snapshot");
+        int queued;
         synchronized (queue) {
             // Replace rather than stack: two snapshots of one region queued together means the older
             // one is already superseded, and writing it first would put terrain on screen that the
             // very next tick overwrites.
-            queue.removeIf(p -> p.region.equals(snapshot.region()));
-            queue.add(new Pending(level, snapshot.region(), snapshot.chunks(), onDone));
+            java.util.Set<Long> written = new java.util.HashSet<>();
+            for (java.util.Iterator<Pending> it = queue.iterator(); it.hasNext();) {
+                Pending previous = it.next();
+                if (!previous.region.equals(snapshot.region())) {
+                    continue;
+                }
+                if (continuing) {
+                    // Same arrival, more of it: what is already on the ground stays on the ground.
+                    written.addAll(previous.written);
+                }
+                it.remove();
+            }
+            java.util.List<ChunkColumnState> pendingColumns =
+                    stillToWrite(written, snapshot.chunks());
+            queued = pendingColumns.size();
+            if (queued == 0 && onDone == null) {
+                // Nothing new arrived, and nobody is waiting to be told the region is done.
+                return;
+            }
+            queue.add(new Pending(level, snapshot.region(), pendingColumns, onDone, written));
         }
-        LOG.info("queued {} for application — {} column(s)",
-                snapshot.region(), snapshot.chunks().size());
+        if (continuing) {
+            LOG.debug("queued {} arriving column(s) of {}", queued, snapshot.region());
+        } else {
+            LOG.info("queued {} for application — {} column(s)", snapshot.region(), queued);
+        }
     }
 
     /**
@@ -119,6 +213,7 @@ public final class RegionApplyQueue {
                 continue;
             }
             ChunkColumnState column = pending.columns.get(pending.next++);
+            pending.written.add(key(column));
             try {
                 LiveSnapshotApplier.applyColumn(pending.level, column, applierScope);
             } catch (RuntimeException failure) {

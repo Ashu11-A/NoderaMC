@@ -124,12 +124,36 @@ public interface ControlHandler {
      * @param haveIndexRoot  the chunk-index root the caller already holds, or the
      *                       {@link ControlProtocol#NO_VALUE} sentinel for "whatever you have".
      * @param timeoutSeconds the no-progress budget for the transfer.
+     * <p>Columns are staged as they arrive (L-33's render half). The worker owns the piece plane and
+     * the caller owns the server thread, so what crosses the boundary is what has always crossed it
+     * — a file — only sooner, and more than once. Each staged partial is a complete, canonically
+     * encoded {@code RegionSnapshot} holding the columns verified so far, so a caller that passes
+     * {@link RegionArrival#IGNORED} behaves exactly as this verb did before.
+     *
+     * @param arrival        notified with the path of each staged partial snapshot; must not block.
      * @return {@code "<byteCount> <snapshotHashHex>"} on success, or {@code null} if unsupported; a
      *         thrown {@link RuntimeException}'s message becomes the ERR line.
      */
     default String fetchRegion(String worldId, String dimension, String regionX, String regionZ,
-                               String destPathB64, String haveIndexRoot, String timeoutSeconds) {
+                               String destPathB64, String haveIndexRoot, String timeoutSeconds,
+                               RegionArrival arrival) {
         return null;
+    }
+
+    /** Columns of a region that have arrived, staged for a caller that can draw them. */
+    @FunctionalInterface
+    interface RegionArrival {
+
+        /** Stages nothing, for callers that only want the finished region. */
+        RegionArrival IGNORED = (partialPath, verified, total) -> { };
+
+        /**
+         * @param partialPath absolute path of a file holding the columns verified so far, encoded as
+         *                    a {@code RegionSnapshot}. Overwritten by the next call.
+         * @param verified    pieces verified so far.
+         * @param total       pieces in the region.
+         */
+        void staged(String partialPath, int verified, int total);
     }
 
     /**

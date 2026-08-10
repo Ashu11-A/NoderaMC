@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-08-06 · Tasks completed: **11 / 15**
+**Category:** network · **Last audit:** 2026-08-10 · Tasks completed: **10 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -19,7 +19,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [1](Task.1.md) | Wire protocol, transports, handshake | ✅ COMPLETED | Tags through 60; authenticated accept handshake (L-53 retired) |
 | [2](Task.2.md) | Peer runtime, membership, gateway | 🚧 IN PROGRESS | Election + continuity + certified committee changes ✅; the negotiation handshake now runs on every announce (2026-07-29); every player's worker joins its own world's session, and the resident pool is a broadcast plan input (L-30's code half); migration end-to-end remains |
 | [3](Task.3.md) | Event-sourced + durable storage | ✅ COMPLETED | RocksDB tier, forced-kill recovery, certified forward sync; owner-only Android fallback |
-| [4](Task.4.md) | Torrent data plane | ✅ COMPLETED | Production consumer live (world-continuity lane); L-33 render half remains |
+| [4](Task.4.md) | Torrent data plane | 🚧 IN PROGRESS | Its header said COMPLETED while acceptance #6 said ⏳; corrected 2026-08-10. The edit guard now runs in production and columns render on arrival, both proven headlessly — the outstanding half is a live client run (L-33) |
 | [5](Task.5.md) | Discovery + multi-bootstrap + identity | ✅ COMPLETED | Serving role moved to the tracker service |
 | [6](Task.6.md) | Placement, replication, repair | ✅ COMPLETED | `WorldReplicationService` replicates real worlds and excludes synthetic commons presence |
 | [7](Task.7.md) | Reliability, quotas, retention | 🚧 IN PROGRESS — **the reliability half reopened** | Quotas and retention stand; the countdown is network-visible on every announce. **L-36 retired 2026-07-23 and REOPENED 2026-08-06**: `ReliabilityScorer`, `ReliabilityFactors`, `ReliabilityConfig` and `ReliabilityScorerTest` were deleted 2026-08-06 (`24e6f0e`, #210) as unreachable, and had never been reachable, so deliverables 1 and 2 are **withdrawn** — do not restore the deleted files before reading the decision note in [`Task.7.md`](Task.7.md) |
@@ -35,6 +35,52 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — L-33: the arrival guard runs, and a region no longer arrives all at once ([#158](https://github.com/Ashu11-A/NoderaMC/issues/158))
+
+Two capabilities that had been complete, unit-tested and reachable from nothing were given production
+call sites, and the piece plane's oldest unspent property was finally spent.
+
+**The edit guard.** `WorldMutationApplier` has consulted a `ChunkEditability` seam since the piece
+plane landed, and `ChunkLockEditability` has adapted the download lane's `ChunkLockMap` onto it for
+just as long. Neither ran: both production appliers used the one-argument constructor
+(`ALL_EDITABLE`), and the single production `download` call passed `null` for the lock map, so
+nothing anywhere called `track`. The 2026-07-29 audit that reopened this row said the missing step
+was "small but not local", and it was right about the second word — a producer had to exist before a
+consumer could mean anything. `WorldArchiveService` now owns the map, tracks a v2 manifest for
+exactly the window in which its region is in flight, and hands `PeerNode` a seam that
+`WorkerValidationService.bindChunkLocks` installs on both of its appliers.
+
+**Absence had to fail open, and that is the whole reason this was not done sooner.**
+`ChunkLockMap.isChunkEditable` answers `false` for a region it is not tracking, which is correct for
+the map and catastrophic for the applier: the applier is the choke point every `ServerLevel` write in
+the process passes through, so installing the bare adapter would have locked the whole world against
+editing rather than locking an un-arrived section. `ChunkLockEditability.whileFetching` asks the
+question in two steps instead — is this region being fetched at all, and if so has this column's piece
+verified — and a node downloading nothing is fully editable.
+
+**Render on arrival.** `PieceSplitter`'s header has always explained that pieces are cut at record
+boundaries so that "a piece must be independently *usable*, not merely independently transferable …
+cutting mid-record would produce pieces that verify by hash yet decode to nothing on their own, which
+defeats render-on-arrival". Nothing had ever used it. `RegionSnapshotSplitter.columnsIn` decodes the
+columns one verified piece carries; the region fetch reports a growing, always-cumulative snapshot of
+what has verified; `NODERA-FETCH-REGION` stages each report as a file and names it on an interim
+`NODERA-PROGRESS` line, whose third token is additive and which older clients already had to ignore;
+and `RegionApplyQueue.offerArriving` writes only what is not already on the ground. Nothing about the
+transfer's guarantees moved: a column is reported only after its piece passed the manifest's hash, and
+the finished region is still verified against the certified root and applied whole.
+
+Evidence: `ArchiveLaneTest.ProductionApplierIsLockAwareTest` (4 — the central test verified failing
+both ways: with the `null` lock map restored, and with the applier's one-argument constructor
+restored), `ArchiveLaneTest.RegionRendersOnArrivalTest` (1, verified failing with the piece→column
+inversion stubbed out), `RegionRoundTripTest` (+2, same inversion), `RegionApplyQueueTest` (4).
+`./gradlew check` green. `:peer:structureReport` improved on exactly the class this row is about —
+`test_only_classes` 10 → 9, `unreachable_methods` 112 → 111 — and `fixtures/structure/budget.json`
+was re-stamped in the same commit.
+
+**The row stays OPEN.** Its render clause is a claim about a real client, and no GUI run was made:
+the machine was running three agents and two of them were rewriting the live harness. Every other
+clause of the exit test is met.
 
 ### 2026-08-06 — L-36 REOPENED: the multi-factor score never ran in a shipped build
 

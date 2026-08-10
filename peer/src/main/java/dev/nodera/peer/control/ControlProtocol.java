@@ -84,9 +84,15 @@ public final class ControlProtocol {
     public static final String ARCHIVE = "NODERA-ARCHIVE";
 
     /**
-     * Interim progress on an in-flight {@link #ARCHIVE} fetch:
-     * {@code NODERA-PROGRESS <verified> <total>}, written by the worker on the same connection
-     * before the terminal {@link #OK}/{@link #ERR} line.
+     * Interim progress on an in-flight {@link #ARCHIVE} or {@link #FETCH_REGION} fetch:
+     * {@code NODERA-PROGRESS <verified> <total> [stagedPathB64]}, written by the worker on the same
+     * connection before the terminal {@link #OK}/{@link #ERR} line.
+     *
+     * <p>The third token is additive and appears on {@link #FETCH_REGION} only: it names a file
+     * holding the region's columns <b>verified so far</b>, encoded exactly like the finished region,
+     * so the caller can draw arriving terrain instead of waiting for the last piece (network L-33).
+     * A client that only knows the two-token form reads the two numbers and ignores the rest, which
+     * is what the paragraph below already required of it.
      *
      * <p><b>Why a fetch has to speak while it works.</b> The caller's {@code timeoutSeconds} was
      * being spent twice — the worker treats it as a <i>stall</i> budget while a client could treat it
@@ -113,7 +119,8 @@ public final class ControlProtocol {
      * Fetch one region's committed state from the network:
      * {@code NODERA-FETCH-REGION <ver> <worldId> <dim> <regionX> <regionZ> <destPathB64>
      * [haveIndexRootHex] [timeoutSeconds]} — the exact mirror of {@link #SEED_REGION}. Reply:
-     * {@code NODERA-OK <byteCount> <regionRootHex>}. Additive verb. Full rationale:
+     * {@code NODERA-OK <byteCount> <regionRootHex>}, preceded by zero or more {@link #PROGRESS}
+     * lines naming the partial the worker has staged (network L-33). Additive verb. Full rationale:
      * {@code docs/peer/REFERENCE.md} §FETCH_REGION.
      */
     public static final String FETCH_REGION = "NODERA-FETCH-REGION";

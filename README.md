@@ -297,9 +297,9 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 189 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 158 | ✅ |
 | `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 46 | ✅ |
-| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 850 | 🚧 |
+| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 857 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 114 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 134 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 138 | 🚧 |
 | `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 79 | ✅ |
 | `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 296 | 🚧 |
@@ -323,7 +323,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | Category | Scope | Tasks | Status |
 |---|---|---|---|
 | [**Engine**](docs/engine/Task.0.md) | Deterministic region engine, shadow validation, committees, fallback | 12 | 🚧 7 done |
-| [**Network**](docs/network/Task.0.md) | Wire protocol, transports, peer runtime, storage, discovery, replication | 14 | 🚧 11 done |
+| [**Network**](docs/network/Task.0.md) | Wire protocol, transports, peer runtime, storage, discovery, replication | 14 | 🚧 10 done |
 | [**Tracker**](docs/tracker/Task.0.md) | Always-on world/peer discovery service + its Java client | 6 | 🚧 5 done |
 | [**Rendezvous**](docs/rendezvous/Task.0.md) | NAT reach: registration, hole punching, encrypted relay fallback | 6 | 🚧 4 done |
 | [**Minecraft**](docs/minecraft/Task.0.md) | The NeoForge mod: capture, live lanes, GUI, host lane, world identity | 11 | 🚧 5 done |

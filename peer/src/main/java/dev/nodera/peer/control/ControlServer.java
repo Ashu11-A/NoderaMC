@@ -133,6 +133,13 @@ public final class ControlServer implements AutoCloseable {
                 archive(c, request);
                 return;
             }
+            if (request.startsWith(ControlProtocol.FETCH_REGION)) {
+                // The third: a region fetch reports every column as it lands, which is what lets the
+                // game draw arriving terrain instead of waiting for the last piece (L-33). Same
+                // shape as ARCHIVE — interim lines, then the same terminal line as before.
+                fetchRegion(c, request);
+                return;
+            }
             String reply = dispatch(request);
             if (reply != null) {
                 OutputStream out = c.getOutputStream();
@@ -197,6 +204,45 @@ public final class ControlServer implements AutoCloseable {
                         }
                     });
             reply = fetched == null ? err("archive lane unavailable")
+                    : ControlProtocol.OK + " " + fetched;
+        } catch (RuntimeException failed) {
+            reply = err(failed.getMessage() == null ? failed.toString() : failed.getMessage());
+        }
+        out.write((reply + "\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
+    /**
+     * Serve one {@link ControlProtocol#FETCH_REGION}, naming each staged partial as it lands (L-33).
+     *
+     * <p>Same connection discipline as {@link #archive}: the read timeout is cleared, interim
+     * {@link ControlProtocol#PROGRESS} lines carry liveness <b>and</b> the staged partial's path, and
+     * the terminal {@code OK}/{@code ERR} line is byte-identical to what this verb has always
+     * answered. The path rides as a third token on a line whose contract already says a client that
+     * does not understand it must ignore it and keep reading — so a companion built before this
+     * change parses the two numbers it knows and is otherwise unaffected.
+     */
+    private void fetchRegion(Socket c, String request) throws IOException {
+        c.setSoTimeout(0);
+        OutputStream out = c.getOutputStream();
+        String[] parts = request.split("\\s+");
+        String reply;
+        try {
+            String fetched = handler.fetchRegion(arg(parts, 2), arg(parts, 3), arg(parts, 4),
+                    arg(parts, 5), arg(parts, 6), arg(parts, 7), arg(parts, 8),
+                    (partialPath, verified, total) -> {
+                        try {
+                            out.write((ControlProtocol.PROGRESS + " " + verified + " " + total + " "
+                                    + java.util.Base64.getEncoder().encodeToString(
+                                            partialPath.getBytes(StandardCharsets.UTF_8))
+                                    + "\n").getBytes(StandardCharsets.UTF_8));
+                            out.flush();
+                        } catch (IOException clientLeft) {
+                            // Same as the archive lane: the caller gave up, and finishing the fetch
+                            // still leaves the region on disk for whoever asks next.
+                        }
+                    });
+            reply = fetched == null ? err("region fetch unavailable")
                     : ControlProtocol.OK + " " + fetched;
         } catch (RuntimeException failed) {
             reply = err(failed.getMessage() == null ? failed.toString() : failed.getMessage());
@@ -352,17 +398,9 @@ public final class ControlServer implements AutoCloseable {
                 return seeded == null ? err("validated-lane seeding unavailable")
                         : ControlProtocol.OK + " " + seeded;
             }
-            if (ControlProtocol.FETCH_REGION.equals(verb)) {
-                // NODERA-FETCH-REGION <ver> <worldId> <dim> <rx> <rz> <destB64>
-                //                     [haveRootHex] [timeoutSeconds]
-                String fetched = handler.fetchRegion(arg(parts, 2), arg(parts, 3),
-                        arg(parts, 4), arg(parts, 5), arg(parts, 6), arg(parts, 7),
-                        arg(parts, 8));
-                return fetched == null ? err("region fetch unavailable")
-                        : ControlProtocol.OK + " " + fetched;
-            }
-            // NODERA-ARCHIVE is not dispatched here: it writes progress before it answers, so it
-            // is handled by #archive on the connection itself. See the branch in #handle.
+            // Neither NODERA-ARCHIVE nor NODERA-FETCH-REGION is dispatched here: both write progress
+            // before they answer, so they are handled by #archive and #fetchRegion on the connection
+            // itself. See the branches in #handle.
             if (ControlProtocol.WORLDID.equals(verb)) {
                 // NODERA-WORLDID <ver> <genesisRootB64> <createdAt> <shared> <listed> <enc>
                 //                <manifestRefB64> [pinnedWorldIdHex]
