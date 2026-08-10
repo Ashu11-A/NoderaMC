@@ -50,8 +50,16 @@ import java.util.Optional;
  */
 public final class FlatWorldRules implements RuleSet {
 
-    /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 7;
+    /**
+     * Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees
+     * must refuse.
+     *
+     * <p>7 → 8 (Task 11, L-7): engine-owned mobs carry {@code MobState} — vitals <i>plus</i> the AI
+     * memory the decision lane keeps between decisions — so every MOB in every region hashes
+     * differently from a version-7 build. That is a root-shape change, and a world certified under
+     * 7 cannot be executed by this engine; see {@code docs/engine/Task.11.md} §Migration.
+     */
+    public static final int RULES_VERSION = 8;
 
     /** Palette id for air. */
     public static final int AIR = 0;
@@ -375,14 +383,19 @@ public final class FlatWorldRules implements RuleSet {
      * @Thread-context pure function; safe from any thread.
      */
     public static long registryFingerprint() {
-        long[] parts = new long[2 + PALETTE.length * 2];
+        long[] parts = new long[3 + PALETTE.length * 2];
         int i = 0;
         parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v6");
         for (PaletteEntry e : PALETTE) {
             parts[i++] = e.id();
             parts[i++] = StableHash.of(e.name());
         }
-        parts[i] = ItemEntityRules.semanticFingerprint();
+        parts[i++] = ItemEntityRules.semanticFingerprint();
+        // The mob decision lane and the shape of the payload it writes. Without this the palette
+        // alone decided the fingerprint, so two builds that spawn the same blocks but move their
+        // mobs differently would agree to validate for each other and then diverge on the first
+        // decision interval. MobAiRules mixes MobCombatRules' contribution in turn.
+        parts[i] = dev.nodera.simulation.entity.MobAiRules.semanticFingerprint();
         return StableHash.of(parts);
     }
 

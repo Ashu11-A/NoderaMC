@@ -29,10 +29,12 @@ jqwik `@Property` determinism tests and the ArchUnit forbidden-API ban.
 The rule set has grown well past the MVP palette: containers, redstone (palette v4 including
 pressure plates and sticky pistons), fluids, random ticks, gravity, fire, lighting, observers and
 quasi-connectivity, daylight sensors, mob AI and spawning, combat vitals, movement, portals,
-commands, and the third-party rule-pack SDK. `RULES_VERSION` is **7** and the palette literal remains
+commands, and the third-party rule-pack SDK. `RULES_VERSION` is **8** and the palette literal remains
 `palette.v6` (v5 added obsidian for the L-2 fluid-interaction lane; v6 added farmland + wheat for
 the L-1 farm half; rules v7 fixes complete, bounded dense/uniform halo-fluid seeding without changing
-the palette).
+the palette; **rules v8 puts the mob AI memory into the `EntityKind.MOB` payload** — a root-shape
+change, so `MobAiRules.semanticFingerprint()` now contributes to `registryFingerprint()`, and see
+[Task 11 §Migration](Task.11.md#migration) for what an already-shared world does).
 
 L-52 is retired. Signed Q32.32 multiplication now lives once in core's `FixedPoint`; immutable
 entity motion copies live on `PersistedEntityState`; and packed chunk-coordinate keys live once in

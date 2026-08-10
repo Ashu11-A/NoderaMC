@@ -15,6 +15,8 @@ import dev.nodera.simulation.rules.FlatWorldRules;
  * vanilla's for delegated regions. Every decision draws from the per-tick
  * {@link DeterministicRandom} and gates on {@link LightField} — the committed state IS the
  * spawn condition, so three replicas produce the identical mob population by construction.
+ * A spawned mob enters the root with a fresh {@link MobState} — full vitals and no intention yet
+ * ({@link MobState.AiMemory#IDLE}); its first decision interval is where an intention is drawn.
  *
  * <p><b>Cycle (vanilla-shaped, bounded):</b> every {@link #SPAWN_INTERVAL_TICKS} region ticks
  * one attempt runs: a random owned column and a ground scan pick the candidate cell (solid
@@ -87,8 +89,8 @@ public final class SpawnRules {
                         (long) cell.y() << 32,
                         ((long) z << 32) + (1L << 31)),
                 FixedVec3.ZERO, 0, (int) (tick + DESPAWN_AFTER_TICKS),
-                MobCombatRules.vitalsPayload(
-                        MobCombatRules.ZOMBIE_MAX_HEALTH, MobCombatRules.ZOMBIE_MAX_HEALTH)));
+                MobState.fresh(MobCombatRules.ZOMBIE_MAX_HEALTH,
+                        MobCombatRules.ZOMBIE_MAX_HEALTH).encode()));
     }
 
     /** Every cell in the column with a solid floor and two air cells of headroom (top-down). */

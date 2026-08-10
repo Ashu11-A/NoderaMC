@@ -6,7 +6,7 @@
      ../ROADMAP.md §2 and the root README bar. A milestone note that does not name its evidence is
      not a milestone note. Never rewrite an old note — append a new one. -->
 
-**Category:** engine · **Last audit:** 2026-07-28 · Tasks completed: **7 / 12**
+**Category:** engine · **Last audit:** 2026-08-10 · Tasks completed: **7 / 12**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -18,7 +18,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Domain types, crypto, canonical encoding | ✅ COMPLETED | Frozen contract; extended additively through type tag 108 |
-| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 7, palette literal `palette.v6` (v7 fixes dense-halo fluid seeding; palette unchanged) |
+| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 8, palette literal `palette.v6` (v8 puts AI memory in the MOB payload; palette unchanged) |
 | [3](Task.3.md) | Shadow validation | ✅ COMPLETED (headless) | Live capture soak → [minecraft 2](../minecraft/Task.2.md) |
 | [4](Task.4.md) | Coordinator | ✅ COMPLETED (headless) | Live `ServerLevel` applier → [minecraft 2](../minecraft/Task.2.md) |
 | [5](Task.5.md) | Committee validation — MVP gate | ✅ COMPLETED (headless) | Also running out of game via [worker 4](../peer/Task.4.md) |
@@ -27,12 +27,59 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [8](Task.8.md) | Entity & mob lane | 🚧 IN PROGRESS | Headless/durable green; proven live; scripted CI drives remain (L-50) |
 | [9](Task.9.md) | Validated redstone | 🚧 IN PROGRESS | Palette complete (L-26 retired); contraption migration remains |
 | [10](Task.10.md) | Environment lane | 🚧 IN PROGRESS | L-3/L-4/L-5/L-6 retired; L-1/L-2 retiring |
-| [11](Task.11.md) | Deterministic entity simulation | 🚧 IN PROGRESS | L-8/L-9/L-24 retired; L-7 retiring |
+| [11](Task.11.md) | Deterministic entity simulation | 🚧 IN PROGRESS | L-8/L-9/L-24 retired; L-7 retiring (mobs remember + route since 2026-08-10; `RULES_VERSION` 8) |
 | [12](Task.12.md) | Player lane & trustless closure | 🚧 IN PROGRESS | L-10/L-11/L-13/L-14/L-15/L-18/L-20/L-21 retired; L-12/L-16/L-17/L-25 remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — Engine-owned mobs remember an intention and route to it (L-7, `RULES_VERSION` 7→8)
+
+The wander MVP could not decide anything that outlived one decision — next interval it had
+forgotten why it moved — so a "wandering" mob jittered around its spawn and no tuning could have
+changed that: the intention had nowhere to live. It lives in the hashed root now.
+
+`MobState` is the canonical `EntityKind.MOB` payload: the existing `[u16 health][u16 maxHealth]`
+vitals plus an `AiMemory` triple `(goal, untilTick, destination)`, with explicit Nodera goal codes
+rather than enum ordinals so inserting a goal later cannot silently restate every committed mob.
+`IntPathfinder` turns the destination into one block per decision: bounded integer A* over walkable
+stances, node budget 192, heuristic `max(|Δx| + |Δz|, |Δy|)`, no `double` anywhere, and — the part
+that matters most — an open set ordered by `(f, g descending, position)` in `NBlockPos`' canonical
+`(y, z, x)` order. Shortest routes on a Minecraft grid are almost never unique, so that tie-break is
+the answer rather than a detail of it; an A* with a hash-ordered open set returns a different,
+equally short route on two replicas and parts their roots with nothing logged anywhere. Only the
+first step is returned and the route is re-derived every decision, so a corridor walled up between
+two decisions makes the mob abandon the goal instead of holding a stale plan in hashed state.
+
+Growing the payload is a **root-shape change**, so `RULES_VERSION` moved 7→8 and
+`MobAiRules.semanticFingerprint()` entered `FlatWorldRules.registryFingerprint()` — two builds that
+spawn the same blocks but move their mobs differently now fail to seat a shared region instead of
+committing two different roots. No wire tag moved: `MobState` is the opaque payload of an
+already-framed `PersistedEntityState`, so no codec, no `TypeTags` entry and no `fixtures/wire/`
+golden changed and deployed services are unaffected. What an already-shared world has to do is in
+[`Task.11.md` §Migration](Task.11.md#migration).
+
+**Evidence.** `./gradlew check` green; `:engine:test` 458 tests / 0 failed / 0 skipped, whole Java
+tree 2,283 / 0 failed. New: `MobRulesTest.PathfindingTest`
+(7) and four cases in `MobRulesTest.MobAiRulesTest`, the decisive one being
+`aMobWalksTowardsOneDestinationAcrossManyDecisions` — six consecutive decisions, six blocks in one
+direction, one destination, which a memoryless mob cannot do. `CombatStateRootTest` gains the
+negative determinism pair L-7's root-shape change required. Both mechanisms were verified
+load-bearing by deletion: encoding only the vitals reddens 5 tests
+(`identicalVitalsWithDifferentAiMemoryGiveDifferentRoots`, `droppingAiMemoryFromThePayloadChangesTheRoot`,
+and three memory cases); substituting a greedy one-step router for A* reddens 3
+(`theRouteGoesRoundAWallInsteadOfStoppingAtIt`, `equalLengthRoutesAreBrokenByCanonicalBlockOrder`,
+`theNodeBudgetIsAHardCeilingOnTheWork`).
+
+**L-7 did not move and is not close.** Its exit clause is a per-species ghost share of zero in soak,
+and nothing in the tree measures ghost share — the term had no definition anywhere until this
+commit, which is why the row was unanswerable rather than merely open. It is defined now
+([`Task.11.md` §What "ghost share" means](Task.11.md#what-ghost-share-means)) and the seven
+remaining steps are enumerated in the same file. `Sensors`, `GoalSelector`, targeting/combat goals,
+`UseItemOnEntityAction`, `GhostShareMetrics` (in `dev.nodera.diagnostics`, never in `simulation` —
+counters near hashed state are how determinism dies) and `SpeciesRetirement` are all still unbuilt,
+and the live soak that would read the metric is blocked on issue #266.
 
 ### 2026-08-05 — Methods nothing in the tree names are gone from `:engine` and `:storage` (Plan 11 phase 1)
 

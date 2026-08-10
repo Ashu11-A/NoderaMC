@@ -257,8 +257,8 @@ final class TransitRulesTest {
                     EntityKind.MOB, SpawnRules.ZOMBIE_TYPE_ID,
                     FixedVec3.fromExternal(x, y, z), FixedVec3.ZERO,
                     0, PersistedEntityState.NEVER_DESPAWN,
-                    MobCombatRules.vitalsPayload(
-                            MobCombatRules.ZOMBIE_MAX_HEALTH, MobCombatRules.ZOMBIE_MAX_HEALTH));
+                    MobState.fresh(MobCombatRules.ZOMBIE_MAX_HEALTH,
+                            MobCombatRules.ZOMBIE_MAX_HEALTH).encode());
         }
 
         @Test
