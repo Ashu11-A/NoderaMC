@@ -136,15 +136,6 @@ final class HostActivation {
     private static boolean abandoned(long generation) {
         return ACTIVATION_GENERATION.get() != generation;
     }
-
-    /**
-     * @return whether a bring-up is still running. Exists so a test can wait for the thread it
-     *         started to be gone before the next one starts — the flag is process-wide, and a case
-     *         that leaked one into the next would refuse it and fail for the wrong reason.
-     */
-    static boolean inFlight() {
-        return ACTIVATION_IN_FLIGHT.get();
-    }
     /**
      * Start the off-thread half of a share and return.
      *
@@ -155,20 +146,25 @@ final class HostActivation {
      * @param request       the server-thread snapshot.
      * @param onServerThread how to post work back to the server thread ({@code server::execute}).
      * @param finish        the server-thread half, run through {@code onServerThread}.
+     * @return whether a bring-up was started. {@code false} means one was already running, which is
+     *         the whole of the re-entrancy answer and the only observable this class has: the
+     *         in-flight flag itself is deliberately not exposed, because a getter no production
+     *         caller reads is dead code with a test holding it up.
      */
-    static void begin(Request request,
-                                java.util.function.Consumer<Runnable> onServerThread,
-                                java.util.function.Consumer<Outcome> finish) {
+    static boolean begin(Request request,
+                         java.util.function.Consumer<Runnable> onServerThread,
+                         java.util.function.Consumer<Outcome> finish) {
         if (!ACTIVATION_IN_FLIGHT.compareAndSet(false, true)) {
             // Not an error: a player who clicks Share twice, or a create-share racing the
             // auto-re-share, would otherwise get two host peers for one world.
             LOG.info("Nodera: a share of '{}' is already being brought up; ignoring the second",
                     request.world());
-            return;
+            return false;
         }
         long generation = ACTIVATION_GENERATION.incrementAndGet();
         Thread.ofPlatform().name("nodera-host-activate").daemon().start(
                 () -> bringUp(generation, request, onServerThread, finish));
+        return true;
     }
 
     /**

@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Publishing the game port calls {@code MinecraftServer.publishServer}, the archive seed flushes
  * the save and the entity-lane bootstrap reads player positions — three things that are only legal
  * on the server thread. Moving the share off that thread is only safe if those three go back to it,
- * so this suite pins the direction of travel: {@code beginActivation} is handed an executor, and the
+ * so this suite pins the direction of travel: {@code HostActivation.begin} is handed an executor, and the
  * completion is reached through that executor and through nothing else.
  *
  * <p>The bring-up is made to fail on purpose here, because that is the case with a rule attached:
@@ -44,14 +44,29 @@ final class HostActivationCompletionRunsOnTheServerThreadTest {
     Path saveRoot;
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown() {
         HostActivation.abandon();
         HostActivation.activationStall = null;
+    }
+
+    /** As the sibling suite: {@code begin}'s own answer is the wait condition. */
+    private static void beginOrWait(HostActivation.Request request,
+                                    java.util.function.Consumer<Runnable> onServerThread,
+                                    java.util.function.Consumer<HostActivation.Outcome> finish)
+            throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SAFETY_BOUND_SECONDS);
-        while (HostActivation.inFlight() && System.nanoTime() < deadline) {
+        while (!HostActivation.begin(request, onServerThread, finish)) {
+            assertThat(System.nanoTime())
+                    .as("a bring-up from an earlier case never finished")
+                    .isLessThan(deadline);
             Thread.sleep(5L);
         }
     }
+
+    /** The injected failure both cases use to keep the bring-up away from this machine's worker. */
+    private static final Runnable FAILS_FAST = () -> {
+        throw new IllegalStateException("injected: the mesh refused to start");
+    };
 
     @Test
     @DisplayName("the completion is posted to the server thread, and posted even when the share failed")
@@ -61,9 +76,7 @@ final class HostActivationCompletionRunsOnTheServerThreadTest {
                 Bytes.fromHex("11".repeat(32)), "127.0.0.1", 0, "127.0.0.1", false);
         // Fail the bring-up at its first step. Nothing below it then touches this machine's worker,
         // its network or its save, so what the case observes is the hand-back and only the hand-back.
-        HostActivation.activationStall = () -> {
-            throw new IllegalStateException("injected: the mesh refused to start");
-        };
+        HostActivation.activationStall = FAILS_FAST;
 
         List<Runnable> posted = new CopyOnWriteArrayList<>();
         AtomicReference<String> postedFrom = new AtomicReference<>();
@@ -71,7 +84,7 @@ final class HostActivationCompletionRunsOnTheServerThreadTest {
         AtomicReference<HostActivation.Outcome> finished = new AtomicReference<>();
         AtomicReference<String> finishedOn = new AtomicReference<>();
 
-        HostActivation.begin(request,
+        beginOrWait(request,
                 runnable -> {
                     postedFrom.set(Thread.currentThread().getName());
                     posted.add(runnable);
@@ -130,7 +143,7 @@ final class HostActivationCompletionRunsOnTheServerThreadTest {
         };
         List<Runnable> posted = new CopyOnWriteArrayList<>();
 
-        HostActivation.begin(new HostActivation.Request(
+        beginOrWait(new HostActivation.Request(
                         saveRoot, "Test World", ShareOptions.playerDefault(), NodeIdentity.generate(),
                         Bytes.fromHex("22".repeat(32)), "127.0.0.1", 0, "127.0.0.1", false),
                 posted::add, outcome -> { });
@@ -142,11 +155,15 @@ final class HostActivationCompletionRunsOnTheServerThreadTest {
         HostActivation.abandon();
         release.countDown();
 
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SAFETY_BOUND_SECONDS);
-        while (HostActivation.inFlight() && System.nanoTime() < deadline) {
-            Thread.sleep(5L);
-        }
-        assertThat(HostActivation.inFlight()).isFalse();
+        // Waited on deterministically rather than slept through: the abandoned run clears the
+        // in-flight flag as the last thing it does and posts nothing after it, so a probe that is
+        // ACCEPTED is proof the run is over. The probe fails at its first step, so it touches
+        // nothing.
+        HostActivation.activationStall = FAILS_FAST;
+        beginOrWait(new HostActivation.Request(
+                        saveRoot, "Probe", ShareOptions.playerDefault(), NodeIdentity.generate(),
+                        Bytes.fromHex("33".repeat(32)), "127.0.0.1", 0, "127.0.0.1", false),
+                r -> { }, outcome -> { });
         assertThat(posted)
                 .as("an abandoned share hands the server thread nothing to do")
                 .isEmpty();

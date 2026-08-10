@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <ol>
  *   <li>the slow half runs on {@code nodera-host-activate} and not on the calling thread; and</li>
- *   <li>{@code beginActivation} has already returned while that half is <b>still</b> inside a block
+ *   <li>{@code begin} has already returned while that half is <b>still</b> inside a block
  *       the test itself has not released.</li>
  * </ol>
  *
@@ -74,22 +74,35 @@ final class HostActivationIsOffTheServerThreadTest {
     Path saveRoot;
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown() {
         // Abandon first, release second: the generation bump is what makes the bring-up return at
         // its next checkpoint instead of going on to mint an identity and bind a socket against
         // whatever worker this machine happens to be running.
         HostActivation.abandon();
         HostActivation.activationStall = null;
         release.countDown();
-        // The in-flight flag is process-wide, so a bring-up leaked into the next case would refuse
-        // it and fail it for the wrong reason. Waited on rather than slept through.
+    }
+
+    /**
+     * Start a bring-up, waiting out any the previous case left running.
+     *
+     * <p>The in-flight state is process-wide and {@code begin} refuses while one is up, so a case
+     * that simply called it could fail because of its predecessor rather than because of the rule
+     * it is testing. {@code begin}'s own return value is the wait condition — no accessor exists
+     * for the flag, and none should: a getter production never reads is dead code with a test
+     * holding it up.
+     */
+    private static void beginOrWait(HostActivation.Request request,
+                                    java.util.function.Consumer<Runnable> onServerThread,
+                                    java.util.function.Consumer<HostActivation.Outcome> finish)
+            throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SAFETY_BOUND_SECONDS);
-        while (HostActivation.inFlight() && System.nanoTime() < deadline) {
+        while (!HostActivation.begin(request, onServerThread, finish)) {
+            assertThat(System.nanoTime())
+                    .as("a bring-up from an earlier case never finished")
+                    .isLessThan(deadline);
             Thread.sleep(5L);
         }
-        assertThat(HostActivation.inFlight())
-                .as("the bring-up this case started must be gone before the next one begins")
-                .isFalse();
     }
 
     private HostActivation.Request request() {
@@ -125,7 +138,7 @@ final class HostActivationIsOffTheServerThreadTest {
         String caller = Thread.currentThread().getName();
         List<Runnable> postedToServerThread = new CopyOnWriteArrayList<>();
 
-        HostActivation.begin(request(), postedToServerThread::add, outcome -> { });
+        beginOrWait(request(), postedToServerThread::add, outcome -> { });
 
         assertThat(entered.await(30, TimeUnit.SECONDS))
                 .as("the bring-up must actually reach its slow step")
@@ -150,21 +163,13 @@ final class HostActivationIsOffTheServerThreadTest {
         CountDownLatch entered = new CountDownLatch(1);
         blockTheBringUp(enteredThread, entered);
 
-        HostActivation.begin(request(), r -> { }, outcome -> { });
+        beginOrWait(request(), r -> { }, outcome -> { });
         assertThat(entered.await(30, TimeUnit.SECONDS)).isTrue();
 
         // `isHosting()` used to be the whole re-entrancy guard and it cannot be one any more: the
         // host runtime does not exist yet at this point, so a second Share click would have bound a
         // second P2P socket and registered a second relay reservation nothing ever stops.
-        CountDownLatch secondEntered = new CountDownLatch(1);
-        Runnable first = HostActivation.activationStall;
-        HostActivation.activationStall = () -> {
-            secondEntered.countDown();
-            first.run();
-        };
-        HostActivation.begin(request(), r -> { }, outcome -> { });
-
-        assertThat(secondEntered.await(2, TimeUnit.SECONDS))
+        assertThat(HostActivation.begin(request(), r -> { }, outcome -> { }))
                 .as("the second share must not start a second bring-up")
                 .isFalse();
     }
