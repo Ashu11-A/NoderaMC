@@ -12,7 +12,7 @@
 **Status:** ✅ DONE — the four benchmark lanes, the ranked report with load-scaling and baseline
 diff, the bytecode structural report, the JDWP worker probe, the ratchet, and the `benchmarks`
 workflow all landed and ran green
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-29
+**Category:** network · **Owns:** — · **Last audit:** 2026-08-10
 **Depends on:** [network 2](Task.2.md), [network 4](Task.4.md), [network 5](Task.5.md),
 [worker 1](../peer/Task.1.md)
 **Consumed by:** every task that changes `peer` or `peer`
@@ -169,6 +169,15 @@ python3 scripts/bench-report.py --write-baseline
 check` is unchanged in scope and runtime. The task declares every module's `classes`/`testClasses`
 as dependencies, which is what makes "a module was not compiled, so its callers vanished" impossible
 rather than merely unlikely.
+
+> **Corrected 2026-08-10 (issue #179).** The sentence above was not true of `:paper-plugin`, which
+> was declared with `classes` only. The omission was invisible while that module had no production
+> method a test was the sole caller of; the moment one existed, one tree produced two verdicts — a
+> developer who had just run `check` saw three **test-only** methods, and CI, which builds nothing
+> else, saw three methods referenced by **nothing**, which is the bucket with no headroom. Adding
+> `:paper-plugin:testClasses` makes both read the same. The lesson generalises: this list is a
+> correctness input to the report, not a build convenience, and a module added to the tree without
+> being added here reports a *stricter* verdict than the truth.
 
 Assertions, not printouts: the probe must observe the worker loading classes, executing methods, and
 answering all twelve control verbs; the analysis must reach over 1000 methods; every budget must
