@@ -1,8 +1,6 @@
 package dev.nodera.simulation.entity;
 
 import dev.nodera.core.Bytes;
-import dev.nodera.core.crypto.CanonicalReader;
-import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.PersistedEntityState;
@@ -11,8 +9,8 @@ import dev.nodera.simulation.MutableRegionState;
 
 /**
  * The Task 16 combat lane opener (L-13): mob vitals live IN the root and are mutated only by
- * engine rules. A {@link EntityKind#MOB} entity carries the canonical vitals payload
- * ({@code [u16 health][u16 maxHealth]}); {@link #damage} is the single mutation point every
+ * engine rules. A {@link EntityKind#MOB} entity carries its vitals in the leading fields of
+ * the canonical {@link MobState} payload; {@link #damage} is the single mutation point every
  * damage source routes through — projectile strikes ({@link ProjectileRules}) and blast
  * proximity ({@link TntRules}) today, player melee once the player-action lane ships. Health
  * reaching zero removes the entity from the root: death is a committed, replica-identical
@@ -51,34 +49,23 @@ public final class MobCombatRules {
                 BLAST_DAMAGE_MAX);
     }
 
-    /** Canonical opaque MOB vitals payload: {@code [u16 health][u16 maxHealth]}. */
+    /**
+     * The MOB payload for a mob with no live intention. The vitals are the leading fields of
+     * {@link MobState}, which is the one definition of that payload's shape — a second encoder
+     * here is how the two would come to disagree.
+     */
     public static Bytes vitalsPayload(int health, int maxHealth) {
-        if (maxHealth <= 0 || maxHealth > 0xFFFF) {
-            throw new IllegalArgumentException("maxHealth must be in [1, 65535]: " + maxHealth);
-        }
-        if (health <= 0 || health > maxHealth) {
-            throw new IllegalArgumentException(
-                    "health must be in [1, maxHealth]: " + health + "/" + maxHealth);
-        }
-        CanonicalWriter w = new CanonicalWriter(4);
-        w.writeU16(health);
-        w.writeU16(maxHealth);
-        return w.toBytes();
+        return MobState.fresh(health, maxHealth).encode();
     }
 
     /** Decoded MOB vitals. */
     public record Vitals(int health, int maxHealth) {
     }
 
-    /** Decode and validate a MOB vitals payload. */
+    /** Read the vitals half of a MOB payload. */
     public static Vitals decodeVitals(Bytes payload) {
-        CanonicalReader r = new CanonicalReader(payload);
-        int health = r.readU16();
-        int maxHealth = r.readU16();
-        if (health == 0 || health > maxHealth || r.available() != 0) {
-            throw new IllegalStateException("malformed mob vitals payload");
-        }
-        return new Vitals(health, maxHealth);
+        MobState state = MobState.decode(payload);
+        return new Vitals(state.health(), state.maxHealth());
     }
 
     /**
@@ -99,16 +86,19 @@ public final class MobCombatRules {
         if (mob.kind() != EntityKind.MOB) {
             return false;
         }
-        Vitals vitals = decodeVitals(mob.payload());
-        int remaining = vitals.health() - amount;
+        MobState decoded = MobState.decode(mob.payload());
+        int remaining = decoded.health() - amount;
         if (remaining <= 0) {
             state.removeEntity(mob.id());
             return true;
         }
+        // withHealth, not a fresh payload: being hit is not a reason to forget where you were
+        // going, and rebuilding the payload from the vitals alone would silently erase the AI
+        // memory of every mob that ever takes damage.
         state.updateEntity(new PersistedEntityState(
                 mob.id(), mob.kind(), mob.typeId(), mob.pos(), mob.vel(),
                 mob.ageTicks(), mob.despawnTick(),
-                vitalsPayload(remaining, vitals.maxHealth())));
+                decoded.withHealth(remaining).encode()));
         return true;
     }
 

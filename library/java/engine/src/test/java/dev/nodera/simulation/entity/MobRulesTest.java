@@ -222,7 +222,7 @@ final class MobRulesTest {
                 int x = (int) Math.floor(FixedVec3.toExternal(ghost.pos().x()));
                 int y = (int) Math.floor(FixedVec3.toExternal(ghost.pos().y()));
                 int z = (int) Math.floor(FixedVec3.toExternal(ghost.pos().z()));
-                assertThat(MobAiRules.isWalkable(
+                assertThat(IntPathfinder.isWalkable(
                         new MutableRegionState(settled, RegionBounds.of(region)),
                         new NBlockPos(x, y, z)))
                         .as("every ghost ends on a legal stance (x=%d y=%d z=%d)", x, y, z)

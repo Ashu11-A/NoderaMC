@@ -1,15 +1,18 @@
 package dev.nodera.simulation;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.FixedVec3;
+import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.NetworkEntityId;
 import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.simulation.entity.MobCombatRules;
+import dev.nodera.simulation.entity.MobState;
 import dev.nodera.simulation.entity.PlayerRules;
 import org.junit.jupiter.api.Test;
 
@@ -79,6 +82,60 @@ final class CombatStateRootTest {
                 .catchThrowable(() -> MobCombatRules.vitalsPayload(0, 20)))
                 .as("zero health is not a representable state")
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * The Task 11 root-shape change (L-7), stated as the negative it has to be: <b>AI memory is
+     * hashed</b>. Two mobs with identical vitals in an identical world, one heading north and one
+     * heading south, are two different worlds — next decision interval they are in different
+     * places. If that difference were invisible in the root, two replicas could agree on
+     * everything a committee compares and still be about to disagree, which is precisely the
+     * class of failure Invariant 10 exists to make impossible.
+     */
+    @Test
+    void identicalVitalsWithDifferentAiMemoryGiveDifferentRoots() {
+        StateRoot north = rootOf(snapshotWith(mobHeading(new NBlockPos(5, 70, -1))));
+        StateRoot south = rootOf(snapshotWith(mobHeading(new NBlockPos(5, 70, 11))));
+
+        assertThat(north)
+                .as("where a mob is GOING determines the next root, so it belongs in this one")
+                .isNotEqualTo(south);
+        assertThat(rootOf(snapshotWith(mobHeading(new NBlockPos(5, 70, -1)))))
+                .as("same intention, same root — the memory is canonical, not incidental")
+                .isEqualTo(north);
+    }
+
+    /**
+     * The same claim from the other side, and the one that would have caught this change being
+     * made wrongly: <b>drop the AI memory out of the payload and the root moves.</b> The bytes
+     * below are exactly the pre-Task-11 vitals-only payload, so this test fails if anyone ever
+     * "simplifies" {@code MobState.encode} back to its first four bytes — the change would
+     * otherwise be silent, because every mob would still decode and every existing assertion
+     * about health would still pass.
+     */
+    @Test
+    void droppingAiMemoryFromThePayloadChangesTheRoot() {
+        MobState full = new MobState(9, MobCombatRules.ZOMBIE_MAX_HEALTH,
+                MobState.AiMemory.wanderTo(new NBlockPos(5, 70, -1), 400L));
+        CanonicalWriter vitalsOnly = new CanonicalWriter(4);
+        vitalsOnly.writeU16(full.health());
+        vitalsOnly.writeU16(full.maxHealth());
+
+        assertThat(rootOf(snapshotWith(withPayload(full.encode()))))
+                .as("the hashed payload carries strictly more than the vitals")
+                .isNotEqualTo(rootOf(snapshotWith(withPayload(vitalsOnly.toBytes()))));
+    }
+
+    private static PersistedEntityState withPayload(Bytes payload) {
+        return new PersistedEntityState(MOB_ID, EntityKind.MOB, 1,
+                new FixedVec3(5L << 32, 70L << 32, 5L << 32), FixedVec3.ZERO,
+                10, PersistedEntityState.NEVER_DESPAWN, payload);
+    }
+
+    private static PersistedEntityState mobHeading(NBlockPos destination) {
+        return withPayload(new MobState(
+                MobCombatRules.ZOMBIE_MAX_HEALTH, MobCombatRules.ZOMBIE_MAX_HEALTH,
+                MobState.AiMemory.wanderTo(destination, 400L)).encode());
     }
 
     @Test
