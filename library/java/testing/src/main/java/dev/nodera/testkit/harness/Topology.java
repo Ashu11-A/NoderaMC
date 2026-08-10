@@ -83,6 +83,9 @@ public record Topology(
     private static final int RENDEZVOUS_OFFSET = 101;
     private static final int WORKER_CONTROL_OFFSET = 110;
     private static final int WORKER_P2P_OFFSET = 120;
+    /** A scenario's own services live at 130..139 — see {@link #scenarioPort}. */
+    private static final int SCENARIO_OFFSET = 130;
+    private static final int SCENARIO_PORTS = 10;
     private static final int TRACKER_EXTRA_OFFSET = 140;
     private static final int RENDEZVOUS_EXTRA_OFFSET = 150;
     /** The last offset a block can use: extra rendezvous 150..159. */
@@ -161,6 +164,27 @@ public record Topology(
     /** P2P port of worker {@code index} (0-based). */
     public int workerP2pPort(int index) {
         return workerP2pBase() + index;
+    }
+
+    /**
+     * A port inside this run's block for a service only one scenario starts.
+     *
+     * <p>Scenarios stand up processes the shared stack knows nothing about — the telemetry
+     * collector and its own worker, for instance. Those used to carry literals (25630, 25640,
+     * 25641), which put them in the <b>product's</b> block and outside the startup probe: they were
+     * the same defect as the one that made this class take a base at all, one layer up and
+     * invisible, because a scenario that binds a port nobody planned collides with a developer's
+     * dev stack rather than with anything the harness can see.
+     *
+     * @param index 0-based, up to {@value #SCENARIO_PORTS} per run.
+     * @return the port, guaranteed inside the announced block and covered by its probe.
+     */
+    public int scenarioPort(int index) {
+        if (index < 0 || index >= SCENARIO_PORTS) {
+            throw new HarnessException("scenario port " + index + " is outside 0.."
+                    + (SCENARIO_PORTS - 1) + " — the block reserves ten, not more");
+        }
+        return portBase + SCENARIO_OFFSET + index;
     }
 
     /** The role worker {@code index} is launched with. */

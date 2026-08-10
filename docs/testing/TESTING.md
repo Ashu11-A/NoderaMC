@@ -5,14 +5,15 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-08-06, the nine-module run recorded in commit `44069df` ·
-**44 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
+**Category:** testing · **Last run:** 2026-08-10, `./gradlew :testing:test` on the #266 branch ·
+**57 unit tests · 0 failing · 0 skipped** (module `testing`, from that run's JUnit XML) — the live
 scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
 the smoke test that all twenty resolve.
 
-Whole-tree Java total for that same run: **2,271 tests · 0 failed · 0 skipped**. That figure is the
+The eleven new tests are the port-plan guard (§0). Whole-tree Java total: **2,282 tests · 0 failed
+· 0 skipped**. That figure is the
 sum of the nine per-module counts README's module table carries — core 314, engine 446, transport
-189, storage 158, testing 46, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
+189, storage 158, testing 57, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
 where a reader should go for the per-module breakdown. To measure it rather than add it up, run
 `scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
 suite that skipped into green cannot contribute to the number.
@@ -112,6 +113,31 @@ Artefacts:
 | `build/reports/nodera/LOC-BASELINE.md` | source size by language and by component, from `--baseline` |
 | `run/results/<scenario>/<stamp>/` | that run's service logs, client logs, worker state snapshots |
 | `run/.e2e-suite.lock` | the exclusive lock live scenarios take — they run one at a time |
+
+---
+
+## 0. The port-plan guard
+
+`HarnessPortPlanTest` (6) and `PortHolderTest` (4) exist because the harness spent a year binding the
+**product's** ports: tracker 25600, rendezvous 25601, worker control 25610+i, P2P 25620+i. A
+developer running the companion app — which binds 25610 — had every scenario refused at the
+preflight, and the live report of 2026-08-07 (0 passed / 17 failed, all `port 25600 is still held
+after 60s`) is that, not the stale test stack it was filed as
+([#266](https://github.com/Ashu11-A/NoderaMC/issues/266)).
+
+The harness now runs on its own block (26500 by default, probed and announced at startup — see
+[`Task.0.md`](Task.0.md) §3.1). A port change alone is a fix a later refactor silently undoes, so the
+guard asserts against **the product's own constants** — `PeerNode.DEFAULT_CONTROL_PORT`,
+`PeerNode.DEFAULT_P2P_PORT`, `DefaultServices.DEVELOPMENT_TRACKER/RENDEZVOUS` — rather than copies of
+them, and covers the whole block rather than the four ports somebody remembered. `PortHolderTest`
+pins the *classification* of a held port (installed Nodera / leftover from this checkout / unrelated)
+rather than its wording, because those imply three opposite actions and the old message offered one
+wrong hint for all three.
+
+```bash
+./gradlew :testing:test --tests '*HarnessPortPlanTest*' --tests '*PortHolderTest*'
+NODERA_E2E_PORT_BASE=25500 scripts/nodera-test.sh run telemetry   # reproduces the collision
+```
 
 ---
 

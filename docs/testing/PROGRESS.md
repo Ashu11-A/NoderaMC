@@ -5,7 +5,7 @@
      note naming the EVIDENCE (a scenario id, a report path, a command), then reconcile
      ../ROADMAP.md and the root README. Never rewrite an old note — append a new one. -->
 
-**Category:** testing · **Last audit:** 2026-08-05 · Tasks completed: **1 / 1**
+**Category:** testing · **Last audit:** 2026-08-10 · Tasks completed: **1 / 1**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -21,6 +21,38 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The harness stopped binding the product's ports, so a developer can run it at all
+
+`Topology` handed every scenario the numbers a shipped Nodera binds — tracker 25600, rendezvous
+25601, worker control 25610+i, P2P 25620+i. On any machine with the companion app running, the
+preflight refused every scenario, so **the more complete somebody's install the less of the matrix
+they could execute**. The live report of 2026-08-07 (0 passed / 17 failed, every failure `port 25600
+is still held after 60s`) is that collision and not the stale test stack it was filed as.
+
+Every port is now `portBase + offset`; the base defaults to 26500, `Topology.chosenBase()` probes the
+whole block at startup and steps 200 up if anything is listening in it, and the block it settled on
+is the run's first line. `NODERA_E2E_PORT_BASE` pins it. `PortHolder` reads `/proc/net/tcp{,6}` and
+`/proc/<pid>/fd` so a genuinely held port names its holder and says whether it is an installed
+Nodera, a leftover from this checkout, or something unrelated — three different actions where the
+old message offered one wrong hint. `TelemetryScenario`'s own three literals moved onto
+`Topology.scenarioPort(i)`, inside the block the probe checks.
+
+Evidence, both runs made **with the user's installed companion app still holding 25610**:
+
+- failing-before — `NODERA_E2E_PORT_BASE=25500 scripts/nodera-test.sh run telemetry` →
+  `0 passed, 1 failed`, `port 25610 is still held after 60s by pid 742938 → … (an INSTALLED Nodera
+  (/usr/lib/Nodera/resources/nodera-headless/lib/peer-headless.jar), not a leftover test stack …)`,
+  exit 1;
+- passing-after — `scripts/nodera-test.sh run telemetry` → `nodera-test: port block 26500 (free)`,
+  T0–T6 all PASS, `1 passed, 0 failed, 0 skipped`, exit 0
+  (`build/reports/nodera-i266-after/TEST-REPORT.md`).
+
+`HarnessPortPlanTest` is what keeps it fixed: it reads `PeerNode.DEFAULT_CONTROL_PORT`,
+`PeerNode.DEFAULT_P2P_PORT` and `DefaultServices.DEVELOPMENT_*` rather than copies, so the two tables
+cannot converge again by either side moving. Also fixed here: `Requirements` truncated free RAM to
+whole GiB, so 4.99 GiB read as 4 and skipped a scenario asking for 5 — and a skip is red since
+[#259](https://github.com/Ashu11-A/NoderaMC/pull/259). ([#266](https://github.com/Ashu11-A/NoderaMC/issues/266))
 
 ### 2026-08-05 — Twenty-five integration tests stopped building their own mesh (Plan 11 phase 3)
 

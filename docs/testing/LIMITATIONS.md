@@ -5,7 +5,21 @@
      OPEN -> RETIRING -> RETIRED and then to LIMITATIONS.fixed.md carrying its evidence. Never
      delete a row. -->
 
-**Category:** testing · **Last audit:** 2026-08-04
+**Category:** testing · **Last audit:** 2026-08-10
+
+> **Audit 2026-08-10 — no developer with Nodera installed could run a single scenario, and the
+> evidence of that was filed as a stale test stack.** `Topology` built every run on the product's own
+> port block: tracker 25600, rendezvous 25601, worker control 25610+i, P2P 25620+i. The companion app
+> binds 25610, so the preflight refused the run — and said only `port 25610 is still held …
+> (scripts/dev.sh? a stale client JVM?)`, which sends a reader hunting a leftover that does not
+> exist. **The live report of 2026-08-07 in `build/reports/nodera/TEST-REPORT.md` — 0 passed, 17
+> failed, every failure `port 25600 is still held after 60s` — is this bug, not a leaked stack.**
+> Nothing may be concluded from that report about any scenario's behaviour: not one of them started.
+>
+> Fixed by giving the harness its own block (26500 by default, probed and announced at startup) and
+> by making the preflight name the holding process and classify it. Both halves are proved by a pair
+> of runs made with the installed app still holding 25610 — see the 2026-08-10 note in
+> [`PROGRESS.md`](PROGRESS.md) ([#266](https://github.com/Ashu11-A/NoderaMC/issues/266)).
 
 > **Audit 2026-07-30 — every live scenario since the conversion ran with no tracker and no
 > rendezvous, and nothing said so.** `LiveStack` launched both services with
@@ -48,7 +62,7 @@
 | Row | Status | What is missing | Owning task | Exit test |
 |---|---|---|---|---|
 | T-5 | RETIRING | The harness launched services and never checked they were alive, so a service that refused its own configuration produced a stack that looked started (see the audit note above). `awaitListening` closes it for the tracker and the rendezvous. What is not closed: the same class starts a dedicated server and two Minecraft clients, and their readiness is asserted by scenario-specific log-watching rather than by one harness rule — so the *shape* of defect can still recur one process type over. | [testing 1](Task.1.md) | every process `LiveStack` starts is proven answering by the harness before a scenario's first stage runs, with the failure naming the process and its log tail |
-| T-1 | OPEN | The converted scenarios have not all been executed live end to end since the conversion. The classes carry the same stages, evidence strings and timeouts as the shell suites they replace, and the tool builds and enumerates them, but a green nightly across the whole matrix is what turns "converted" into "proved". | [testing 1](Task.1.md) | a green `e2e-live` run over the full matrix |
+| T-1 | OPEN | The converted scenarios have not all been executed live end to end since the conversion. The classes carry the same stages, evidence strings and timeouts as the shell suites they replace, and the tool builds and enumerates them, but a green nightly across the whole matrix is what turns "converted" into "proved". **2026-08-10:** one reason no such run existed is now removed — until today the harness bound the product's own ports, so on any machine with Nodera installed *every* scenario was refused before its first stage (#266, and the 0/17 report of 2026-08-07). That was a floor under this row, not the row itself: the matrix still has to be executed, and T-6 says the reference box cannot host the client-bearing half of it. | [testing 1](Task.1.md) | a green `e2e-live` run over the full matrix |
 | T-2 | OPEN | `NODERA-TEST DRIVE` publishes an action on the worker's event stream, but the mod does not yet consume `test.drive` — so a scenario drives a player through RCON (dedicated/Paper) rather than through its own worker. The role plumbing is what a driven player will use; the consumer is not written. | [testing 1](Task.1.md) | a scenario that moves a player with `NODERA-TEST DRIVE` alone and asserts the move in the game log |
 | T-4 | OPEN | Five harness capabilities live in scenario support classes rather than in the harness, each marked `// HARNESS-GAP`: amending the *staged world's* `nodera-server.toml`, staging `options.txt` (without it `onboardAccessibility` defaults true and quick play never runs — the original CI "never joined" cause), killing the game JVM that is a child of the Gradle *daemon* rather than of the launcher, auditing errors from a mark rather than from the top of the file, and case-insensitive/last-match reads after a mark. Every scenario that needs them goes through the support class, so nothing is missing — but two places now describe one behaviour. | [testing 1](Task.1.md) | `grep -rn "HARNESS-GAP" library/java/testing/src` returns nothing |
 | T-3 | OPEN | `scripts/lib/` still exists (`e2e-main.sh`, `e2e-server.sh`, `spark.sh`, the Python helpers). Nothing in the test lane uses it; `scripts/dev.sh --play` does. Until the developer playground is ported, two launchers describe the same topology and can drift. | [testing 1](Task.1.md) | `grep -rl e2e-main.sh scripts/` returns nothing |

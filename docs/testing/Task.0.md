@@ -9,7 +9,7 @@
      product exposes (the control socket, RCON, a log line), never a test-only accessor, or the
      suite can pass on a state the product cannot see. -->
 
-**Category:** testing · **Owns:** the test tooling · **Last audit:** 2026-07-29
+**Category:** testing · **Owns:** the test tooling · **Last audit:** 2026-08-10
 **Code:** `library/java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh`, `scripts/bench-report.py`,
 `peer/src/jmh`, `peer/src/test/java/dev/nodera/structure`
 
@@ -78,6 +78,7 @@ gives the numbers every older log, script and doc names:
 | `+101` | rendezvous 1 (`+150+i` for extras) | 26601 | 25601 |
 | `+110+i` | worker `i` control | 26610 | 25610 |
 | `+120+i` | worker `i` P2P | 26620 | 25620 |
+| `+130+i` | `Topology.scenarioPort(i)` — a service only one scenario starts | 26630 | — |
 
 Until 2026-08-10 the two right-hand columns were **one column**, and the consequence was that nobody
 with Nodera installed could run the suite: the companion app holds 25610, the preflight refused
@@ -97,7 +98,19 @@ nodera-test: port block 26500 (free) — tracker 26600, rendezvous 26601, worker
 `NODERA_E2E_PORT_BASE` pins the base when a run must be reproducible port for port. And when a port
 really is held, the preflight names the process and says which kind of problem it is — an installed
 Nodera to quit, a leftover from this checkout to kill, or something unrelated — because
-`port 25610 is still held` sent every reader hunting a stale test stack that did not exist.
+`port 25610 is still held` sent every reader hunting a stale test stack that did not exist:
+
+```
+FAILED   telemetry   port 25610 is still held after 60s by pid 742938 →
+  /usr/lib/jvm/java-25-openjdk-amd64/bin/java (an INSTALLED Nodera
+  (/usr/lib/Nodera/resources/nodera-headless/lib/peer-headless.jar), not a leftover test stack
+  — quit the app, or leave it running and let the harness move its own block)
+```
+
+**A scenario that starts its own service asks the topology for the port.** `scenarioPort(i)` exists
+because `TelemetryScenario` carried the literals 25630/25640/25641: inside the product's block, and
+outside the startup probe, so a block could be declared free while a developer's dev stack already
+held one of them. Any port a run binds is in the block, or the probe is decorative.
 
 `scripts/dev.sh` and `scripts/lib/e2e-main.sh` deliberately stay on the product's own numbers: that
 stack is a playground meant to behave exactly like an install, and the harness moving out of its way

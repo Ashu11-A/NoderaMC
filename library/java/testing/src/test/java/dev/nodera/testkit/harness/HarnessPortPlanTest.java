@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The harness's port block and the product's port block must never be the same block again.
@@ -80,6 +81,29 @@ class HarnessPortPlanTest {
         // is here to prevent, one level down.
         assertThat(topology.allPorts()).isSubsetOf(block);
         assertThat(topology.rconPort()).isIn(block);
+    }
+
+    @Test
+    void aScenariosOwnServicesAlsoLandInsideTheBlockAndNotOnTheStacksPorts() {
+        // TelemetryScenario used to bind 25630/25640/25641 as literals: inside the PRODUCT's block
+        // and outside anything the probe checked, so a "free" block could be declared while a
+        // developer's dev stack already held one of them. Every port a run binds has to be in the
+        // block or the probe is decorative.
+        Topology topology = Topology.standard().withPortBase(Topology.DEFAULT_PORT_BASE)
+                .withPlayers(3).withSparePeers(3).withServices(3, 3);
+        List<Integer> block = Topology.blockPorts(Topology.DEFAULT_PORT_BASE);
+
+        for (int index = 0; index < 10; index++) {
+            assertThat(topology.scenarioPort(index)).isIn(block);
+            assertThat(topology.allPorts()).doesNotContain(topology.scenarioPort(index));
+            // ServerEndpointSupport slots its endpoint's control/p2p straight after the workers.
+            assertThat(topology.scenarioPort(index))
+                    .isNotEqualTo(topology.workerControlPort(topology.workers()))
+                    .isNotEqualTo(topology.workerP2pPort(topology.workers()));
+        }
+        assertThatThrownBy(() -> topology.scenarioPort(10))
+                .isInstanceOf(HarnessException.class)
+                .hasMessageContaining("reserves ten");
     }
 
     @Test
