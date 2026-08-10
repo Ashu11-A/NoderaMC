@@ -37,6 +37,12 @@ said all three suites were committed when only the harness library was; they exi
 > the same colour and says considerably more. **Consequence to expect:** the `endpoint` and `folia`
 > legs of `e2e-live` are red until server tasks 2/3 land, and that is a truthful signal rather than a
 > regression to hunt.
+>
+> **Both run LAST in their scenario, each on a server of its own**, and that placement is load
+> bearing: the runner stops a scenario at its first failing stage, so a stage expected to fail must
+> never sit upstream of one expected to pass. P6 was written before E4 to begin with, which silently
+> stopped **L-71's retired exit test** from running at all — a retirement that quietly stops being
+> checked is exactly the failure this register exists to prevent.
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
@@ -129,7 +135,7 @@ Full documentation: [`../minecraft/spark/`](../minecraft/spark/), and in particu
 | P3 | The **unmodified** client joins **directly at the game port**, with nothing installed | ⬜ **not written** · [server 6](Task.6.md) |
 | P4 | Both in one world: the modded client is a member; the vanilla player is a **tenant** with a stable id and is **not** a member | ⬜ **not written** · [server 6](Task.6.md) |
 | P5 | **The drive:** the tenant drops an item, the modded player picks it up, credited **exactly once** — no vanish, no dupe, across client classes | ⬜ **not written** · [server 5](Task.5.md) / [6](Task.6.md) |
-| P6 | A validated item neither despawns nor drifts more than **1.0 block** over a **five-minute** hold window (vanilla's own 6000-tick despawn age — a shorter window cannot tell a pinned item from an unpinned one), and picking it up credits **exactly once**, counted with `/clear <player> <item> 0` | 🚧 **written 2026-08-10; fails at its first assertion** — nothing delegates a region ([2](Task.2.md)/[3](Task.3.md)). This is [L-69](LIMITATIONS.md)'s exit |
+| P6 | A validated item neither despawns nor drifts more than **1.0 block** over a **five-minute** hold window (vanilla's own 6000-tick despawn age — a shorter window cannot tell a pinned item from an unpinned one), and picking it up credits **exactly once**, counted with `/clear <player> <item> 0`. Runs **last**, on a server of its own | 🚧 **written 2026-08-10; fails at its first assertion** — nothing delegates a region ([2](Task.2.md)/[3](Task.3.md)). This is [L-69](LIMITATIONS.md)'s exit |
 | P7 | A wrong world password never reaches the world; no plaintext in any log | ⬜ **not written** · [L-68](LIMITATIONS.md) |
 | P8 | A fingerprint-mismatched client is refused, with the offending mod named | ⬜ **not written** · [L-70](LIMITATIONS.md) |
 

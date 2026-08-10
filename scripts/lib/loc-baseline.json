@@ -4,8 +4,8 @@
   "limits": {
     "java.main.code": 56759,
     "java.main.comment": 33892,
-    "java.test.code": 55744,
-    "java.test.comment": 12538,
+    "java.test.code": 55747,
+    "java.test.comment": 12545,
     "kotlin.main.code": 4012,
     "kotlin.main.comment": 1030,
     "kotlin.test.code": 21,

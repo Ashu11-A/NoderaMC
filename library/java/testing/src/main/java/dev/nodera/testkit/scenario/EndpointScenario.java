@@ -21,11 +21,12 @@ import java.util.regex.Pattern;
  *       ENABLE and say which platform it is on
  *   E2  ALIGN-1: on Paper the preflight is not applicable and the plugin says so; the enable path
  *       must never claim an invariant it did not check
- *   P6  a validated item neither despawns nor drifts over a hold window LONGER than vanilla's own
- *       despawn age, and picking it up credits EXACTLY ONCE. This is [L-69]'s exit
  *   E4  the world is hosted BY THE WORKER and survives the server being killed (L-71)
  *   E3  the plugin survives a full server lifecycle — stop leaves a clean disable line rather than a
  *       stack trace
+ *   P6  a validated item neither despawns nor drifts over a hold window LONGER than vanilla's own
+ *       despawn age, and picking it up credits EXACTLY ONCE. This is [L-69]'s exit, it runs LAST on
+ *       a server of its own, and it fails today
  * </pre>
  *
  * <p>What this scenario does NOT assert yet, deliberately: nothing about validation, hosting or
@@ -55,6 +56,9 @@ public final class EndpointScenario implements Scenario {
     /** An exception thrown by the endpoint, however Bukkit chose to report it. */
     private static final Pattern ENDPOINT_EXCEPTION =
             Pattern.compile("\\[NoderaEndpoint\\].*Exception|Could not pass event.*NoderaEndpoint");
+
+    /** P6's own server log: E4 killed the first server and E3 stopped the second. */
+    private static final String PIN_LOG = "server-pin.log";
 
     /** The unmodified client P6 drives — nothing installed, joining at the game port. */
     private static final String TENANT = "P6Tenant";
@@ -158,14 +162,6 @@ public final class EndpointScenario implements Scenario {
             });
 
             // ---------------------------------------------------------------------------
-            // P6 — a validated item is pinned: no despawn, a NUMERIC drift bound, one credit
-            //
-            // This is L-69's exit and it runs before E4, which SIGKILLs the server.
-            // ---------------------------------------------------------------------------
-            ctx.stage("P6", "a validated item neither despawns nor drifts over the hold window, "
-                    + "and picking it up credits exactly once", () -> pinnedItemStage(ctx, server));
-
-            // ---------------------------------------------------------------------------
             // E4 — the world is hosted BY THE WORKER, and survives the server being killed
             //
             // This is L-71's exit: a node inside the server JVM dies with it, taking the world off
@@ -215,6 +211,18 @@ public final class EndpointScenario implements Scenario {
                         "E3: the server log carries an exception from the endpoint");
             });
 
+            // ---------------------------------------------------------------------------
+            // P6 — a validated item is pinned: no despawn, a NUMERIC drift bound, one credit
+            //
+            // LAST, and on a server of its own, deliberately. P6 fails today (nothing delegates a
+            // region), and the runner stops a scenario at its first failing stage — so putting it
+            // anywhere earlier would take E4 down with it, and E4 is L-71's RETIRED exit test. A
+            // stage that is expected to fail must never be upstream of one that is expected to
+            // pass, or a retirement quietly stops being checked.
+            // ---------------------------------------------------------------------------
+            ctx.stage("P6", "a validated item neither despawns nor drifts over the hold window, "
+                    + "and picking it up credits exactly once", () -> pinnedItemStage(ctx, server));
+
             ctx.stack().collectArtefacts();
         }
     }
@@ -247,7 +255,10 @@ public final class EndpointScenario implements Scenario {
      */
     private static void pinnedItemStage(ScenarioContext ctx, ServerEndpointSupport server)
             throws Exception {
-        LogWatcher log = ctx.log("server.log");
+        // E4 SIGKILLed the first server and E3 stopped the second, so P6 boots its own.
+        server.startBukkitServer(PIN_LOG);
+        LogWatcher log = ctx.log(PIN_LOG);
+        log.await("Done (", Duration.ofSeconds(420));
         server.requireDelegatedRegion("P6", log);
 
         RconClient rcon = ctx.stack().rcon();
