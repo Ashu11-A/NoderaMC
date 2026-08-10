@@ -213,7 +213,8 @@ cd app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D wa
 
 scripts/version.sh --check       # every version mirror agrees with the root VERSION file
 scripts/loc-metrics.py --check   # source size is within its stamped baseline (ratchets down only)
-scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
+scripts/test-counts.sh --check   # every crate/package test count below is the measured one
+scripts/test-counts.sh --check java  # …and the nine Gradle module counts, from the JUnit XML
 scripts/test-totals.sh --java    # how many tests PASSED/FAILED — what the badges above show
 scripts/check-layout-drift.sh    # workflow/Docker/Tauri paths still resolve
 scripts/check-case-collisions.sh # no path or module that collides by case on macOS/Windows
@@ -279,20 +280,26 @@ scripts/release.sh --verify               # hold build/release to the manifest
 
 <!-- AI-AGENT-INSTRUCTION: Mirrors docs/<category>/TESTING.md — update both together. Status:
      ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. Keep the responsibility
-     column to ONE short line; the full architecture of a module is in java/<module>/README.md or
-     <crate>/README.md. The Rust crate rows AND the two frontend package rows are parsed by scripts/test-counts.sh (keyed on the crate or package directory from layout.properties) — do not change
-     their shape (backticked path, count as the second-to-last cell). -->
+     column to ONE short line; the full architecture of a module is in <module>/README.md or
+     <crate>/README.md.
+     EVERY row's Tests cell is measured, and none of them may be edited by hand. scripts/test-counts.sh
+     parses all of them: the Gradle module rows keyed on the module NAME (`module.*` in
+     layout.properties, from the JUnit XML — `--check java`, which the `java` job runs), the Rust crate
+     rows and the two frontend package rows keyed on the crate or package DIRECTORY (`--check`). Do not
+     change their shape (backticked key, count as the second-to-last cell), and re-stamp a real change
+     with `scripts/test-counts.sh --write java` or `--write <suite>` rather than typing a number — nine
+     of these were typed once and three of the nine were wrong. -->
 
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
 | `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 314 | ✅ |
-| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 444 | ✅ |
+| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 446 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 188 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 158 | ✅ |
-| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 44 | ✅ |
+| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 46 | ✅ |
 | `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 852 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 114 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 133 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 134 | 🚧 |
 | `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 79 | ✅ |
 | `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 296 | 🚧 |

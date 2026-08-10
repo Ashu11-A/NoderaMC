@@ -10,6 +10,7 @@
 #   scripts/test-counts.sh              # print the measured count per suite
 #   scripts/test-counts.sh --check      # fail if README.md disagrees (CI gate)
 #   scripts/test-counts.sh --check NAME # …only that one suite, measuring nothing else
+#   scripts/test-counts.sh --check java # …only the Gradle modules, from the JUnit XML
 #   scripts/test-counts.sh --write      # rewrite README.md's column in place
 #   scripts/test-counts.sh --runners    # name the script that runs each frontend suite
 #
@@ -17,9 +18,38 @@
 # tests without running them: the number is the same one `cargo test` reports,
 # and it cannot be produced by a suite that was never executed.
 #
+# ---------------------------------------------------------------------------
+# THE GRADLE MODULES, AND WHY THEY WERE THE HOLE IN ALL OF THIS
+# ---------------------------------------------------------------------------
+#
+# Until this was written, `readme_label` resolved `crate.*` and `package.*` and nothing else — the
+# string `module.` did not appear in this file at all. So the ten Rust and frontend rows of README's
+# module-status table were measured and the nine Java ones — `core`, `engine`, `transport`, `storage`,
+# `testing`, `peer`, `endpoint`, `neoforge-mod`, `paper-plugin` — were hand-typed, in the same table,
+# in the same column, rendering identically. Nothing else in the repository checked them either.
+#
+# That is precisely the failure the header above describes, and it had already happened: measured
+# against the JUnit XML of the run that stamped them, `engine` was 444 against 446, `testing` 44
+# against 46 and `neoforge-mod` 133 against 134. Three of nine, under a commit message that called
+# them measured.
+#
+# A module cannot be ENUMERATED the way a crate can — there is no `--list` for a Gradle `Test` task —
+# so its count comes from the JUnit XML of the run that just happened, read by
+# `scripts/java-test-report.sh`. That script is this tree's one reader of those files and it already
+# refuses the dangerous shape: a module with `src/test/java` and no results is an error there, never
+# a zero. This file calls it rather than parsing the XML a third time.
+#
+# Which means the count needs a build, and `--check` runs in two jobs that have no Java results at
+# all (`rust`, `companion`). Unfiltered, a module with no XML is therefore reported `skipped` and only
+# its README row is required — the same contract `nodera-app` has without its dist. `--check java`
+# is the other half: it NAMES the modules, and by the rule this script already applies to a named
+# suite, a name is a caller saying it has just run the thing, so a missing result there is the outage
+# rather than an absent artifact. That is the invocation the `java` job runs, immediately after the
+# report, and it is what makes the nine numbers fail when they drift.
+#
 # `nodera-app` is a SEPARATE cargo workspace (Tauri native deps, excluded from
-# rust/Cargo.toml), so it is listed separately here for the same reason it needs
-# its own fmt/clippy invocation in .github/workflows/build.yml.
+# the root `Cargo.toml`), so it is listed separately here for the same reason it
+# needs its own fmt/clippy invocation in .github/workflows/build.yml.
 #
 # ---------------------------------------------------------------------------
 # THE FRONTEND PACKAGES, AND WHY THEY ARE COUNTED DIFFERENTLY
@@ -97,11 +127,72 @@ if [[ ${#FRONTEND_PACKAGES[@]} -eq 0 ]]; then
     exit 1
 fi
 
+# The Gradle modules that carry test sources. Same rule and same source as `java-test-report.sh`, so
+# the two cannot disagree about which modules are in scope: `layout.properties`, filtered by whether
+# `src/test/java` is actually there. A module added to the manifest with a suite in it is measured
+# from that moment, and a module that moves keeps being measured.
+mapfile -t JAVA_MODULES < <(
+    python3 -c "
+import sys; sys.path.insert(0, '$NODERA_ROOT/scripts/lib'); import layout
+print('\n'.join(sorted(
+    name for name, directory in layout.modules().items()
+    if (directory / 'src/test/java').is_dir())))"
+)
+
+# Same refusal as the frontend list above, for the same reason: a derived list that silently became
+# empty would take nine README rows out of this gate and leave it reporting agreement.
+if [[ ${#JAVA_MODULES[@]} -eq 0 ]]; then
+    echo "test-counts: no Gradle module declares src/test/java — that is not this repository" >&2
+    exit 1
+fi
+
 # Enumerate, do not run: `--list` prints one `name: test` line per test.
 count_crate() {
     local manifest=$1 pkg=$2
     cargo test --manifest-path "$manifest" -p "$pkg" -q -- --list 2>/dev/null \
         | grep -cE ': (test|benchmark)$'
+}
+
+# How many tests each Gradle module REPORTED, keyed by module name, filled once by
+# `load_module_counts` before anything is measured.
+declare -A MODULE_TESTS=()
+
+# Read the per-module JUnit counts out of `scripts/java-test-report.sh`.
+#
+# That script prints a markdown table — one `| `module` | tests | failed | skipped |` row per module,
+# an em dash in every cell of a module that produced no results — and exits non-zero when a module
+# is missing, when a test failed, or when the whole tree reported nothing. All three of those are
+# conditions this gate has to inherit rather than paper over, with exactly one exception: a checkout
+# where `./gradlew test` has simply never run, where EVERY module is an em dash and there is nothing
+# to compare a README row against. That case is reported `skipped` per module and handled by the
+# caller; anything else carries the report's own message and its status.
+load_module_counts() {
+    local report status=0 module count all_absent=1
+    report=$("$NODERA_ROOT/scripts/java-test-report.sh" 2>&1) || status=$?
+    while read -r module count; do
+        MODULE_TESTS[$module]=$count
+    done < <(printf '%s\n' "$report" | sed -n 's@^| `\([^`]*\)` | \([^ |]*\) | .*@\1 \2@p')
+    for module in "${JAVA_MODULES[@]}"; do
+        [[ ${MODULE_TESTS[$module]:-—} == "—" ]] || all_absent=0
+    done
+    if [[ $status -ne 0 && $all_absent -eq 0 ]]; then
+        printf '%s\n' "$report" >&2
+        echo "test-counts: java-test-report.sh refused the results above — the module counts cannot" \
+             "be taken from a run that did not report for every module" >&2
+        return 1
+    fi
+    return 0
+}
+
+# A module's reported count, or `skipped` when this checkout holds no JUnit XML for it. Never 0:
+# a zero would render in README as a module whose suite ran and contained nothing.
+count_module() {
+    local value=${MODULE_TESTS[$1]:-—}
+    if [[ $value == "—" ]]; then
+        printf 'skipped\n'
+    else
+        printf '%s\n' "$value"
+    fi
 }
 
 # Where a frontend package's build leaves the output of its `node --test` run.
@@ -158,8 +249,27 @@ count_package() {
 only=""
 wanted() { [[ -z $only || $only == "$1" ]]; }
 
+# `java` is a group name rather than a suite: it selects every Gradle module and nothing else, which
+# is what lets the `java` job hold the nine module rows without paying for a cargo enumeration of six
+# crates it has no reason to touch.
+wanted_module() { [[ $only == java ]] || wanted "$1"; }
+
+# Whether this invocation is going to ask about a module at all — the JUnit report is only read when
+# it is, so a `--check nodera-app-ui` from a frontend build script still runs no Java tooling.
+any_module_wanted() {
+    local module
+    for module in "${JAVA_MODULES[@]}"; do
+        wanted_module "$module" && return 0
+    done
+    return 1
+}
+
 measure() {
-    local crate pkg
+    local crate pkg module
+    for module in "${JAVA_MODULES[@]}"; do
+        wanted_module "$module" || continue
+        printf '%s\t%s\n' "$module" "$(count_module "$module")"
+    done
     for crate in "${WORKSPACE_CRATES[@]}"; do
         wanted "$crate" || continue
         printf '%s\t%s\n' "$crate" "$(count_crate "$NODERA_CARGO_WS/Cargo.toml" "$crate")"
@@ -184,13 +294,26 @@ measure() {
     done
 }
 
-# The README row for a suite is `| `<dir>` | …description… | <count> | <status> |`, where `<dir>` is
-# the crate's or package's directory from layout.properties — so a suite that moves moves its README
-# row with it instead of dropping out of this gate. The count is the second-to-last cell, which is
-# why the substitution anchors on the trailing status cell rather than trying to parse a prose
-# description.
+# The README row for a suite is `| `<key>` | …description… | <count> | <status> |`. The count is the
+# second-to-last cell, which is why the substitution anchors on the trailing status cell rather than
+# trying to parse a prose description.
+#
+# For a crate or a package `<key>` is its DIRECTORY from layout.properties, so a suite that moves
+# moves its README row with it instead of dropping out of this gate. For a Gradle module it is the
+# module NAME, and that difference is not an inconsistency: layout.properties says of the `module.*`
+# keys that the suffix "is contract with every `build.gradle.kts` and must not change when a directory
+# moves", so the name is the stable identifier and the directory is the part that is free to move.
+# The manifest is still what decides a module exists — a name with no `module.` row is refused below
+# rather than silently looked up in README.
 readme_label() {
-    layout_get "crate.$1" 2>/dev/null || layout_get "package.$1"
+    layout_get "crate.$1" 2>/dev/null && return 0
+    layout_get "package.$1" 2>/dev/null && return 0
+    if layout_get "module.$1" >/dev/null 2>&1; then
+        printf '%s\n' "$1"
+        return 0
+    fi
+    echo "test-counts: layout.properties has no crate, package or module called '$1'" >&2
+    return 1
 }
 
 readme_count() {
@@ -225,6 +348,7 @@ esac
 
 if [[ -n $only ]]; then
     printf '%s\n' "${WORKSPACE_CRATES[@]}" nodera-app "${FRONTEND_PACKAGES[@]}" \
+            "${JAVA_MODULES[@]}" java \
         | grep -qxF "$only" \
         || { echo "test-counts: no suite called '$only'" >&2; exit 2; }
 fi
@@ -249,6 +373,13 @@ if [[ $mode == --check ]]; then
     check_runners > /dev/null || status=1
 fi
 
+# Read once, here, and not inside `measure` — that runs in a process substitution, and a failure in a
+# subshell would be swallowed by the `while` loop reading it, which is the shape of green this whole
+# file exists to refuse. A subshell inherits MODULE_TESTS; it cannot fill it.
+if any_module_wanted; then
+    load_module_counts || exit 1
+fi
+
 measured=0
 while read -r suite count; do
     measured=$((measured + 1))
@@ -261,7 +392,9 @@ while read -r suite count; do
                 # Named on the command line means the caller has just run it. A log that is not
                 # there is then the very outage this gate is for, not an absent build artifact.
                 if [[ -n $only ]]; then
-                    echo "test-counts: $suite reported no results — the suite did not run" >&2
+                    echo "test-counts: $suite reported no results — the suite did not run." \
+                         "A Gradle module needs \`./gradlew check\` before this; a frontend package" \
+                         "needs the build script that writes its TAP log." >&2
                     status=1
                     continue
                 fi
