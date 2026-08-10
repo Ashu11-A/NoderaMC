@@ -210,6 +210,18 @@ machine (row T-6). No completion figure moves — this is the instrument, not th
 live claim recorded before this date should be re-read knowing the tool could not distinguish "the
 suite passed" from "the suite skipped".
 
+**2026-08-10 — the full live matrix was dispatched, and it is not green.** Nineteen legs, twice,
+from `test/full-live-matrix-#187`: the first full-matrix `e2e-live` runs since 2026-07-29, because
+the plan job had died for want of a JDK for twelve consecutive nightlies and its matrix was a
+hand-kept thirteen before that. **3 passed, 16 failed** on the first run
+([31396175753](https://github.com/Ashu11-A/NoderaMC/actions/runs/31396175753)) — `endpoint`, `folia`
+and `plugins`, each executing for the first time on any machine. Thirteen of the sixteen failures
+were one bug: the staged dedicated server carried no companion pointer, fell back to the product's
+own control port and crashed in `ServerStartedEvent`. The per-leg cause and class is
+[`testing/TESTING.md`](testing/TESTING.md) §1.1. No completion figure moves and row **T-1** stays
+open — it asks for a green matrix, and what landed is the first honest measurement of how far from
+green it is.
+
 ### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
 
 Programme plan: [`plans/Plan.6.md`](plans/Plan.6.md).

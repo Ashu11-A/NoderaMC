@@ -22,6 +22,54 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-10 — The full live matrix ran, and sixteen of nineteen failures were three bugs
+
+The matrix was dispatched twice from `test/full-live-matrix-#187` with a blank `suites` input — the
+first full-matrix `e2e-live` runs since 2026-07-29, and the measurement the **T-1** row exists to
+demand. The per-leg table is [`TESTING.md`](TESTING.md) §1.1.
+
+The tree measured is deliberately not `main`. `main` cannot run a live scenario at all on a machine
+with Nodera installed, and its plan job dispatches nothing; measuring it would have produced a
+number about a tree nobody will ship. This branch is the merge of the four pull requests that fix
+that — #257 (`#142`), #259 (`#188`), #268 (`#266`) and #260 (`#179`) — with all three ratchet files
+**re-measured on the combined tree**, because each branch stamped its own against `main` and every
+one of them is too small for the union.
+
+**Run [31396175753](https://github.com/Ashu11-A/NoderaMC/actions/runs/31396175753): 3 passed, 16
+failed.** `endpoint`, `folia` and `plugins` passed — the first time any of the three has executed on
+any machine, which is what `scripts/stage-server-jars.sh` bought. Of the sixteen failures, thirteen
+were a single bug, one was a missing binary, one was a stale assertion class found by reading, and
+one was a CDN flake ([#272](https://github.com/Ashu11-A/NoderaMC/issues/272)).
+
+**The thirteen.** `stageDedicatedServer` wrote no `[companion]` block, so the mod fell back to
+`companion.controlEndpoint`'s default of `127.0.0.1:25610`, `CompanionGate.requireRunning` threw out
+of `ServerStartedEvent`, and — NeoForge's EventBus not isolating listener exceptions — the server
+crashed during startup. The harness had been getting away with it for as long as its own first
+worker sat on 25610; #266 moved the harness to its own block so a developer with the companion app
+could run a suite at all, and nothing replaced the coincidence. The failure did not look like this:
+depending on whether the RCON probe or the crash won the race, a leg reported either "the server
+never answered RCON ... the game port was open" or a twenty-one-minute wait for `sharing world`.
+Evidence: `DedicatedServerCompanionPointerTest`, whose two cases fail on the pre-fix writer.
+
+The second assertion in that test is the one that matters locally: on a developer box 25610 is the
+user's **installed** companion app, so the fallback does not fail there — it silently links the
+world under test to a daemon the harness does not control and calls the run green.
+
+**Read, not run.** `CommandsScenario` asserted four HUD replies the product stopped giving when #113
+moved the command surface to `Component.translatable`; issue
+[#258](https://github.com/Ashu11-A/NoderaMC/issues/258) names one of the four, and each costs a live
+run to rediscover. The tractable method is to resolve each needle through `CommandLang` →
+`en_us.json`; a text sweep of the scenarios is mostly false positives.
+
+Also: `e2e-live`'s Build stack step never built `nodera-telemetry` (that leg had never been
+dispatched, so nothing had ever asked for it), and `LiveStackLivenessTest` assembled a `Topology`
+with the pre-#266 component list — two branches, both merging cleanly, the compiler the only thing
+that noticed.
+
+**T-1 does not move.** The row asks for a green full matrix and this is not one. What changed is
+that its failures are now enumerated and attributed rather than unknown.
+
+
 ### 2026-08-10 — The nightly live lane had been dead for twelve days, and short by six scenarios before that
 
 `e2e-live` last executed a suite on 2026-07-29. Every nightly from 2026-07-30 to 2026-08-10 failed

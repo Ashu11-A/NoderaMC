@@ -89,7 +89,7 @@ again. See [`docs/testing/Task.0.md`](../../../docs/testing/Task.0.md) §3.1 for
 
 ## Tests
 
-74 tests covering the helpers themselves — a broken test library produces false confidence
+92 tests covering the helpers themselves — a broken test library produces false confidence
 everywhere else, and this module is the one that decides what "the run passed" means.
 
 ```bash

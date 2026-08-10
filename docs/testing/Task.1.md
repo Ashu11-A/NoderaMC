@@ -8,8 +8,14 @@
      test mode is a COMMAND-LINE flag and nothing else — it opens a remote-control surface, so no
      config file, environment variable or peer may enable it. Keep this header accurate. -->
 
-**Status:** ✅ DONE — twenty scenarios, one harness, one report, one command; the live matrix is
-carried over stage for stage and awaits its first full green nightly (row T-1). Since 2026-08-10 the harness runs on its own port block (26500+) rather than the product's, so a developer with Nodera installed can run it at all ([#266](https://github.com/Ashu11-A/NoderaMC/issues/266))
+**Status:** ✅ DONE — twenty-two scenarios, one harness, one report, one command; the live matrix is
+carried over stage for stage and, since 2026-08-10, has actually been dispatched over all nineteen
+unattended legs. It is not yet green, and row **T-1** stays open on exactly that; the per-leg
+outcome, cause and class is [TESTING.md](TESTING.md) §1.1. Since 2026-08-10 the harness also runs on
+its own port block (26500+) rather than the product's, so a developer with Nodera installed can run
+it at all ([#266](https://github.com/Ashu11-A/NoderaMC/issues/266)), and the dedicated server it
+stages is pointed at the worker this harness started rather than at whatever holds the product's
+default control port
 **Category:** testing · **Owns:** T-1, T-2, T-3, T-4, T-6, T-7 · **Last audit:** 2026-08-10
 **Depends on:** [worker 1](../peer/Task.1.md), [minecraft 5](../minecraft/Task.5.md),
 [server 1](../server/Task.1.md), [network 15](../network/Task.15.md)
