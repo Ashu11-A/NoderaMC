@@ -1,19 +1,19 @@
 {
-  "note": "Ratchet for `scripts/reference-check.py` — the Rust and TypeScript half of the question `./gradlew :peer:structureReport` has been asking of Java. `entries` are exported symbols that nothing outside their own file names, each with the reason it is still here; `limit` caps that list and it may only go DOWN. `test_only_limit` and `local_only_limit` are the other two counters: a symbol only a test names, and a symbol only its own file names. Those are budgets rather than lists for the same reason `budget.json` counts `test_only_methods` instead of enumerating them — the population is large and what matters is that it falls.",
-  "measured": "2026-08-09 on fix/pr222-tooling-ref, by running `scripts/reference-check.py --json` on this tree and reading `symbols_inspected` and `files_searched` out of the document it prints: 2,246 exported symbols across 1,715 searched files, with a further 62 not asked because their name is in `UNIVERSAL` and 3 not asked because they are `#[no_mangle]` ABI entry points. Read the numbers off a run; do not carry them forward. The figure this field used to give, '989 exported symbols in 1,735 searched files', was the third wrong file count in its own lineage — the tool printed 1,715 on every run of that same code, and the stamp before it (1,017 symbols, 1,734 files) belonged to a run taken while the allowlist was still inside the reference index, so writing an entry here gave its symbol a test reference and moved it out of `unreferenced`. 989 was a true symbol count for a walker that latched on the first `#[cfg(test)]` and never reset, which excused 28 production `pub fn` from the question, and for an extractor that asked about `pub fn` and nothing else — no `pub struct`, `const`, `enum`, `trait`, `type`, `static`, no `pub` field, and no `export default function`. Both are fixed, which is why the population trebled. THE THREE LIMITS BELOW ARE NOT RE-STAMPED HERE: they are ratchet values and a ratchet re-measured on one branch of a parallel wave loosens silently on merge, so the integrator re-measures once on the combined tree. Against this tree the required values are `limit` 18 (unchanged; all 18 entries still flag, none is stale), `test_only_limit` 12 (unchanged, exactly on its limit) and `local_only_limit` 153, up from 90 — 62 of the 63 newly-visible exported-but-local symbols are the shapes the extractor could not see before, and the 63rd is `rendezvous/src/service.rs:183 note_nat`, which the `#[cfg(test)]` latch was hiding. No new entry is needed in the list below: the extension added zero unreferenced symbols. Every one of the 18 entries was hand-verified by grepping the whole tree for its name: zero false positives. They are a work item, not a debt to be renewed.",
+  "note": "Ratchet for `scripts/reference-check.py` \u2014 the Rust and TypeScript half of the question `./gradlew :peer:structureReport` has been asking of Java. `entries` are exported symbols that nothing outside their own file names, each with the reason it is still here; `limit` caps that list and it may only go DOWN. `test_only_limit` and `local_only_limit` are the other two counters: a symbol only a test names, and a symbol only its own file names. Those are budgets rather than lists for the same reason `budget.json` counts `test_only_methods` instead of enumerating them \u2014 the population is large and what matters is that it falls.",
+  "measured": "2026-08-10 on the MERGED PR #222 review-wave tree, by running `python3 scripts/reference-check.py --json` on the merge commit and reading `symbols_inspected` and `files_searched` out of the document it prints: 2,246 exported symbols across 1,713 searched files, with a further 62 not asked because their name is in `UNIVERSAL` and 3 because they are `#[no_mangle]` ABI entry points reached by mangled name from Kotlin. Re-measured on the merge rather than taken from any one branch: a ratchet file describes exactly one tree, and taking either side of a merge silently loosens the gate. `local_only_limit` rose 90 -> 153 in this pass, and the rise is the gate getting wider, not the tree getting worse: 62 of the 63 new rows are declaration shapes the walker could not see before it learned to ask about `pub struct`, `enum`, `const`, `static`, `trait`, `type` and `pub` fields (the shape that motivated the check in the first place -- rendezvous's `circuit_idle_timeout_seconds` was a field), and the 63rd, `rendezvous/src/service.rs note_nat`, was hidden by a `#[cfg(test)]` latch that suppressed every declaration below the first test attribute in a file. Earlier stamps in this field recorded 1,735 and 1,734 searched files; neither figure describes a tree this tool has ever measured. `limit` stays 18 and `test_only_limit` stays 12: widening the walker flagged no new unreferenced symbol, which is the honest reading of a gate that was previously answering a narrower question than its name.",
   "limit": 18,
   "test_only_limit": 12,
-  "local_only_limit": 90,
+  "local_only_limit": 153,
   "entries": [
     {
       "file": "library/rust/nodera-codec/src/repo.rs",
       "symbol": "crate_dir",
-      "why": "Resolves a crate directory by name. Nothing calls it — `layout.properties` and `layout.rs` are how this tree answers that question, and this is the copy that lost."
+      "why": "Resolves a crate directory by name. Nothing calls it \u2014 `layout.properties` and `layout.rs` are how this tree answers that question, and this is the copy that lost."
     },
     {
       "file": "library/rust/nodera-codec/src/wire.rs",
       "symbol": "decode_discovery_body",
-      "why": "A `.map(|(m, _)| m)` wrapper over `decode_discovery_body_with_overlay`. Every caller in the tree — `messages.rs:362` included — uses the overlay form, because the overlay is the part that matters."
+      "why": "A `.map(|(m, _)| m)` wrapper over `decode_discovery_body_with_overlay`. Every caller in the tree \u2014 `messages.rs:362` included \u2014 uses the overlay form, because the overlay is the part that matters."
     },
     {
       "file": "library/rust/nodera-codec/src/wire.rs",
@@ -93,7 +93,7 @@
     {
       "file": "app/ui/src/links.tsx",
       "symbol": "ExternalLink",
-      "why": "A component wrapping the link ladder. Every screen reaches for the `useExternalLink` hook beside it instead — About, PlayScreen and TrackerStores all do — so the component has never been mounted."
+      "why": "A component wrapping the link ladder. Every screen reaches for the `useExternalLink` hook beside it instead \u2014 About, PlayScreen and TrackerStores all do \u2014 so the component has never been mounted."
     }
   ]
 }

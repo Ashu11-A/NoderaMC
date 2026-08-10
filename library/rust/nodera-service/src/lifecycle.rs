@@ -383,7 +383,10 @@ pub async fn drain_now<H: ServiceHost>(
         &directory::announce_to_all(&config.tracker_endpoints, &record, &signature).await,
         "draining",
     );
-    println!("{}", drain_line(reason, notified, trackers, replacements.len()));
+    println!(
+        "{}",
+        drain_line(reason, notified, trackers, replacements.len())
+    );
 
     // 4. Let in-flight work finish. A relay circuit carrying a world transfer completes; it does not
     //    get cut because an update happened to be available.
