@@ -498,6 +498,42 @@ public final class ServerEndpointSupport implements AutoCloseable {
     }
 
     /**
+     * The line the plugin prints while no region on this endpoint is delegated to its validated
+     * lane. {@code NoderaEndpointPlugin.startProjectionPinning} writes it; when server tasks 2 and 3
+     * give the endpoint a live assignment it stops being written, and the two stages gated on it
+     * start asserting.
+     */
+    public static final String NOTHING_DELEGATED = "no region on this endpoint is delegated yet";
+
+    /**
+     * The gate both [L-67]'s and [L-69]'s live stages stand behind: <b>is anything delegated?</b>
+     *
+     * <p>Neither row's exit clause is about an item or a redstone circuit in the abstract — both say
+     * "a <b>delegated</b> region", and nothing on the endpoint path delegates one yet (server tasks
+     * 2 and 3). A stage that ran anyway would measure vanilla and report it as the validated lane,
+     * which is the most expensive shape of a test in this repository: green, and about nothing.
+     *
+     * <p>It <b>fails</b> rather than skipping. The delegated region is an artefact the harness's own
+     * topology is supposed to produce, so a skip here would be structural — red under every flag
+     * anyway. Failing is the same colour and says considerably more.
+     *
+     * @param stage     the stage id, for the message.
+     * @param serverLog the Bukkit server log this endpoint wrote.
+     * @throws HarnessException naming the tasks that have to land first.
+     */
+    public void requireDelegatedRegion(String stage, LogWatcher serverLog) {
+        if (!serverLog.contains(NOTHING_DELEGATED)) {
+            return;
+        }
+        throw new HarnessException(stage + ": no region on this endpoint is delegated to its"
+                + " validated lane, so there is nothing for this stage to be about. The endpoint's"
+                + " delegation path is server task 2 (the in-process peer) and server task 3 (the"
+                + " custody and assignment view); until one of them hands the plugin a live"
+                + " assignment, L-67 and L-69 are unmeasurable rather than unmet. See "
+                + serverLog.file());
+    }
+
+    /**
      * No thread-context violation in any of the named logs.
      *
      * @throws HarnessException quoting up to three offending lines.

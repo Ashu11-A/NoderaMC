@@ -41,11 +41,53 @@ stays OPEN: Folia has no 1.21.1 build (it went 1.21.x → 1.21.4+), so the Folia
 available — sound for plugin enable and ALIGN-1, which are platform properties, and exactly why the
 mixed-**client** suites stay blocked.
 
+### L-66 (#182) — the recommendation, recorded here so that it survives
+
+<!-- AI-AGENT-INSTRUCTION: This is a FRAMED DECISION awaiting the project owner, not a settled one.
+     Do not act on it by moving the version pin; do not delete it because it is "just a discussion".
+     A decision recorded only in an issue comment evaporates, which is why it is in the task file. -->
+
+Raised while deriving [L-67](LIMITATIONS.md)'s thresholds ([server 5](Task.5.md)), because #177's own
+closing condition names *"a published Folia build of the mod's pinned Minecraft version"* — so L-67
+cannot close while L-66 is undecided, and L-66 is a decision rather than a task.
+
+**The measured fact.** The mod pins Minecraft 1.21.1 / NeoForge 21.1.238 / Java 21. Paper publishes
+1.21.1 (1.21.1-133, resolved and green). Folia's published versions go 1.19.4, 1.20.x, 1.21.4,
+1.21.5, 1.21.6, 1.21.8, 1.21.11, 26.1.2 — **1.21.1 was skipped**, so no Folia build of the mod's own
+Minecraft version exists, and none ever will. The pin and Folia's published set do not intersect.
+
+**Recommendation: option 2 — drop the mixed-client Folia requirement; keep Folia at the platform
+level.** Reasons, in order of weight:
+
+1. The pin is not ours to move cheaply. NeoForge 21.1.x is the LTS line and 21.1.238 is what the real
+   test client runs. Moving it re-baselines every `1.21.1`-asserting test,
+   `ServerEndpointSupport.MINECRAFT_PROTOCOL`, the wire fixtures' registry fingerprint, and the
+   `ServerVanillaBot` packet table — which two defects found on 2026-08-10 showed is version-exact
+   per field.
+2. `FoliaScenario` already asserts only platform properties (enable, ALIGN-1, the refusal) and says
+   so in its own header. Nothing it claims needs a client.
+3. Folia will publish another version next quarter and the intersection problem returns. A rule that
+   has to be re-negotiated every quarter is not a pin, it is a standing meeting.
+4. Option 1 (move the pin) buys exactly one thing — a client joining a Folia endpoint — and that is
+   [L-64](LIMITATIONS.md)/[L-67](LIMITATIONS.md)'s problem, not L-66's.
+
+**What landing it looks like**, none of which should be done without the owner's yes:
+
+- rewrite L-66's exit test to *"`endpoint` green on Paper at the pin; `folia` green on the newest
+  published Folia, for platform properties only"*;
+- open a **new** row owning the residue — "mixed-client Folia is unproven until the pin and Folia's
+  published versions intersect" — with a stated re-check trigger (every Folia release, and any move
+  of the NeoForge pin), so the gap keeps an owner instead of being absorbed;
+- amend deliverable 7 below so "newest published Folia" reads as the intended state rather than as a
+  fallback.
+
 **Two planned deliverables are deferred by name, not silently dropped.** The `NoderaScheduler` seam
 (`FoliaSchedulers` / `PaperSchedulers`) and the in-module ArchUnit rule banning `BukkitScheduler` are
-not yet enacted: the plugin does no region-scheduled work until [server 3](Task.3.md)–[server 5](Task.5.md),
-and the module today references no scheduler at all. The property holds de facto; the rule lands with
-the first code that could violate it.
+not yet enacted: the plugin does no region-scheduled work until [server 3](Task.3.md)–[server 5](Task.5.md).
+The rule's *property* now has its first real subject — server task 5's projection pin schedules
+region work — and it holds: the pin dispatches through `RegionScheduler` (which Paper implements too,
+on its single main thread) and the module still references no `BukkitScheduler`. The ArchUnit rule
+itself lands with task 3.
 
 ## Dependencies
 
