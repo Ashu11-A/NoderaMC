@@ -7,9 +7,19 @@ different tool, gets a different answer, and the programme has no evidence. So: 
 lexer in `scripts/lib/loc_classify.py`, and a stamped baseline that may only go DOWN — the same
 ratchet discipline `fixtures/structure/budget.json` already applies to dead code.
 
-What is counted: every `.java`, `.rs`, `.ts` and `.tsx` file that git tracks. Tracked-only is the
-point — it is what makes the number reproducible on a clean clone, and it excludes `target/`,
-`build/`, `node_modules/` and every other artifact without needing a list of them.
+What is counted: every file that git tracks whose extension `scripts/lib/loc_classify.py` knows —
+Java, Kotlin, Rust, TypeScript and JavaScript. That module owns the list and this one derives its
+`git ls-files` patterns from it, because the two holes this gate has had were both an extension
+known to the lexer and not asked of git. Tracked-only is the point — it is what makes the number
+reproducible on a clean clone, and it excludes `target/`, `build/`, `node_modules/` and every other
+artifact without needing a list of them.
+
+What is NOT counted, stated so the headline has a denominator: the programme's own tooling, 11 `.py`
+files (2,999 code lines) and 25 `.sh` files (3,759), 6,758 code lines in all — 4.1% of the tree.
+Counting them needs a `#`-comment lexer for two more languages, with shell here-documents and
+Python docstrings to get right, and a lexer nobody can check against `cloc` is a worse foundation
+for a gate than an exclusion somebody wrote down. Moving logic into `scripts/*.py` therefore still
+reads as reduction; that is a known gap, not an oversight.
 
 Files a generator wrote are counted, reported and then excluded from the ratchet. `nodera-codec`'s
 `kinds.rs` grows by three lines every time a wire kind is appended, and a size gate that fails on
@@ -21,7 +31,7 @@ that is a gate against adding messages.
     scripts/loc-metrics.py --check           # fail if anything grew past the baseline
     scripts/loc-metrics.py --diff FILE       # delta against some other stored baseline
     scripts/loc-metrics.py --json            # the same numbers, machine-readable
-    scripts/loc-metrics.py --selftest        # prove the lexer still classifies the hard cases
+    scripts/loc-metrics.py --selftest        # prove the lexer and the gate's own rules still hold
 
 `--check` runs in the gate (`scripts/dev.sh --test` and `.github/workflows/build.yml`). When a
 growth is deliberate, re-stamp with `--baseline` in the SAME commit that grew the tree: raising a
@@ -38,6 +48,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 
@@ -48,10 +59,17 @@ from loc_classify import Counts  # noqa: E402
 BASELINE_FILE = "scripts/lib/loc-baseline.json"
 REPORT_FILE = "reports/nodera/LOC-BASELINE.md"
 
-# The buckets the ratchet holds. Java and Rust are split because production code and test code are
-# reduced by different work — Phase 3 consolidates harnesses, Phase 4 decomposes production classes
-# — and one combined number would let a win in either hide a loss in the other.
-BUCKETS = ("java.main", "java.test", "rust.main", "rust.test", "ts.main", "ts.test")
+# The buckets the ratchet holds. Every language is split main/test because production code and test
+# code are reduced by different work — Phase 3 consolidates harnesses, Phase 4 decomposes
+# production classes — and one combined number would let a win in either hide a loss in the other.
+# Kotlin's test bucket is nearly empty today (`:testing`'s own build script) and it exists anyway,
+# because the alternative is that the first Android suite lands in the production bucket.
+BUCKETS = (
+    "java.main", "java.test",
+    "kotlin.main", "kotlin.test",
+    "rust.main", "rust.test",
+    "ts.main", "ts.test",
+)
 
 # Which of the stamped limits `--check` actually enforces: the code ones, and not the comment ones.
 #
@@ -73,7 +91,12 @@ _RATCHET_NOTE = (
     "SAME commit that grew the tree. Generated files (`@generated` / `DO NOT EDIT` in the header) "
     "are measured but excluded from these limits, because appending a wire kind must never fail a "
     "size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes "
-    "deleting documentation the cheapest way to go green is pointed at the wrong thing."
+    "deleting documentation the cheapest way to go green is pointed at the wrong thing. What these "
+    "limits do NOT cover, stated so the total has a denominator: the programme's own tooling, 11 "
+    "`.py` files (2,999 code lines) and 25 `.sh` files (3,759), 6,758 code lines in all -- "
+    "roughly 4% of the tree. Counting them needs a `#`-comment lexer for two more languages, "
+    "here-documents and docstrings included, and until that exists moving logic into a script "
+    "still reads as reduction."
 )
 
 
@@ -82,19 +105,22 @@ _RATCHET_NOTE = (
 # ---------------------------------------------------------------------------------------------
 
 
+def tracked_patterns() -> list[str]:
+    """The `git ls-files` globs, one per extension the lexer knows.
+
+    Derived rather than typed, because a hand-kept second list is exactly how this gate lost 45
+    `.mjs`/`.js` files (7,468 lines, the site's whole generator chain and `nodera-ui`'s two largest
+    modules) and 30 `.kt`/`.kts` files (4,033 code lines, the entire Android front end): in both
+    cases `loc_classify` knew the language and nothing asked git for the files, so moving code into
+    one read as pure reduction. Adding an extension in one place now adds it here too.
+    """
+    return [f"*{extension}" for extension in sorted(loc_classify.extensions())]
+
+
 def tracked_sources(root: pathlib.Path) -> list[pathlib.Path]:
     """Every source file git tracks, as paths relative to the repository root."""
-    patterns = [
-        "*.java", "*.rs",
-        "*.ts", "*.tsx", "*.mts", "*.cts",
-        # `.mjs`/`.js` were missing until 2026-08-06, and their absence was not a gap in coverage
-        # but a hole in the gate: 45 tracked files carrying 7,468 lines — the site's whole generator
-        # chain, both frontend test suites, and `nodera-ui`'s two largest modules — sat outside the
-        # ratchet, so moving TypeScript into a `.mjs` file read as pure reduction.
-        "*.js", "*.mjs", "*.cjs",
-    ]
     out = subprocess.run(
-        ["git", "ls-files", "-z", "--", *patterns],
+        ["git", "ls-files", "-z", "--", *tracked_patterns()],
         cwd=root,
         check=True,
         capture_output=True,
@@ -115,30 +141,14 @@ def components(root: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
         named[f":{name}"] = path
     for name, path in layout.crates().items():
         named[name] = path
-    for key, value in _packages().items():
-        named[key] = root / value
+    # `layout.packages()` returns absolute paths, like `modules()` and `crates()` above it. This
+    # used to be a second hand-rolled properties parser here, justified by a comment saying
+    # `layout.py` had no accessor for the `package.*` rows; it has one.
+    for name, path in layout.packages().items():
+        named[name] = path
     named["build-logic"] = layout.path("buildLogic")
     ordered = sorted(named.items(), key=lambda item: len(str(item[1])), reverse=True)
     return [(name, path.relative_to(root)) for name, path in ordered]
-
-
-def _packages() -> dict[str, str]:
-    """The `package.*` rows of the layout manifest; `layout.py` has no accessor for them."""
-    return {
-        key.split(".", 1)[1]: layout.get(key)
-        for key in _layout_keys()
-        if key.startswith("package.")
-    }
-
-
-def _layout_keys() -> list[str]:
-    manifest = layout.root() / "layout.properties"
-    keys = []
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith(("#", "!")) and "=" in line:
-            keys.append(line.split("=", 1)[0].strip())
-    return keys
 
 
 def bucket_of(path: pathlib.Path, language: str) -> str:
@@ -159,10 +169,17 @@ def bucket_of(path: pathlib.Path, language: str) -> str:
         name = path.name
         is_test = "tests" in parts or "test" in parts or ".test." in name or ".spec." in name
         return "ts.test" if is_test else "ts.main"
-    if language == "java":
+    if language in ("java", "kotlin"):
+        # Kotlin follows Java's rule because it lives in Java's trees: the convention plugins are a
+        # Gradle source set under `library/java/build-logic/src/main/kotlin`, and every module's
+        # `build.gradle.kts` sits at the module root with no source set at all, which reads as
+        # production. `test` is also matched as a bare path segment so the Android app's future
+        # `test`/`androidTest` trees land in the right bucket the day they appear rather than the
+        # day somebody notices — `app/android/kotlin/**` has no `src` for `_source_set` to read.
         if _in_testing_module(path):
-            return "java.test"
-        return "java.test" if "test" in _source_set(parts) else "java.main"
+            return f"{language}.test"
+        is_test = "test" in _source_set(parts) or "test" in parts or "androidTest" in parts
+        return f"{language}.test" if is_test else f"{language}.main"
     # Rust files under `tests/` are integration tests. Everything else is partitioned per file by
     # `classify_partitioned`, because Rust keeps its unit tests inside the file they test.
     return "rust.test" if "tests" in parts else "rust.main"
@@ -322,9 +339,11 @@ def render_component_table(measurement: Measurement) -> str:
         total = Counts()
         for counts in per_bucket.values():
             total += counts
+        # The whole bucket name, not its last segment: `nodera-app` holds Kotlin and Rust, and every
+        # Java module holds its `build.gradle.kts` too, so a bare `main=` would print twice in one
+        # cell and name neither language.
         detail = " ".join(
-            f"{bucket.split('.')[-1]}={counts.code}"
-            for bucket, counts in sorted(per_bucket.items())
+            f"{bucket}={counts.code}" for bucket, counts in sorted(per_bucket.items())
         )
         rows.append(
             [
@@ -448,8 +467,17 @@ def diff(root: pathlib.Path, measurement: Measurement, other: pathlib.Path) -> i
 
 
 # ---------------------------------------------------------------------------------------------
-# Self-test — the lexer's hard cases, so a refactor of it cannot pass quietly
+# Self-test — the hard cases, so a refactor cannot pass quietly
 # ---------------------------------------------------------------------------------------------
+#
+# Two halves, because for its first eighteen cases this self-test had one blind spot that mattered:
+# every case called `loc_classify.classify_text` and nothing else, so it proved the *lexer* and
+# left the *gate* untested. All three defects this tool has had lived outside the lexer — `GATED`
+# holding the comment buckets, `bucket_of` reading `:testing`'s `src/main` as production, `.mjs`
+# missing from the extension table — and every one of them passed 18/18. The `.mjs` deletion was the
+# sharpest: a one-line edit that took 4,882 lines off the headline while `--selftest` and `--check`
+# both exited 0 and asked for no re-stamp. `_STRUCTURAL_CASES` is the half that fails on those, and
+# CI's claim that "the ratchet is only worth as much as the lexer under it" now covers the gate too.
 
 _CASES: list[tuple[str, str, str, tuple[int, int, int]]] = [
     (
@@ -560,7 +588,221 @@ _CASES: list[tuple[str, str, str, tuple[int, int, int]]] = [
         "  // only\n",
         (0, 1, 0),
     ),
+    (
+        "kotlin: raw string content is code",
+        "kotlin",
+        'val s = """\n    // not a comment\n    """\n',
+        (3, 0, 0),
+    ),
+    (
+        "kotlin: block comments nest",
+        "kotlin",
+        "/* outer /* inner */ still outer */\nval x = 1\n",
+        (1, 1, 0),
+    ),
+    (
+        "kotlin: kdoc is comment",
+        "kotlin",
+        "/** Doc. */\nfun f() {}\n",
+        (1, 1, 0),
+    ),
+    (
+        "kotlin: url in a string template is not a comment",
+        "kotlin",
+        'val u = "https://example.com/$path"\n',
+        (1, 0, 0),
+    ),
 ]
+
+# The extension table, written out once more where a reviewer reads it. Asserting `_EXTENSIONS`
+# against itself would prove nothing — deleting `.mjs` from it would leave the two sides agreeing —
+# so the expected set is a literal here, and dropping a language from the gate now has to be done
+# twice, in a diff that says so.
+_EXPECTED_EXTENSIONS = frozenset({
+    ".java",
+    ".kt", ".kts",
+    ".rs",
+    ".ts", ".tsx", ".mts", ".cts",
+    ".js", ".mjs", ".cjs",
+})
+
+# A braced `#[cfg(test)] mod tests` and an unbraced `#[cfg(test)] mod test_support;`. The second is
+# the shape `_block_end` used to run straight past, dragging every line up to the next depth-0 `}`
+# into `rust.test` — on `tracker/src/main.rs` that was nine `use` lines and the whole body of
+# `async fn main`.
+_RUST_BRACED = (
+    "pub fn a() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\npub fn b() {}\n"
+)
+_RUST_UNBRACED = "#[cfg(test)]\nmod test_support;\nmod wire;\n\npub fn main() {\n    run();\n}\n"
+_RUST_UNBRACED_ONE_LINE = "#[cfg(test)] mod test_support;\npub fn main() {\n    run();\n}\n"
+# An unbraced item that still contains braces: it ends at the `;` after its closing brace, so brace
+# counting has to stay in charge once a brace has opened.
+_RUST_UNBRACED_GROUPED = (
+    "#[cfg(test)]\npub use crate::support::{\n    Alpha,\n    Beta,\n};\npub fn a() {}\n"
+)
+
+
+def _generated_markers() -> tuple[bool, bool, bool, bool]:
+    """`is_generated` on each marker alone, on an unmarked header, and past the header window.
+
+    Each marker gets a file of its own: a fixture carrying both would still be recognised after
+    one of them was deleted from the table, which is precisely the kind of hole this half of the
+    self-test exists to close.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        generated = pathlib.Path(directory, "kinds.rs")
+        generated.write_text(
+            "// @generated by scripts/wire-schema.py\npub const A: u8 = 1;\n", encoding="utf-8"
+        )
+        do_not_edit = pathlib.Path(directory, "tags.rs")
+        do_not_edit.write_text("// DO NOT EDIT\npub const B: u8 = 2;\n", encoding="utf-8")
+        plain = pathlib.Path(directory, "service.rs")
+        plain.write_text("//! The tracker service.\npub fn run() {}\n", encoding="utf-8")
+        late = pathlib.Path(directory, "late.rs")
+        late.write_text("\n" * 8 + "// DO NOT EDIT\n", encoding="utf-8")
+        return (
+            loc_classify.is_generated(generated),
+            loc_classify.is_generated(do_not_edit),
+            loc_classify.is_generated(plain),
+            loc_classify.is_generated(late),
+        )
+
+
+def _structural_cases() -> list[tuple[str, object, object]]:
+    """(name, actual, expected) for everything in this file that is not the line lexer."""
+    component_names = [name for name, _ in components(layout.root())]
+    component_depths = [len(str(path)) for _, path in components(layout.root())]
+    return [
+        # --- the gate's own shape -------------------------------------------------------------
+        (
+            "GATED holds exactly one key per bucket, and only the code one",
+            sorted(GATED),
+            sorted(f"{bucket}.code" for bucket in BUCKETS),
+        ),
+        (
+            "no comment bucket is gated",
+            sorted(key for key in GATED if key.endswith(".comment")),
+            [],
+        ),
+        (
+            "every gated key names a real bucket",
+            sorted({key.rsplit(".", 1)[0] for key in GATED}),
+            sorted(BUCKETS),
+        ),
+        (
+            "every bucket has a stampable code and comment limit",
+            sorted(limits_of(Measurement())),
+            sorted(
+                [f"{bucket}.code" for bucket in BUCKETS]
+                + [f"{bucket}.comment" for bucket in BUCKETS]
+            ),
+        ),
+        # --- the extension table, both halves of it ------------------------------------------
+        (
+            "the lexer counts exactly the declared extensions",
+            sorted(loc_classify.extensions()),
+            sorted(_EXPECTED_EXTENSIONS),
+        ),
+        (
+            "git is asked for every extension the lexer counts",
+            sorted(tracked_patterns()),
+            sorted(f"*{extension}" for extension in _EXPECTED_EXTENSIONS),
+        ),
+        ("`.mjs` is TypeScript", loc_classify.language_of("web/tools/build.mjs"), "ts"),
+        (
+            "`.kt` is Kotlin",
+            loc_classify.language_of("app/android/kotlin/ui/Settings.kt"),
+            "kotlin",
+        ),
+        ("`.kts` is Kotlin", loc_classify.language_of("peer/build.gradle.kts"), "kotlin"),
+        ("a `.kt` file has a bucket", "kotlin.main" in BUCKETS, True),
+        # --- bucket_of, the two path rules source set alone gets wrong ------------------------
+        (
+            "`:testing`'s src/main is test code",
+            bucket_of(
+                pathlib.Path("library/java/testing/src/main/java/dev/nodera/testkit/Loopback.java"),
+                "java",
+            ),
+            "java.test",
+        ),
+        (
+            "`peer/src/headless` is production",
+            bucket_of(
+                pathlib.Path("peer/src/headless/java/dev/nodera/peer/headless/Main.java"), "java"
+            ),
+            "java.main",
+        ),
+        (
+            "a module's build script is production Kotlin",
+            bucket_of(pathlib.Path("peer/build.gradle.kts"), "kotlin"),
+            "kotlin.main",
+        ),
+        (
+            "the Android app is production Kotlin",
+            bucket_of(pathlib.Path("app/android/kotlin/ui/Settings.kt"), "kotlin"),
+            "kotlin.main",
+        ),
+        (
+            "an Android instrumented tree would be test Kotlin",
+            bucket_of(pathlib.Path("app/android/kotlin/androidTest/SettingsTest.kt"), "kotlin"),
+            "kotlin.test",
+        ),
+        (
+            "a Rust `tests/` directory is test code",
+            bucket_of(pathlib.Path("library/rust/nodera-codec/tests/wire.rs"), "rust"),
+            "rust.test",
+        ),
+        (
+            "a frontend suite is test TypeScript",
+            bucket_of(pathlib.Path("app/ui/tests/screens.test.ts"), "ts"),
+            "ts.test",
+        ),
+        # --- the Rust inline-test split ------------------------------------------------------
+        (
+            "a braced `#[cfg(test)] mod tests` leaves production behind",
+            loc_classify.split_test_blocks(_RUST_BRACED, "rust"),
+            (
+                "pub fn a() {}\npub fn b() {}",
+                "#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}",
+            ),
+        ),
+        (
+            "an unbraced `#[cfg(test)] mod test_support;` takes only itself",
+            loc_classify.split_test_blocks(_RUST_UNBRACED, "rust"),
+            ("mod wire;\n\npub fn main() {\n    run();\n}", "#[cfg(test)]\nmod test_support;"),
+        ),
+        (
+            "the same item on one line takes only that line",
+            loc_classify.split_test_blocks(_RUST_UNBRACED_ONE_LINE, "rust"),
+            ("pub fn main() {\n    run();\n}", "#[cfg(test)] mod test_support;"),
+        ),
+        (
+            "an unbraced item containing braces ends at its own semicolon",
+            loc_classify.split_test_blocks(_RUST_UNBRACED_GROUPED, "rust"),
+            ("pub fn a() {}", "#[cfg(test)]\npub use crate::support::{\n    Alpha,\n    Beta,\n};"),
+        ),
+        (
+            # Returned verbatim, trailing newline included: only Rust is rejoined line by line.
+            "a language with no inline tests does not split",
+            loc_classify.split_test_blocks("class A {}\n", "java"),
+            ("class A {}\n", ""),
+        ),
+        # --- generated files, which are measured and then excluded ---------------------------
+        (
+            "each generator marker is found, and only inside the header window",
+            _generated_markers(),
+            (True, True, False, False),
+        ),
+        # --- the component map ----------------------------------------------------------------
+        ("`build-logic` is a component", "build-logic" in component_names, True),
+        ("`:testing` is a component", ":testing" in component_names, True),
+        ("the frontend packages come from the manifest", "nodera-app-ui" in component_names, True),
+        (
+            "components are ordered longest path first",
+            component_depths,
+            sorted(component_depths, reverse=True),
+        ),
+    ]
 
 
 def selftest() -> int:
@@ -571,11 +813,19 @@ def selftest() -> int:
         if actual != expected:
             failures += 1
             print(f"FAIL {name}: expected code/comment/blank {expected}, got {actual}")
-    total = len(_CASES)
+    structural = _structural_cases()
+    for name, actual, expected in structural:
+        if actual != expected:
+            failures += 1
+            print(f"FAIL {name}: expected {expected!r}, got {actual!r}")
+    total = len(_CASES) + len(structural)
     if failures:
         print(f"loc-metrics --selftest: {failures} of {total} cases failed", file=sys.stderr)
         return 1
-    print(f"loc-metrics --selftest: {total} cases passed")
+    print(
+        f"loc-metrics --selftest: {total} cases passed "
+        f"({len(_CASES)} lexer, {len(structural)} gate)"
+    )
     return 0
 
 
@@ -585,7 +835,9 @@ def selftest() -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="loc-metrics.py",
-        description="Count git-tracked Java, Rust and TypeScript lines, and ratchet the total.",
+        description=(
+            "Count git-tracked Java, Kotlin, Rust and TypeScript lines, and ratchet the total."
+        ),
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--baseline", action="store_true", help="stamp the baseline and the report")
@@ -593,7 +845,7 @@ def main(argv: list[str]) -> int:
     mode.add_argument("--diff", metavar="FILE", help="delta against another stored baseline")
     mode.add_argument("--by-module", action="store_true", help="per-component breakdown")
     mode.add_argument("--json", action="store_true", help="the current numbers, machine-readable")
-    mode.add_argument("--selftest", action="store_true", help="run the lexer's fixture cases")
+    mode.add_argument("--selftest", action="store_true", help="run the lexer and gate cases")
     parser.add_argument("--note", help="the `measured` line to stamp, with --baseline")
     args = parser.parse_args(argv)
 
