@@ -39,7 +39,22 @@ import java.util.List;
  *   --no-build      use what is already built (fast, and wrong if you just changed code)
  *   --keep-running  leave the stack up after the last scenario, to poke at it by hand
  *   --report DIR    where the report goes (default build/reports/nodera)
+ *   --allow-skips   accept scenarios this machine cannot host (never structural ones)
  * </pre>
+ *
+ * <h2>A skipped run is not a green run</h2>
+ *
+ * <p>The exit status used to be {@code anyFailed() ? 1 : 0}, and {@code SKIPPED} is not
+ * {@code failed} — so a live matrix in which every leg skipped exited 0 and rendered as a passing
+ * build. The unit gate had carried the opposite rule for months ("Nothing skipped into green" in
+ * {@code .github/workflows/build.yml}); the live lane, which is where the expensive evidence comes
+ * from, had no equivalent. The rule now lives in the TOOL rather than in a workflow step, because a
+ * workflow can forget it and a second workflow never had it.
+ *
+ * <p>{@code --allow-skips} is the operator's escape hatch for a box that genuinely cannot host a
+ * scenario — and it only covers {@link dev.nodera.testkit.suite.SkipKind#CIRCUMSTANTIAL} skips.
+ * A structural skip fails the run either way: it means the scenario could not have run anywhere,
+ * so there is nothing about the machine for an operator to accept.
  *
  * <p>Thread-context: a process entry point.
  */
@@ -71,6 +86,7 @@ public final class NoderaTestMain {
         boolean keepRunning = rest.remove("--keep-running");
         boolean full = rest.remove("--full");
         boolean noDebug = rest.remove("--no-debug");
+        boolean allowSkips = rest.remove("--allow-skips");
         Path reportDir = takeOption(rest, "--report")
                 .map(Path::of)
                 .orElse(paths.root().resolve("build/reports/nodera"));
@@ -81,11 +97,13 @@ public final class NoderaTestMain {
 
         return switch (command) {
             case "list" -> list(registry, idsOnly, excludeTag);
-            case "run" -> runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir);
+            case "run" -> runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir,
+                    allowSkips);
             case "bench" -> bench(paths, full);
             case "structure" -> structure(paths, noDebug);
             case "all" -> {
-                int scenarios = runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir);
+                int scenarios = runScenarios(paths, registry, rest, tags, build, keepRunning,
+                        reportDir, allowSkips);
                 int benchmarks = bench(paths, full);
                 int structure = structure(paths, noDebug);
                 yield Math.max(scenarios, Math.max(benchmarks, structure));
@@ -140,7 +158,7 @@ public final class NoderaTestMain {
 
     private static int runScenarios(TestPaths paths, ScenarioRegistry registry, List<String> ids,
                                     List<String> tags, boolean build, boolean keepRunning,
-                                    Path reportDir) {
+                                    Path reportDir, boolean allowSkips) {
         List<Scenario> queue;
         if (!tags.isEmpty()) {
             queue = registry.withTag(tags.get(0));
@@ -170,7 +188,39 @@ public final class NoderaTestMain {
         }
         System.out.println();
         System.out.println("nodera-test: " + report.headline() + " — " + written);
-        return report.anyFailed() ? 1 : 0;
+        return verdict(report, allowSkips);
+    }
+
+    /**
+     * The exit status: what the run is allowed to say about itself.
+     *
+     * <p>Three separate reasons to be non-zero, each with its own sentence, because "exit 1" with no
+     * explanation is how a skipped matrix stayed invisible for as long as it did.
+     */
+    static int verdict(RunReport report, boolean allowSkips) {
+        int status = report.anyFailed() ? 1 : 0;
+        if (report.anyStructuralSkip()) {
+            System.err.println("nodera-test: a scenario was skipped for a reason this machine does "
+                    + "not explain — it could not have run anywhere, so this run measured nothing:");
+            System.err.println(report.skipSummary());
+            System.err.println("nodera-test: --allow-skips does NOT cover this. Build what the "
+                    + "scenario waits for, or fix the path it looks at.");
+            return 1;
+        }
+        if (report.anySkipped() && !allowSkips) {
+            System.err.println("nodera-test: " + report.skippedCount() + " scenario(s) did not run. "
+                    + "A skip asserts nothing and renders exactly like a pass:");
+            System.err.println(report.skipSummary());
+            System.err.println("nodera-test: run them on a machine that can host them, or pass "
+                    + "--allow-skips to accept these skips deliberately.");
+            return Math.max(status, 1);
+        }
+        if (report.anySkipped()) {
+            System.out.println("nodera-test: " + report.skippedCount()
+                    + " scenario(s) skipped, accepted by --allow-skips:");
+            System.out.println(report.skipSummary());
+        }
+        return status;
     }
 
     /**
@@ -236,6 +286,11 @@ public final class NoderaTestMain {
                   --report DIR     where the report goes (default build/reports/nodera)
                   --ids            list: bare ids, one per line, for scripts
                   --exclude-tag T  list: leave out everything carrying the tag
+                  --allow-skips    accept scenarios this machine cannot host. A run with a
+                                   skipped scenario is RED without it, because a skip asserts
+                                   nothing and renders like a pass. Structural skips — an
+                                   artefact the harness itself should have built — fail either
+                                   way.
                 """);
         return list(registry, false, null);
     }

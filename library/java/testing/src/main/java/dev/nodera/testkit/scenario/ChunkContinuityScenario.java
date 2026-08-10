@@ -288,7 +288,7 @@ public final class ChunkContinuityScenario implements Scenario {
             Path config = HostWorldSupport.stagedWorld(ctx);
             // And the cadence this whole run is about, stated rather than inherited: the whole-save
             // repack is off, so what moves between peers is region deltas.
-            HostWorldSupport.setHostConfig(config, "archive", "streamIntervalTicks", "0");
+            LiveStack.setHostConfig(config, "archive", "streamIntervalTicks", "0");
             players[0] = HostWorldSupport.hostedTwoPlayers(ctx);
             ctx.check(HostWorldSupport.runJvmAlive(HOST_RUN), "player A's game JVM is not running");
             ctx.check(HostWorldSupport.runJvmAlive(JOINER_RUN), "player B's game JVM is not running");

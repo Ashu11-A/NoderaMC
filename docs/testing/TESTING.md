@@ -5,25 +5,20 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-08-10, `./gradlew check` on the `#142` branch ·
-**51 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
-scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
-the smoke test that all twenty-two resolve.
+**Category:** testing · **Last run:** 2026-08-10, `./gradlew :testing:test` on branch
+`fix/harness-tells-the-truth-#188` · **74 unit tests · 0 failing · 0 skipped** (module `testing`) —
+the live scenarios themselves run in the `e2e-live` workflow nightly, and
+`scripts/nodera-test.sh list` is the smoke test that all twenty resolve.
 
-**`e2e-live` last generated a matrix on 2026-08-10** — nineteen suites, derived from
-`nodera-test list --ids --exclude-tag hardware` rather than from a list kept in the workflow. The
-twelve nightlies before that (2026-07-30 → 2026-08-10) never got that far: the plan job compiles
-Java and had no JDK 21, so every one died in about ninety seconds with `error: release version 21
-not supported` and dispatched no suite at all ([#142](https://github.com/Ashu11-A/NoderaMC/issues/142)).
-Live evidence is only as old as the last nightly that ran.
+The count rose 44 → 74 on 2026-08-10: `LiveStackLivenessTest`, `LogWatcherLagGuardTest`,
+`LogWatcherWindowTest` and `SkipGateTest` landed with the harness-truth work, and
+`HostWorldSupportTest` moved to `ManagedProcessTokenTest` with the capability it covers.
 
-Whole-tree Java total for that same run: **2,276 tests · 0 failed · 12 skipped**. That figure is the
-sum of the nine per-module counts README's module table carries — core 314, engine 446, transport
-189, storage 158, testing 51, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
-where a reader should go for the per-module breakdown. The twelve skips are the real-binary suites
-described below: this run was a developer machine that had not built the cargo services, and the
-`java` job in CI does build them, which is what the `Nothing skipped into green` step holds it to.
-To measure it rather than add it up, run
+Whole-tree Java total: **2,299 tests · 0 failed**. That figure is the sum of the nine per-module
+counts README's module table carries — core 314, engine 446, transport 189, storage 158, testing 74,
+peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is where a reader should go for
+the per-module breakdown. `scripts/test-counts.sh --check java` fails the gate when README and the
+measured suites disagree, so those numbers are not typed from memory. To measure it rather than add it up, run
 `scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
 suite that skipped into green cannot contribute to the number.
 
@@ -191,6 +186,22 @@ written, registered, listed, validated against the tool — and never run by any
   - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
   - run: ./gradlew :peer:installDist
   ```
+
+  **Since 2026-08-10 the live lane has the same rule, and it lives in the tool.** `nodera-test run`
+  used to exit `anyFailed() ? 1 : 0`, so a matrix in which every leg skipped exited 0 and rendered
+  green. Now any skip is a non-zero exit unless `--allow-skips` is passed, and a **structural** skip
+  is non-zero with it — there is no property of the machine for an operator to be accepting. The
+  kind is on every result in `build/reports/nodera/test-report.json` (`"skipKind"`), and the tool
+  prints the id, the kind and the reason of every scenario that did not run.
+
+  **`continuity` cannot be run on a 14 GB developer box, and it now says so instead of failing.**
+  Its requirement is `Requirements.liveClients(8)`: two full Minecraft clients, three headless
+  workers, a tracker, a rendezvous and the host's own integrated server. On a box reporting ~6 GiB
+  available the whole arrangement started and then put the host 1066 ticks behind, which dropped the
+  joiner's *vanilla* connection and failed S2c forty minutes in with a message that named the
+  validation lane. Eight GiB is the floor under which the 2026-08-04 runs did not survive, so such a
+  box now reports a circumstantial skip in one line at the start. Run `continuity` on the reference
+  machine or in `e2e-live`; a local `--allow-skips` run is not evidence for it.
 
   and a `Nothing skipped into green` step fails the job on a non-zero skip count. To run the same
   gate locally, promise the binaries explicitly:

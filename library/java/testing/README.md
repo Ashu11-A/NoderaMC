@@ -22,8 +22,33 @@ substitute genuinely buys something.
 dev.nodera.testkit
 ├── LoopbackTransport      an in-JVM PeerTransport for multi-peer scenarios without sockets
 ├── FakeRegion             region/snapshot builders for engine and consensus tests
-└── FixtureWriter/Reader   golden canonical frames — emit from Java, compare byte-exactly
+├── FixtureWriter/Reader   golden canonical frames — emit from Java, compare byte-exactly
+├── harness/               the live stack: processes, ports, readiness, log evidence
+├── suite/ + report/       the scenario SPI, its outcomes, and the one run report
+└── scenario/             one class per acceptance scenario, composing the harness
 ```
+
+## The harness owns capabilities; a scenario owns policy
+
+Everything a scenario needs from the MACHINE lives in `harness/`, and a scenario support class may
+only compose it. That boundary is not tidiness. Five capabilities lived one layer up under
+`// HARNESS-GAP` markers, so one behaviour was described in two places and the error-audit rule was
+written out three times — a benign cause added to one copy fixed a third of the suites and left the
+rest.
+
+- `LiveStack` starts every process and **proves each one is answering before it hands it back**:
+  services by socket probe, workers by their control socket, the dedicated server by its game port
+  *and* an RCON round trip, a client by the existence of a game JVM carrying that run's
+  `<run>RunProgramArgs` token. Every failure names the process, its exit status and its log tail.
+  It also stages a client's `options.txt` and amends a world's `nodera-server.toml`.
+- `ManagedProcess` addresses processes it did NOT fork, by a token on their command line, reading
+  `/proc` directly because `ProcessHandle.info().commandLine()` truncates at 4096 bytes and the
+  token sits past it.
+- `LogWatcher` is the one assertion primitive: waits (with a mark, a guard, a blocked-screen watch,
+  and a host-lag explanation for an expiry) and window reads after a mark.
+- `Requirements` classifies why a scenario did not run. A missing display is the machine; a missing
+  artefact the runner builds is the harness. The tool exits non-zero on either, and only the first
+  can be accepted with `--allow-skips`.
 
 ## Why it is shaped this way
 
@@ -49,8 +74,8 @@ is a small step away from that, so the bar for adding one is high.
 
 ## Tests
 
-14 tests covering the helpers themselves — a broken test library produces false confidence everywhere
-else.
+74 tests covering the helpers themselves — a broken test library produces false confidence
+everywhere else, and this module is the one that decides what "the run passed" means.
 
 ```bash
 ./gradlew :testing:test

@@ -183,9 +183,14 @@ class ScenarioToolTest {
         Requirements requirements = new Requirements(false, true, true, 0);
 
         assertThat(requirements.unmet(dev.nodera.testkit.harness.TestPaths.of(emptyTree)))
-                .hasValueSatisfying(reason -> assertThat(reason)
-                        .contains("endpoint plugin")
-                        .contains("ANDROID_SERIAL"));
+                .hasValueSatisfying(skip -> {
+                    assertThat(skip.reason())
+                            .contains("endpoint plugin")
+                            .contains("ANDROID_SERIAL");
+                    // A missing artefact the runner builds itself outranks a missing device: the
+                    // strictest reason decides, because a structural skip is never tolerable.
+                    assertThat(skip.kind()).isEqualTo(SkipKind.STRUCTURAL);
+                });
     }
 
     @Test

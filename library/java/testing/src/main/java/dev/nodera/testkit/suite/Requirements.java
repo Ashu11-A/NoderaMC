@@ -59,30 +59,48 @@ public record Requirements(boolean needsDisplay, boolean needsPaperJar, boolean 
     /**
      * Why this machine cannot host the scenario.
      *
-     * @return the reason to report as a skip, or empty when everything is available.
+     * <p>The KIND matters as much as the reason. A display, a phone and free memory are facts about
+     * the machine and produce a {@link SkipKind#CIRCUMSTANTIAL} skip. The endpoint plugin jar does
+     * not: the runner builds it before the queue starts, so a missing one means the harness did not
+     * produce its own artefact — {@link SkipKind#STRUCTURAL}, and never tolerated. The two used to
+     * be one string, which is how a suite that could not run anywhere read the same as one this box
+     * merely could not host.
+     *
+     * @return the skip to report, or empty when everything is available.
      */
-    public Optional<String> unmet(TestPaths paths) {
-        List<String> missing = new ArrayList<>();
+    public Optional<Skip> unmet(TestPaths paths) {
+        List<String> circumstantial = new ArrayList<>();
+        List<String> structural = new ArrayList<>();
         if (needsDisplay && System.getenv("DISPLAY") == null
                 && System.getenv("WAYLAND_DISPLAY") == null) {
-            missing.add("no DISPLAY/WAYLAND_DISPLAY (real Minecraft clients need a GUI session; "
-                    + "CI runs these under Xvfb)");
+            circumstantial.add("no DISPLAY/WAYLAND_DISPLAY (real Minecraft clients need a GUI "
+                    + "session; CI runs these under Xvfb)");
         }
         if (needsPaperJar && !Files.isRegularFile(paths.paperPluginJar())) {
-            missing.add("no endpoint plugin at " + paths.paperPluginJar()
-                    + " (./gradlew :paper-plugin:jar)");
+            structural.add("no endpoint plugin at " + paths.paperPluginJar()
+                    + " — the runner builds this itself (./gradlew :paper-plugin:jar), so its "
+                    + "absence is a harness fault and not a property of this machine");
         }
         if (needsDevice && System.getenv("ANDROID_SERIAL") == null) {
-            missing.add("no ANDROID_SERIAL — this scenario needs a device on wireless debugging");
+            circumstantial.add("no ANDROID_SERIAL — this scenario needs a device on wireless "
+                    + "debugging");
         }
         if (minimumFreeGb > 0) {
             long freeGb = freeMemoryGb();
             if (freeGb > 0 && freeGb < minimumFreeGb) {
-                missing.add("only " + freeGb + " GiB of RAM free, this scenario needs "
+                circumstantial.add("only " + freeGb + " GiB of RAM free, this scenario needs "
                         + minimumFreeGb + " GiB");
             }
         }
-        return missing.isEmpty() ? Optional.empty() : Optional.of(String.join("; ", missing));
+        if (!structural.isEmpty()) {
+            List<String> all = new ArrayList<>(structural);
+            all.addAll(circumstantial);
+            return Optional.of(new Skip(SkipKind.STRUCTURAL, String.join("; ", all)));
+        }
+        if (!circumstantial.isEmpty()) {
+            return Optional.of(new Skip(SkipKind.CIRCUMSTANTIAL, String.join("; ", circumstantial)));
+        }
+        return Optional.empty();
     }
 
     /** Free memory in GiB from {@code /proc/meminfo}, or 0 where that cannot be read. */

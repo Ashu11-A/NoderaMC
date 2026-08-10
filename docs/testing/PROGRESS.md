@@ -49,6 +49,37 @@ names the six by hand rather than by a count) and `ScenarioToolTest` (11, +2), b
 `./gradlew :testing:test`; and the real command, `scripts/nodera-test.sh list --ids --exclude-tag
 hardware` → 19 ids, exit 0. This does not retire **T-1**: the row asks for a *green* full-matrix
 nightly, and this commit is what makes a full matrix exist to be green.
+### 2026-08-10 — The harness could not tell a pass from a skip, or a lane bug from a small machine
+
+Three defects in one commit, because they are one defect: the instrument was reporting things it had
+not measured, and roughly seventy open issues cite its output.
+
+**A fully-skipped live run exited 0.** `NoderaTestMain` returned `anyFailed() ? 1 : 0` and `SKIPPED`
+is not `failed`. The unit gate had the guard (`build.yml`'s "Nothing skipped into green"); the live
+lane did not. It is now in the tool: any skip is red without `--allow-skips`, and a **structural**
+skip is red with it. `Requirements.unmet` returns a classified `Skip` rather than a string —
+a missing display is the machine, a missing endpoint-plugin jar is the harness failing to build its
+own artefact, and those are not the same verdict. Evidence: `SkipGateTest` (six cases; three fail on
+the pre-fix `verdict` body). Issue [#256](https://github.com/Ashu11-A/NoderaMC/issues/256).
+
+**`LiveStack` started a dedicated server and two Minecraft clients and never checked either.** A
+Gradle build that failed to compile handed the scenario a dead wrapper, and the first log wait after
+it burned its whole timeout before reporting that the GAME had never said the thing it was asked
+for. The server is now proven on its game port and by an RCON round trip; a client by the existence
+of a game JVM carrying its own `<run>RunProgramArgs` token; the companion launcher by surviving its
+own startup. Evidence: `LiveStackLivenessTest`. Row **T-5 retired**.
+
+**Three `continuity` runs blamed the validation lane for a 14 GB box.** The host's integrated server
+fell 1066 ticks behind, the joiner's vanilla connection timed out, and S2c failed with `waited 180s
+for 'client validation lane active'`. Nothing in the harness had ever grepped for `Can't keep up!`.
+`LogWatcher.awaitWithLagGuard` does, above a 200-tick threshold, and it is applied at every
+multi-client wait plus the shared `awaitMemberNodes`. `continuity`'s RAM floor rose 6 → 8 GiB so
+that box refuses the run up front instead of failing forty minutes in. Evidence:
+`LogWatcherLagGuardTest`, whose negative cases are the important ones. Row **T-6 RETIRING**.
+
+Five `// HARNESS-GAP` capabilities moved into the harness with their callers rerouted and
+`ServerLogs` deleted (row **T-4 RETIRING**); the five remaining markers describe a different
+capability — starting a process `LiveStack` has no slot for — and became row **T-7**.
 
 ### 2026-08-05 — Twenty-five integration tests stopped building their own mesh (Plan 11 phase 3)
 

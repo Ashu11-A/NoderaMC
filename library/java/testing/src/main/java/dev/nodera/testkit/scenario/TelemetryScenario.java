@@ -3,6 +3,7 @@ package dev.nodera.testkit.scenario;
 import dev.nodera.testkit.harness.ControlClient;
 import dev.nodera.testkit.harness.HarnessException;
 import dev.nodera.testkit.harness.LiveStack;
+import dev.nodera.testkit.harness.LogWatcher;
 import dev.nodera.testkit.harness.ManagedProcess;
 import dev.nodera.testkit.suite.Requirements;
 import dev.nodera.testkit.suite.Scenario;
@@ -355,7 +356,7 @@ public final class TelemetryScenario implements Scenario {
         StringBuilder out = new StringBuilder();
         try (Stream<Path> files = Files.list(spool)) {
             files.filter(file -> file.getFileName().toString().endsWith(".ndjson")).sorted()
-                    .forEach(file -> ServerLogs.window(file)
+                    .forEach(file -> LogWatcher.reader(file).lines()
                             .forEach(line -> out.append(line).append('\n')));
         } catch (IOException none) {
             return "";
@@ -382,7 +383,7 @@ public final class TelemetryScenario implements Scenario {
     }
 
     private static String readIfPresent(Path file) {
-        return Files.isReadable(file) ? String.join("\n", ServerLogs.window(file)) : "";
+        return Files.isReadable(file) ? String.join("\n", LogWatcher.reader(file).lines()) : "";
     }
 
     private static void write(Path file, String content) {

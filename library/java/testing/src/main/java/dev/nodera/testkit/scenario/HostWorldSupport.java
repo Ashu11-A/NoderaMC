@@ -42,13 +42,14 @@ import java.util.stream.Stream;
  * continuity first" was a hidden precondition of four other suites and forced them to share a
  * machine. A composite step written once is also a step whose evidence line can be changed once.
  *
- * <h2>What is here that the harness does not provide</h2>
+ * <h2>Everything here is a composition, not a capability</h2>
  *
- * <p>Everything in this class is either a composition of {@link LiveStack} calls or one of the four
- * capabilities the harness has no equivalent for: staging a game directory's {@code options.txt},
- * editing the staged world's {@code nodera-server.toml}, auditing a log from a mark rather than from
- * its first line, and addressing one ModDevGradle run's JVM by its {@code <run>RunProgramArgs}
- * token. Each of those carries a {@code // HARNESS-GAP:} note where it is implemented.
+ * <p>The five capabilities this class used to own — staging a game directory's {@code options.txt},
+ * amending the staged world's {@code nodera-server.toml}, addressing one ModDevGradle run's JVM by
+ * its {@code <run>RunProgramArgs} token, auditing a log from a mark, and reading a window after a
+ * mark — now live in {@link LiveStack}, {@link ManagedProcess} and {@link LogWatcher}. What is left
+ * here is composition and the scenario-side policy that goes with it: which log line a shape waits
+ * for, and what a reader should be told when it does not arrive.
  *
  * <p>Thread-context: stateless static helpers, called from the scenario's own thread.
  */
@@ -82,14 +83,13 @@ public final class HostWorldSupport {
 
     /**
      * Benign lines an abrupt client kill always produces; anything else at {@code ERROR}/
-     * {@code FATAL} fails an audit.
+     * {@code FATAL} fails an audit. One definition, in the harness — three copies of this regex
+     * existed, and a fourth benign cause added to one of them fixed a third of the suites.
      */
-    public static final Pattern BENIGN_ERRORS = Pattern.compile(
-            "Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException");
+    public static final Pattern BENIGN_ERRORS = LogWatcher.BENIGN_ERRORS;
 
     /** Connection causes this harness caused itself, for the netty header's follow-up line. */
-    public static final Pattern BENIGN_NETTY =
-            Pattern.compile("Connection reset|ClosedChannelException|closed by remote");
+    public static final Pattern BENIGN_NETTY = LogWatcher.BENIGN_NETTY;
 
     /** {@code client validation lane active on N region(s)} — the count is the assertion. */
     private static final Pattern LANE_REGIONS = Pattern.compile("active on (\\d+)");
@@ -215,6 +215,11 @@ public final class HostWorldSupport {
      * off. A named skip is the honest outcome, and it names the constant so whoever flips it knows
      * which scenarios come back.
      *
+     * <p>The expiry is explained too. This wait sits on the hosting client's own integrated
+     * server, which is the process that falls behind first when the box cannot sustain two real
+     * clients, three workers and two services — so the host's log is handed in as the lag source and
+     * a capacity failure says so instead of naming the committee.
+     *
      * @param context the running scenario.
      * @param hostLog the hosting client's log.
      * @param stage   the stage name, for the stale-bake message.
@@ -228,7 +233,7 @@ public final class HostWorldSupport {
                     + "this scenario back.");
         }
         hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180), STALE_BAKE_GUARD,
-                stage + ": " + STALE_BAKE_MESSAGE);
+                stage + ": " + STALE_BAKE_MESSAGE, hostLog.file());
     }
 
     private static ManagedProcess joinDedicated(ScenarioContext context, String gameDirectory,
@@ -287,23 +292,23 @@ public final class HostWorldSupport {
         }
         // Pin the published game port (deterministic quick-play target) and disable Mojang session
         // auth — dev offline accounts cannot pass it; real hosts keep the secure default.
-        setHostConfig(config, "host", "gamePort", String.valueOf(topology.gamePort()));
-        setHostConfig(config, "host", "onlineAuth", "false");
+        LiveStack.setHostConfig(config, "host", "gamePort", String.valueOf(topology.gamePort()));
+        LiveStack.setHostConfig(config, "host", "onlineAuth", "false");
         // The host side had NO tracker/rendezvous section at all, so the server fell back to
         // NoderaConfig's compiled 127.0.0.1:25600 / :25601 — which happen to be the launcher's
         // defaults, which is why it looked like it worked. Change the tracker port, ask for a second
         // tracker, or point at the official services, and the host announced into the void while
         // every other component used the real list.
-        setHostConfig(config, "tracker", "endpoints", tomlArray(topology.trackerEndpoints()));
-        setHostConfig(config, "rendezvous", "endpoints", tomlArray(topology.rendezvousEndpoints()));
+        LiveStack.setHostConfig(config, "tracker", "endpoints", tomlArray(topology.trackerEndpoints()));
+        LiveStack.setHostConfig(config, "rendezvous", "endpoints", tomlArray(topology.rendezvousEndpoints()));
         // The host's own peer address, pinned to the same value every worker in the run uses.
         // Left at "auto" it enumerates this machine's interfaces and can advertise a container
         // bridge or a VPN tunnel — an address the rest of the run cannot dial — and the joiners it
         // then seats are seated at a route that goes nowhere.
-        setHostConfig(config, "p2p", "advertiseHost", "\"" + Topology.p2pAdvertiseAddress() + "\"");
+        LiveStack.setHostConfig(config, "p2p", "advertiseHost", "\"" + Topology.p2pAdvertiseAddress() + "\"");
         // No-host region ownership: the validated entity lane assigns every connected player's node
         // its own FOV region set.
-        setHostConfig(config, "entity", "laneAutoActivate", "true");
+        LiveStack.setHostConfig(config, "entity", "laneAutoActivate", "true");
         return config;
     }
 
@@ -340,45 +345,6 @@ public final class HostWorldSupport {
         copyRecursively(baked, save);
     }
 
-    /**
-     * Set a key in the staged world's {@code nodera-server.toml}.
-     *
-     * <p>A missing key is inserted directly BELOW its section header, never appended at EOF: TOML
-     * section membership is positional, so an appended key silently joins whichever section happens
-     * to be last. That is how {@code mobCaptureDimensions} ends up under {@code [debug]}, the entity
-     * lane never captures, and every region revokes mid-drive for no stated reason.
-     *
-     * @param config  the file to edit.
-     * @param section the TOML section the key belongs to.
-     * @param key     the key.
-     * @param value   the value, already in TOML form (quoted strings, bare numbers, arrays).
-     */
-    // HARNESS-GAP: the harness writes a fresh nodera-server.toml for the dedicated server but has no
-    // way to amend the staged world's own copy, which is what every host-client scenario tunes.
-    public static void setHostConfig(Path config, String section, String key, String value) {
-        List<String> lines = readLines(config);
-        Pattern existing = Pattern.compile("^([ \\t]*)" + Pattern.quote(key) + " = ");
-        for (int i = 0; i < lines.size(); i++) {
-            Matcher matcher = existing.matcher(lines.get(i));
-            if (matcher.find()) {
-                lines.set(i, matcher.group(1) + key + " = " + value);
-                write(config, String.join("\n", lines) + "\n");
-                return;
-            }
-        }
-        String header = "[" + section + "]";
-        for (int i = 0; i < lines.size(); i++) {
-            if (lines.get(i).strip().equals(header)) {
-                lines.add(i + 1, "\t" + key + " = " + value);
-                write(config, String.join("\n", lines) + "\n");
-                return;
-            }
-        }
-        lines.add(header);
-        lines.add("\t" + key + " = " + value);
-        write(config, String.join("\n", lines) + "\n");
-    }
-
     // ---------------------------------------------------------------------------------------
     // Client staging
     // ---------------------------------------------------------------------------------------
@@ -393,46 +359,7 @@ public final class HostWorldSupport {
      */
     public static void writeClientConfig(ScenarioContext context, String gameDirectory,
                                          PlayerRole role, String joinPassword) {
-        stageClientOptions(context.stack().paths(), gameDirectory);
         context.stack().writeClientConfig(gameDirectory, role, joinPassword);
-    }
-
-    /**
-     * First-run vanilla options for a client game directory.
-     *
-     * <p>Written ONLY when the directory has no {@code options.txt} yet — a real one is the player's
-     * (and Minecraft rewrites it on exit), so this seeds a first launch and never overwrites tuned
-     * settings.
-     *
-     * <p>Why this exists: on a game directory with no {@code options.txt},
-     * {@code Options.onboardAccessibility} defaults to TRUE and {@code Minecraft.addInitialScreens}
-     * puts {@code AccessibilityOnboardingScreen} IN FRONT of quick play — quick play is the
-     * onboarding screen's continue callback, so it simply never runs. Every scripted client boots
-     * fine, ticks its loop, and sits on that screen forever. Invisible on a developer machine (whose
-     * run directories kept an {@code options.txt} from the first manual launch) and fatal in CI on a
-     * fresh checkout: it is exactly why the three live jobs each burned thirty minutes and reported
-     * "never joined".
-     */
-    // HARNESS-GAP: LiveStack.writeClientConfig writes nodera-client.toml only, so without this every
-    // fresh game directory parks its client on the accessibility onboarding screen.
-    public static void stageClientOptions(TestPaths paths, String gameDirectory) {
-        Path directory = paths.gameDir(gameDirectory);
-        createDirectories(directory);
-        Path options = directory.resolve("options.txt");
-        if (Files.isRegularFile(options)) {
-            return;
-        }
-        // onboardAccessibility  — the blocker above; must be false before the first frame.
-        // skipMultiplayerWarning — the third-party-server notice sits in front of the multiplayer
-        //                          screen for any scenario that drives the GUI.
-        // pauseOnLostFocus      — under Xvfb there is no window manager, so a client may never be
-        //                          "active"; a paused singleplayer client stops ticking and would
-        //                          never share its world.
-        write(options, """
-                onboardAccessibility:false
-                skipMultiplayerWarning:true
-                pauseOnLostFocus:false
-                """);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -442,72 +369,19 @@ public final class HostWorldSupport {
     /**
      * The PID of the Minecraft JVM belonging to one ModDevGradle run.
      *
-     * <p>ModDevGradle passes each run's program arguments via an {@code @argfile}, so the JVM
-     * command line carries {@code <run>RunProgramArgs} — NOT the quick-play flags themselves. That
-     * per-run token is the only reliable way to tell the joiner JVM from the host JVM: matching a
-     * bare {@code RunProgramArgs} also matches the dedicated SERVER, and a scenario that killed it
-     * by accident then dials a game port nothing is listening on — a "the joiner never joined"
-     * failure with an innocent client.
+     * <p>The mechanism — and the {@code /proc} read that makes it work at all — lives in
+     * {@link ManagedProcess#findByToken}. What is here is only the name a scenario says it in.
      *
      * @param runToken e.g. {@code clientJoinRunProgramArgs}.
      * @return the first matching PID, or empty when that run has no live JVM.
      */
-    // HARNESS-GAP: ManagedProcess addresses the Gradle wrapper this harness started, but the game
-    // JVM is a child of the Gradle DAEMON, so a crash scenario cannot reach it through the wrapper.
     public static OptionalLong findRunJvm(String runToken) {
-        try (Stream<ProcessHandle> processes = ProcessHandle.allProcesses()) {
-            return processes
-                    .filter(handle -> commandLineOf(handle).contains(runToken))
-                    .mapToLong(ProcessHandle::pid)
-                    .findFirst();
-        }
+        return ManagedProcess.findByToken(runToken);
     }
-
-    /**
-     * The FULL command line of a process.
-     *
-     * <p>Not {@code ProcessHandle.info().commandLine()}, which truncates at 4096 bytes on Linux. A
-     * ModDevGradle client JVM's command line is about 16 KB and ends with its {@code @argfile} —
-     * measured here at byte 16579 of 16608 — so the one token that identifies which run a JVM
-     * belongs to is exactly the part the JDK throws away. Every caller below therefore saw NO
-     * client JVM at all, and each failed silently in its own direction: {@link #runJvmAlive} always
-     * answered "dead" (which reported a healthy host as having died with its joiner),
-     * {@link #killRunJvms} killed nothing (so a crash scenario's SIGKILL was in fact a graceful
-     * wrapper stop, which is the one path it exists NOT to exercise), and
-     * {@link #awaitRunJvmsGone} returned at once having found nothing to wait for.
-     *
-     * <p>Reads {@code /proc} directly where it exists and falls back to the truncated view where it
-     * does not, so a non-Linux run degrades to the old behaviour rather than to an exception.
-     */
-    private static String commandLineOf(ProcessHandle handle) {
-        Path cmdline = Path.of("/proc", String.valueOf(handle.pid()), "cmdline");
-        String full;
-        if (Files.isReadable(cmdline)) {
-            try {
-                full = new String(Files.readAllBytes(cmdline), StandardCharsets.UTF_8)
-                        .replace('\0', ' ');
-            } catch (IOException exited) {
-                // The process ended between listing and reading; not the one being looked for.
-                return "";
-            }
-        } else {
-            full = handle.info().commandLine().orElse("");
-        }
-        // The Gradle DAEMON is never a match, whatever tokens it carries. It serves every build in
-        // the run, so its command line names BOTH clients' argfiles — and once the full command
-        // line became visible, "stop the joiner" started matching the process that owns the host as
-        // well. Signalling it takes down every client at once, which is precisely the failure this
-        // whole line of work exists to stop mistaking for a product defect.
-        return DAEMON.matcher(full).find() ? "" : full;
-    }
-
-    /** How a Gradle daemon identifies itself; see {@link #commandLineOf}. */
-    private static final Pattern DAEMON =
-            Pattern.compile("GradleDaemon|org\\.gradle\\.launcher\\.daemon");
 
     /** @return {@code true} while that run's JVM is alive. */
     public static boolean runJvmAlive(String runToken) {
-        return findRunJvm(runToken).isPresent();
+        return ManagedProcess.tokenAlive(runToken);
     }
 
     /**
@@ -515,12 +389,12 @@ public final class HostWorldSupport {
      * peer just goes silent.
      */
     public static void killRunJvms(String runToken) {
-        forEachRunJvm(runToken, ProcessHandle::destroyForcibly);
+        ManagedProcess.forEachByToken(runToken, ProcessHandle::destroyForcibly);
     }
 
     /** Ask every JVM of one run to exit — the ordinary "the player closed the game" departure. */
     public static void stopRunJvms(String runToken) {
-        forEachRunJvm(runToken, ProcessHandle::destroy);
+        ManagedProcess.forEachByToken(runToken, ProcessHandle::destroy);
     }
 
     /**
@@ -567,13 +441,6 @@ public final class HostWorldSupport {
      * "gone".
      */
     public static final Duration SHUTDOWN_TIMEOUT = Duration.ofMinutes(3);
-
-    private static void forEachRunJvm(String runToken, java.util.function.Consumer<ProcessHandle> action) {
-        try (Stream<ProcessHandle> processes = ProcessHandle.allProcesses()) {
-            processes.filter(handle -> commandLineOf(handle).contains(runToken))
-                    .forEach(action);
-        }
-    }
 
     /**
      * Wait until no JVM of that run is left, so the next scenario's preflight sees free ports.
@@ -678,34 +545,10 @@ public final class HostWorldSupport {
     /**
      * The non-benign {@code ERROR}/{@code FATAL} lines after {@code fromLine}, capped at six.
      *
-     * <p>Vanilla's "Exception caught in connection" header is benign exactly when its cause is the
-     * reset or close of a peer this harness itself killed; any other cause still counts, so the
-     * audit reads the following line rather than the header.
-     *
      * @return the offending lines; empty means clean.
      */
-    // HARNESS-GAP: LogWatcher.auditErrors always audits the whole file, and every scenario that
-    // kills something audits only what happened afterwards.
     public static List<String> auditErrors(Path file, int fromLine) {
-        List<String> lines = readLines(file);
-        List<String> offenders = new ArrayList<>();
-        for (int i = Math.max(0, fromLine); i < lines.size() && offenders.size() < 6; i++) {
-            String line = lines.get(i);
-            if (line.contains("Exception caught in connection")) {
-                String cause = i + 1 < lines.size() ? lines.get(i + 1) : "";
-                if (!BENIGN_NETTY.matcher(cause).find()) {
-                    offenders.add(line);
-                    offenders.add(cause);
-                }
-                i++;
-                continue;
-            }
-            if ((line.contains("ERROR") || line.contains("FATAL"))
-                    && !BENIGN_ERRORS.matcher(line).find()) {
-                offenders.add(line);
-            }
-        }
-        return offenders;
+        return LogWatcher.reader(file).auditErrorsAfter(BENIGN_ERRORS, BENIGN_NETTY, fromLine);
     }
 
     /** Fail with the offending lines when the log picked up errors after {@code fromLine}. */
@@ -718,62 +561,27 @@ public final class HostWorldSupport {
 
     /** @return {@code true} if {@code needle} appears at or after line {@code fromLine}. */
     public static boolean containsAfter(Path file, int fromLine, String needle) {
-        List<String> lines = readLines(file);
-        for (int i = Math.max(0, fromLine); i < lines.size(); i++) {
-            if (lines.get(i).contains(needle)) {
-                return true;
-            }
-        }
-        return false;
+        return LogWatcher.reader(file).containsAfter(needle, fromLine);
     }
 
     /** {@link #containsAfter} ignoring case — the shell's {@code grep -i} assertions. */
     public static boolean containsAfterIgnoringCase(Path file, int fromLine, String needle) {
-        String lowered = needle.toLowerCase(Locale.ROOT);
-        List<String> lines = readLines(file);
-        for (int i = Math.max(0, fromLine); i < lines.size(); i++) {
-            if (lines.get(i).toLowerCase(Locale.ROOT).contains(lowered)) {
-                return true;
-            }
-        }
-        return false;
+        return LogWatcher.reader(file).containsAfterIgnoringCase(needle, fromLine);
     }
 
     /** The last line at or after {@code fromLine} containing {@code needle}. */
     public static Optional<String> lastMatchAfter(Path file, int fromLine, String needle) {
-        List<String> lines = readLines(file);
-        for (int i = lines.size() - 1; i >= Math.max(0, fromLine); i--) {
-            if (lines.get(i).contains(needle)) {
-                return Optional.of(lines.get(i));
-            }
-        }
-        return Optional.empty();
+        return LogWatcher.reader(file).lastMatchAfter(needle, fromLine);
     }
 
     /** Every line at or after {@code fromLine} containing {@code needle}, in file order. */
     public static List<String> matchesAfter(Path file, int fromLine, String needle) {
-        List<String> lines = readLines(file);
-        List<String> out = new ArrayList<>();
-        for (int i = Math.max(0, fromLine); i < lines.size(); i++) {
-            if (lines.get(i).contains(needle)) {
-                out.add(lines.get(i));
-            }
-        }
-        return out;
+        return LogWatcher.reader(file).matchesAfter(needle, fromLine);
     }
 
     /** The lines of a file, or an empty list when it does not exist yet. */
     public static List<String> readLines(Path file) {
-        if (!Files.isReadable(file)) {
-            return new ArrayList<>();
-        }
-        try {
-            return new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
-        } catch (IOException partiallyWritten) {
-            // A log being appended to as it is read can hand back a malformed tail; treat that as
-            // "nothing yet" rather than as a harness failure.
-            return new ArrayList<>();
-        }
+        return LogWatcher.reader(file).lines();
     }
 
     // ---------------------------------------------------------------------------------------

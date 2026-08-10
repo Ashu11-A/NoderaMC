@@ -350,9 +350,9 @@ public final class AndroidMeshScenario implements Scenario {
             // all the way down.
             if (!AndroidDevice.flag("NODERA_ANDROID_SKIP_GAME")) {
                 for (String gameLog : List.of("client-host.log", "client-join.log")) {
-                    List<String> hits = ServerLogs.auditErrorsAfter(
-                            stack.logDir().resolve(gameLog), 0,
-                            ServerLogs.BENIGN_ERRORS, ServerLogs.BENIGN_NETTY);
+                    List<String> hits = LogWatcher.reader(stack.logDir().resolve(gameLog))
+                            .auditErrorsAfter(LogWatcher.BENIGN_ERRORS,
+                                    LogWatcher.BENIGN_NETTY, 0);
                     ctx.check(hits.isEmpty(), gameLog + " contains errors — the mesh moved bytes, "
                             + "but the game did not stay clean: " + String.join(" | ", hits));
                 }

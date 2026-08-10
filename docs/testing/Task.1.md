@@ -8,10 +8,9 @@
      test mode is a COMMAND-LINE flag and nothing else — it opens a remote-control surface, so no
      config file, environment variable or peer may enable it. Keep this header accurate. -->
 
-**Status:** ✅ DONE — twenty-two scenarios, one harness, one report, one command; the live matrix is
-carried over stage for stage, is now derived from the registry rather than hand-kept in CI, and
-awaits its first full green nightly (row T-1)
-**Category:** testing · **Owns:** T-1, T-2, T-3 · **Last audit:** 2026-08-10
+**Status:** ✅ DONE — twenty scenarios, one harness, one report, one command; the live matrix is
+carried over stage for stage and awaits its first full green nightly (row T-1)
+**Category:** testing · **Owns:** T-1, T-2, T-3, T-4, T-6, T-7 · **Last audit:** 2026-08-10
 **Depends on:** [worker 1](../peer/Task.1.md), [minecraft 5](../minecraft/Task.5.md),
 [server 1](../server/Task.1.md), [network 15](../network/Task.15.md)
 **Consumed by:** every category with a live acceptance claim
@@ -175,8 +174,40 @@ that knows them, and for twelve nightlies it did so without a JDK
 | 7 | The individual suite scripts are gone | `ls scripts/e2e-*.sh` → nothing |
 | 8 | The tooling is documented | this category |
 
+## The harness tells the truth about itself (2026-08-10)
+
+Three rules landed together, because until they held, no live run's evidence meant anything.
+
+**A run in which nothing ran is not green.** `nodera-test run` exited `anyFailed() ? 1 : 0`, and
+`SKIPPED` is not `failed` — so a live matrix in which every leg skipped exited 0 and rendered as a
+passing build. The unit gate had carried the opposite rule for months (`build.yml`, "Nothing skipped
+into green"); the lane that produces the expensive evidence had no equivalent. It is now in the
+TOOL, not in a workflow step, because a workflow can forget it and a second workflow never had it.
+Any skip is red unless the operator passes `--allow-skips`, and a **structural** skip — an artefact
+the harness itself builds is missing, so the scenario could not have run anywhere — is red either
+way. `Requirements.unmet` returns a classified `Skip`, `ScenarioResult` carries the kind, and
+`test-report.json` publishes it. Issue [#256](https://github.com/Ashu11-A/NoderaMC/issues/256).
+
+**Every process the stack starts is proven answering before a scenario's first stage.** The rule
+existed for the trackers and the rendezvous and stopped there. It now covers the dedicated server
+(its game port **and** an RCON round trip — a server that binds and does not answer RCON is not
+ready), a Minecraft client (a game JVM carrying that run's own `<run>RunProgramArgs` token, which
+only exists once Gradle has configured, compiled and forked), and the companion launcher. Every
+failure names the process, its exit status where it has one, and quotes its log tail. Row T-5,
+retired.
+
+**A capacity failure is not a lane bug.** `LogWatcher.awaitWithLagGuard` reads vanilla's own
+`Can't keep up! … N ticks behind` from the host's log when a wait expires, and above 200 ticks says
+"the host server fell N ticks behind … the machine, not the lane". The threshold is not zero on
+purpose: a guard that fired on a chunk-generation hiccup would convert every real lane bug into
+"blame the machine", which is the same wrong answer pointing the other way. Row T-6.
+
 ## Limitations
 
 Rows T-1 (a full green nightly across the converted matrix), T-2 (the mod does not consume
-`test.drive` yet), and T-3 (`scripts/lib/` still serves `dev.sh --play`) are open in
-[`LIMITATIONS.md`](LIMITATIONS.md), each with its exit test.
+`test.drive` yet), T-3 (`scripts/lib/` still serves `dev.sh --play`), T-4 (RETIRING — the five named
+capabilities are in the harness; the tree-wide grep is not empty because five markers it also caught
+became T-7), T-6 (RETIRING — the lag guard is in and unit-proved; no live demonstration yet) and
+T-7 (the harness has no slot for a process it did not design one for) are open in
+[`LIMITATIONS.md`](LIMITATIONS.md), each with its exit test. T-5 is retired in
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
