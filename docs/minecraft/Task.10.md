@@ -7,7 +7,7 @@
      small it looks. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-07-28
+**Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-08-10
 **Depends on:** [minecraft 6](Task.6.md), [minecraft 7](Task.7.md), [worker 8](../peer/Task.8.md)
 **Consumed by:** [minecraft 11](Task.11.md)
 
@@ -79,7 +79,7 @@ loading screen that never resolves.
 | 1 | A readiness predicate — published ∧ reachable route ∧ certified — computed in one place | ⬜ |
 | 2 | The world list filters on it; the join button gates on it | ⬜ |
 | 3 | `buildEntries` reports the health it can prove, not `HEALTHY` unconditionally | ⬜ |
-| 4 | Peer bring-up moves off the client render thread (`onServerSessionInfo`) | ⬜ |
+| 4 | Peer bring-up moves off the client render thread (`onServerSessionInfo`) | 🚧 landed 2026-08-10 (#167): the hand-off is thread-affine work only and the rest runs on `nodera-client-bringup`, cancellable by generation. Proven headlessly (5 tests) and by `ContinuityScenario` S2d; the black-holed-relay run itself is still a harness gap |
 | 5 | Host activation moves off the server main thread (`NoderaHost.activate`) | ⬜ |
 | 6 | Every waiting screen has a working escape and a deadline | ✅ (`RehostScreen`) |
 | 7 | The capture lane is on by default, with a species/dimension policy that does not revoke | 🚧 the *does not revoke* half landed 2026-07-29 (#236); the defaults and the live run remain |
@@ -98,6 +98,23 @@ render thread while the player looks at "Joining world…". The host side pays t
 server thread during world load, plus a `Files.walk` of the whole save.
 
 The fix is not shorter timeouts. It is that none of this belongs on a thread that has to paint.
+
+**The client half landed 2026-08-10 (#167).** `handleSessionOnClient` now keeps only what has to be
+on the client thread — the `isHosting()` guard and reading `context.player()`'s UUID — and
+`NoderaPeerService.onServerSessionInfo` records the session's world id, bootstrap route and freshly
+generated identity under the monitor before handing everything else to a `nodera-client-bringup`
+daemon thread, copying `NoderaHost.armJoinGate`'s shape. Three consequences worth knowing:
+
+- **The announce moved with it.** It needs a live runtime, so it is posted from the bring-up thread
+  once one exists. `IPayloadContext.reply` sends on the listener the handler was invoked with, which
+  is not what a thread running after the handler returned should be holding, so the announce goes
+  through `PacketDistributor.sendToServer` — `NoderaNodeAnnouncePayload` is registered
+  `playToServer`, which is what makes that direction legal.
+- **Cancellation is by generation, not by the monitor.** `stopClient` bumps a counter and returns;
+  the in-flight bring-up notices at its next checkpoint and discards what it built. Guarding with
+  the monitor would have moved the stall from the render thread to the disconnect path.
+- **The hand-off measures itself.** It logs the microseconds it held the client thread, which is the
+  quantity the acceptance criterion bounds, and is what `ContinuityScenario` S2d asserts.
 
 `RehostScreen` compounded it, and was the reported symptom: `init()` added a Back button only when
 `failure != null`, `shouldCloseOnEsc()` agreed, and `render()` drew a hardcoded "Migrating world…"
@@ -143,7 +160,9 @@ rather than a change of which mob kills the region first. The defaults themselve
 | Test | Proves |
 |---|---|
 | A headless `MultiplayerWorldFeed` test over crafted STATE JSON | deliverables 1–3 |
-| `scripts/e2e-live.sh` with one relay pointed at a black hole | deliverable 4: the client stays responsive |
+| `ClientBringUpIsOffTheRenderThreadTest` (3, green) | deliverable 4: the hand-off returns while the bring-up is still inside its slow step, on `nodera-client-bringup` and not on the caller |
+| `NoderaPeerServiceBringUpCancellationTest` (2, green) | deliverable 4: a `stopClient` mid-bring-up leaves no runtime, transport, identity or delegation behind, and does not wedge the next join |
+| `ContinuityScenario` S2d (live; **not yet run** — the box could not host it) | deliverable 4: player B's client thread is held for less than one tick by the session hand-off |
 | A live run with the lane on and a cow in the region | deliverable 7 |
 | `MobsScenario` G2b (rewritten 2026-08-06, **not yet run live**) | deliverable 7's refusal half: an unmodelled species is left to vanilla and the region keeps validating |
 | `ClientJoinPasswordsGateMarkerTest` (3, green) | deliverable 6 — a refused join is distinguishable from a lost host, including when the password was merely wrong |
@@ -152,6 +171,8 @@ rather than a change of which mob kills the region first. The defaults themselve
 
 - [ ] A world whose host game is closed is not offered as joinable.
 - [ ] With every configured relay unreachable, the client never blocks for more than one frame.
+      *(The bring-up is off the client thread and asserted there headlessly and live; what is not yet
+      reproduced is the unreachable relay set — see MC-JOIN-2's row for the harness gap.)*
 - [x] Every screen a player can reach while waiting can be left.
 - [ ] A join refused at the password gate reaches the password prompt (headless proof green; live
       re-run outstanding).

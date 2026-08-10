@@ -56,7 +56,11 @@ import java.util.concurrent.TimeUnit;
  * {@code peer-runtime} and is exercised headlessly by {@code SessionContinuityIT}; this class is
  * only the thin Minecraft-side wiring.
  *
- * <p>Thread-context: all mutators are {@code synchronized}; runtimes run on their own threads.
+ * <p>Thread-context: field access is guarded by this object's monitor; runtimes run on their own
+ * threads. The monitor is held for <b>bookkeeping only</b>, never across network work — the joiner's
+ * bring-up and the host's teardown both snapshot under it and then do the slow half outside, because
+ * the threads that call in here are the client render thread and the server thread, and a monitor
+ * held across a relay reservation is a frozen game (MC-JOIN-2, and {@link #stopHosting}'s note).
  */
 public final class NoderaPeerService {
 
@@ -388,42 +392,41 @@ public final class NoderaPeerService {
      * socket for a socket-only join or an unreachable rendezvous — a down relay must never stop a
      * LAN/direct join, exactly as on the host side.
      */
-    private PeerTransport composeClientTransport(String worldIdHex) {
+    private PeerTransport composeClientTransport(NodeIdentity identity, SocketPeerTransport socket,
+                                                 String worldIdHex) {
         if (worldIdHex == null || worldIdHex.isBlank()) {
-            return clientTransport;
+            return socket;
         }
         java.util.List<? extends String> routes =
                 selectedRendezvousRoutes(NoderaSettings.current().clientRendezvousEndpoints());
         if (routes == null || routes.isEmpty()) {
-            return clientTransport;
+            return socket;
         }
         Bytes worldId;
         try {
             worldId = Bytes.fromHex(worldIdHex.trim());
         } catch (RuntimeException malformed) {
-            return clientTransport;
+            return socket;
         }
         List<RendezvousEndpoint> endpoints = parseRelays(routes, "the settings");
         if (endpoints.isEmpty()) {
-            return clientTransport;
+            return socket;
         }
         UUID networkId = UUID.nameUUIDFromBytes(worldId.toArray());
         RendezvousPeerTransport rendezvous = new RendezvousPeerTransport(
-                clientIdentity, endpoints, networkId, worldId, NodeCapabilities.initial(),
-                clientTransport);
+                identity, endpoints, networkId, worldId, NodeCapabilities.initial(), socket);
         try {
             rendezvous.start();
             LOG.info("Nodera rendezvous: joiner registered with {} (network {})", endpoints, networkId);
-            this.clientRendezvous = rendezvous;
             return rendezvous;
         } catch (RuntimeException e) {
             // Same discipline as the host path: degrade to the direct socket only when the socket
             // itself came up. A joiner binds an ephemeral port, so a bind failure here is a real
             // fault worth surfacing rather than silently swallowing.
-            if (clientTransport.listenRoute() != null) {
+            if (socket.listenRoute() != null) {
                 LOG.warn("Nodera rendezvous unreachable ({}); joining over the direct socket only",
                         e.getMessage());
-                return clientTransport;
+                return socket;
             }
             throw e;
         }
@@ -886,57 +889,229 @@ public final class NoderaPeerService {
     }
 
     /**
-     * As {@link #onServerSessionInfo(String, String)}, additionally joining the world's rendezvous
-     * namespace so this joiner is discoverable and can fall back to a relay circuit when the direct
-     * socket cannot be established (Task 29 / docs/rendezvous/REFERENCE.md).
+     * Which session this service is building or holding.
      *
-     * @param worldIdHex the world being joined, or {@code null}/blank for a socket-only join.
+     * <p>Bumped on every begin <b>and</b> every {@link #stopClient}, so an in-flight bring-up can
+     * ask one question — "is the session I am building still the one this process wants?" — and get
+     * an answer without taking anything the shutdown path also wants. Guarded by the monitor;
+     * read only through {@link #abandoned}.
      */
-    public synchronized void onServerSessionInfo(String bootstrapRoute, String advertiseHost,
-                                                 String worldIdHex) {
-        if (clientRuntime != null) {
-            return;
-        }
+    private long clientGeneration;
+
+    /**
+     * Whether a bring-up thread is between its prologue and its publish. Guarded by the monitor.
+     *
+     * <p>{@code clientRuntime != null} used to be the whole re-entrancy guard, and it stops being
+     * one the moment the runtime is built off-thread: two session payloads in the same second would
+     * otherwise start two bring-ups, and the loser would leak a bound socket and a relay
+     * registration nothing ever stops.
+     */
+    private boolean clientBringUpInFlight;
+
+    /**
+     * Test seam: a hook the joiner's composed data transport is passed through before the runtime
+     * is built. {@code null} in production, and left {@code null} by every production path.
+     *
+     * <p>MC-JOIN-2's exit is a claim about a <i>thread</i> — "the client never blocks for more than
+     * one frame" — and the only honest way to assert that headlessly is to hold the slow half of the
+     * bring-up open and observe that the caller has already returned. A deliberately-slow hook is
+     * what holds it open; a timing assertion would be a flake generator on a loaded box. Kept a
+     * field rather than a setter for the same reason {@link #isBindFailure} is a static: the
+     * smallest surface that makes the decision observable.
+     *
+     * @Thread-context written before a session begins, read on the bring-up thread.
+     */
+    volatile java.util.function.UnaryOperator<PeerTransport> clientTransportHook;
+
+    /**
+     * Begin joining the session the host just described: record what the client thread needs
+     * immediately, and hand the rest to a named daemon thread (MC-JOIN-2).
+     *
+     * <p><b>Why this returns before the mesh exists.</b> Everything below the prologue is network
+     * work with its own timeouts — a companion delegation exchange, a relay reservation that
+     * iterates <i>every</i> configured endpoint at five seconds to connect and ten to read, an
+     * ephemeral socket bind and the bootstrap dial. This method used to do all of it inline, on the
+     * client main thread, holding the singleton monitor that {@link #stopClient} and
+     * {@link #stopHosting} also want: with three unreachable relays that is about ninety seconds of
+     * frozen rendering, and the player's only signal is a client that has stopped drawing. The
+     * shape of the fix is {@code NoderaHost.armJoinGate}'s — do the cheap, order-dependent part
+     * where the caller is, and let the slow part run where nothing is waiting for it.
+     *
+     * <p>What stays synchronous is what other code reads the instant this returns: the session's
+     * world id, the bootstrap route, and a freshly generated session identity. What moves is
+     * everything that can block.
+     *
+     * @param bootstrapRoute the hosting game's P2P route.
+     * @param advertiseHost  the address to advertise, or {@code "auto"}.
+     * @param worldIdHex     the world being joined, or {@code null}/blank for a socket-only join.
+     *                       When present the joiner also joins the world's rendezvous namespace, so
+     *                       it is discoverable and can fall back to a relay circuit when the direct
+     *                       socket cannot be established (Task 29 / docs/rendezvous/REFERENCE.md).
+     * @param onMeshed       run on the bring-up thread once the runtime is published, or
+     *                       {@code null}. This is where anything that needs
+     *                       {@link #clientRuntime()} to exist belongs — it cannot be done by the
+     *                       caller any more, because the caller returns first.
+     * @Thread-context any thread; returns without blocking on the network.
+     */
+    public void onServerSessionInfo(String bootstrapRoute, String advertiseHost,
+                                    String worldIdHex, Runnable onMeshed) {
         // Remember which world this session belongs to. A committed region snapshot carries a
         // region id, which is a coordinate; seeding one to the worker needs the world's identity,
         // and this payload is where a joiner learns it (worker L-41).
-        this.sessionWorldIdHex = worldIdHex == null ? "" : worldIdHex.trim();
-        this.clientBootstrapRoute = bootstrapRoute == null ? "" : bootstrapRoute.trim();
-        clientIdentity = NodeIdentity.generate();
-        // Immediately ask this machine's worker to vouch for the key we just generated. The key
-        // stays throwaway — it is a transport credential — but the announce that carries it now
-        // also carries the worker's signature saying whose authority it speaks with. Without this
-        // step the announce is cryptographically perfect and semantically anonymous, which is how a
-        // world's own creator lost /op the moment they joined their own world as a client.
-        sessionDelegationB64 = mintSessionDelegation(this.sessionWorldIdHex, clientIdentity);
-        String advertise = resolveHost(advertiseHost);
-        // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
-        clientTransport = new SocketPeerTransport(clientIdentity, "0.0.0.0", 0, advertise);
-        TrafficMeter clientMeter = new TrafficMeter();
-        MessageCounters clientCounts = new MessageCounters();
-        PeerTransport clientData = composeClientTransport(worldIdHex);
-        MeteredPeerTransport clientMetered = new MeteredPeerTransport(clientData, clientMeter,
-                clientPeerMeter);
-        clientDataTransport = clientMetered;
-        PeerAddress bootstrapAddress = PeerAddress.of(null, bootstrapRoute); // socket routes by host:port
-        clientRuntime = PeerRuntime.peer(clientIdentity, NodeCapabilities.initial(),
-                clientMetered, clientTransport::listenRoute, bootstrapAddress,
-                PeerRuntimeConfig.defaults(),
-                // L-17 / #35: the handover has to hear onGatewayChanged to freeze this player's
-                // submit path, and the log line still has to hear it too. The runtime takes one
-                // listener, so both ride a composite; a fault in either is contained there.
-                new dev.nodera.peer.CompositePeerEventListener(
-                        new LoggingListener("client"), clientGatewayListener()),
-                clientCounts);
-        clientRuntime.setLocalProfile(negotiationProfile(NodeCapabilities.initial()));
-        clientTrackerClient = trackerClient(
-                selectedTrackerRoutes(NoderaSettings.current().clientTrackerEndpoints()), clientIdentity);
-        clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
-                .register(clientRuntime)
-                .register(dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.get())
-                .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
-        LOG.info("Nodera client peer joining session via {} (node {}, listening {})",
-                bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());
+        String world = worldIdHex == null ? "" : worldIdHex.trim();
+        String route = bootstrapRoute == null ? "" : bootstrapRoute.trim();
+        NodeIdentity identity;
+        long generation;
+        synchronized (this) {
+            if (clientRuntime != null || clientBringUpInFlight) {
+                return;
+            }
+            this.sessionWorldIdHex = world;
+            this.clientBootstrapRoute = route;
+            // Generated here, not on the bring-up thread: the announce proof, the gateway listener
+            // and `/noderac session` all read it, and a null identity for the first second of a
+            // join is a race nobody would ever reproduce.
+            this.clientIdentity = NodeIdentity.generate();
+            identity = this.clientIdentity;
+            this.clientBringUpInFlight = true;
+            generation = ++clientGeneration;
+        }
+        Thread.ofPlatform().name("nodera-client-bringup").daemon().start(
+                () -> bringUpClient(generation, identity, route, advertiseHost, world, onMeshed));
+    }
+
+    /**
+     * The slow half of {@link #onServerSessionInfo}, on its own thread and outside the monitor.
+     *
+     * <p>Self-catching, and it has to be: this runs on a bare {@link Thread}, so nothing above it
+     * can contain a failure — an escaping exception would kill the thread with the session
+     * half-built and nothing in the log to say so. {@code LinkageError} is caught alongside
+     * {@code RuntimeException} for the reason the rest of this mod does: a class that is missing at
+     * runtime is a broken install, not a broken world.
+     *
+     * <p>Cancellation is by generation, never by the monitor. {@link #stopClient} bumps the counter
+     * and returns immediately; this thread notices at its next checkpoint and tears down what it
+     * built instead of publishing it. Guarding with the monitor instead would merely have moved the
+     * ninety-second stall from the render thread to the shutdown path.
+     */
+    private void bringUpClient(long generation, NodeIdentity identity, String bootstrapRoute,
+                               String advertiseHost, String worldIdHex, Runnable onMeshed) {
+        SocketPeerTransport socket = null;
+        PeerTransport data = null;
+        PeerRuntime runtime = null;
+        dev.nodera.peer.discovery.TrackerClient tracker = null;
+        boolean published = false;
+        try {
+            // Ask this machine's worker to vouch for the key the prologue generated. The key stays
+            // throwaway — it is a transport credential — but the announce that carries it now also
+            // carries the worker's signature saying whose authority it speaks with. Without this
+            // step the announce is cryptographically perfect and semantically anonymous, which is
+            // how a world's own creator lost /op the moment they joined their own world.
+            String delegation = mintSessionDelegation(worldIdHex, identity);
+            if (abandoned(generation)) {
+                return;
+            }
+            sessionDelegationB64 = delegation;
+            // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
+            socket = new SocketPeerTransport(identity, "0.0.0.0", 0, resolveHost(advertiseHost));
+            TrafficMeter clientMeter = new TrafficMeter();
+            MessageCounters clientCounts = new MessageCounters();
+            data = composeClientTransport(identity, socket, worldIdHex);
+            var hook = clientTransportHook;
+            if (hook != null) {
+                data = hook.apply(data);
+            }
+            if (abandoned(generation)) {
+                return;
+            }
+            MeteredPeerTransport clientMetered = new MeteredPeerTransport(data, clientMeter,
+                    clientPeerMeter);
+            PeerAddress bootstrapAddress = PeerAddress.of(null, bootstrapRoute); // host:port routing
+            runtime = PeerRuntime.peer(identity, NodeCapabilities.initial(),
+                    clientMetered, socket::listenRoute, bootstrapAddress,
+                    PeerRuntimeConfig.defaults(),
+                    // L-17 / #35: the handover has to hear onGatewayChanged to freeze this player's
+                    // submit path, and the log line still has to hear it too. The runtime takes one
+                    // listener, so both ride a composite; a fault in either is contained there.
+                    new dev.nodera.peer.CompositePeerEventListener(
+                            new LoggingListener("client"), clientGatewayListener()),
+                    clientCounts);
+            runtime.setLocalProfile(negotiationProfile(NodeCapabilities.initial()));
+            tracker = trackerClient(
+                    selectedTrackerRoutes(NoderaSettings.current().clientTrackerEndpoints()),
+                    identity);
+            DiagnosticsCollector collector = new DiagnosticsCollector(clientMeter, clientCounts)
+                    .register(runtime)
+                    .register(dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.get())
+                    .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
+            synchronized (this) {
+                if (clientGeneration == generation && clientRuntime == null) {
+                    clientTransport = socket;
+                    clientDataTransport = clientMetered;
+                    // Held so a later relay change can be pushed into the live joiner transport
+                    // without rejoining (L-84). Published here rather than inside the compose step
+                    // so an abandoned bring-up cannot leave its relay handle behind.
+                    clientRendezvous = data instanceof RendezvousPeerTransport relayed
+                            ? relayed : null;
+                    clientRuntime = runtime;
+                    clientTrackerClient = tracker;
+                    clientCollector = collector;
+                    published = true;
+                }
+            }
+            if (!published) {
+                return;
+            }
+            LOG.info("Nodera client peer joined session via {} (node {}, listening {})",
+                    bootstrapRoute, identity.nodeId(), runtime.selfRoute());
+            if (onMeshed != null) {
+                onMeshed.run();
+            }
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Nodera: joining the peer mesh failed ({}) — this client plays the vanilla "
+                    + "session, but holds no Nodera seat and keeps no world alive", e.toString());
+        } finally {
+            if (!published) {
+                discardBringUp(runtime, tracker, data, socket);
+            }
+            synchronized (this) {
+                if (clientGeneration == generation) {
+                    clientBringUpInFlight = false;
+                }
+            }
+        }
+    }
+
+    /** @return whether the session this bring-up is building has been superseded or stopped. */
+    private synchronized boolean abandoned(long generation) {
+        return clientGeneration != generation;
+    }
+
+    /**
+     * Close whatever a bring-up got as far as building but never published. Never throws: a
+     * cleanup path must not pile a second failure on the first, and every step here is idempotent.
+     */
+    private static void discardBringUp(PeerRuntime runtime,
+                                       dev.nodera.peer.discovery.TrackerClient tracker,
+                                       PeerTransport data, SocketPeerTransport socket) {
+        // `data` is the relay wrapper when there is one and the socket itself when there is not, so
+        // both appear here and both stops are idempotent.
+        quietly(runtime == null ? null : runtime::stop);
+        quietly(tracker == null ? null : tracker::close);
+        quietly(data == null ? null : data::stop);
+        quietly(socket == null ? null : socket::stop);
+    }
+
+    /** Run one teardown step, or nothing, and swallow whatever it thinks of that. */
+    private static void quietly(Runnable step) {
+        if (step == null) {
+            return;
+        }
+        try {
+            step.run();
+        } catch (RuntimeException ignored) {
+            // best-effort cleanup: a second failure here would hide the first
+        }
     }
 
     /**
@@ -1063,19 +1238,54 @@ public final class NoderaPeerService {
     private final java.util.concurrent.atomic.AtomicBoolean companionBindInFlight =
             new java.util.concurrent.atomic.AtomicBoolean();
 
-    /** Stop the client peer (on disconnect). Idempotent. */
-    public synchronized void stopClient() {
-        if (clientRuntime != null) {
+    /**
+     * Stop the client peer (on disconnect). Idempotent.
+     *
+     * <p>Also <b>cancels a bring-up that has not finished</b> (MC-JOIN-2). A player who leaves
+     * while the joiner is still reserving a relay circuit must not be followed out of the world by
+     * a peer runtime that appears half a minute later: bumping the generation under the monitor is
+     * what makes the in-flight thread discard what it built instead of publishing it, and it costs
+     * this method no wait at all — which is the point, since the alternative is holding the monitor
+     * across the very network work the bring-up was moved off the client thread to escape.
+     *
+     * @Thread-context any thread; the slow teardown deliberately runs outside the monitor.
+     */
+    public void stopClient() {
+        PeerRuntime runtime;
+        dev.nodera.peer.discovery.TrackerClient tracker;
+        boolean detach;
+        synchronized (this) {
+            clientGeneration++;
+            clientBringUpInFlight = false;
+            runtime = clientRuntime;
+            tracker = clientTrackerClient;
+            detach = !companionBinding.isEmpty();
+            clientRuntime = null;
+            clientTrackerClient = null;
+            clientCollector = null;
+            clientTransport = null;
+            clientDataTransport = null;
+            clientRendezvous = null;
+            clientIdentity = null;
+            companionBinding = "";
+            clientBootstrapRoute = "";
+            // The delegation names a key that no longer exists. Keeping it would let the next
+            // session announce a statement about a dead one.
+            sessionDelegationB64 = "";
+        }
+        if (runtime != null) {
             LOG.info("Nodera client peer leaving session");
-            // Detach the worker from a session this process is leaving, so it returns to its own
-            // session of one rather than heartbeating into a world it no longer has a player in.
-            // Mirrors the host teardown in stopHosting(), but off-thread: this runs on the client
-            // thread during logout, and MESH can spend its whole 1.5 s + 1.5 s probe budget on a
-            // worker that has already gone. Ordering against runtime.stop() below does not matter —
-            // a detach that loses the race leaves the worker heartbeating at a dead route, which is
-            // precisely the case it already handles by re-electing itself gateway.
+        }
+        // Detach the worker from a session this process is leaving, so it returns to its own
+        // session of one rather than heartbeating into a world it no longer has a player in.
+        // Mirrors the host teardown in stopHosting(), but off-thread: this runs on the client
+        // thread during logout, and MESH can spend its whole 1.5 s + 1.5 s probe budget on a
+        // worker that has already gone. Ordering against runtime.stop() below does not matter —
+        // a detach that loses the race leaves the worker heartbeating at a dead route, which is
+        // precisely the case it already handles by re-electing itself gateway.
+        if (detach) {
             CompanionClient companion = CompanionLink.client();
-            if (companion != null && !companionBinding.isEmpty()) {
+            if (companion != null) {
                 Thread.ofPlatform().name("nodera-companion-detach").daemon().start(() -> {
                     try {
                         companion.mesh("", null);
@@ -1084,23 +1294,13 @@ public final class NoderaPeerService {
                     }
                 });
             }
-            companionBinding = "";
-            clientBootstrapRoute = "";
-            clientRuntime.stop();
-            clientRuntime = null;
         }
-        if (clientTrackerClient != null) {
-            clientTrackerClient.close();
-            clientTrackerClient = null;
+        if (runtime != null) {
+            runtime.stop();
         }
-        clientCollector = null;
-        clientTransport = null;
-        clientDataTransport = null;
-        clientRendezvous = null;
-        clientIdentity = null;
-        // The delegation names a key that no longer exists. Keeping it would let the next session
-        // announce a statement about a dead one.
-        sessionDelegationB64 = "";
+        if (tracker != null) {
+            tracker.close();
+        }
     }
 
     /**

@@ -58,6 +58,16 @@ listener exceptions: an uncaught exception in a handler reachable from a server 
 integrated server. Two live crashes came from exactly this — a P2P bind failure and a per-entity lane
 failure — and both are now contained and degrade instead.
 
+**Nothing that can block runs on a thread that has to paint or tick.** A payload handler and an event
+listener are frames of the client's loop and of the server's; a socket connect, a relay reservation or
+a companion exchange inside one is a frozen game, not a slow one. The joiner's peer bring-up is the
+worked example (MC-JOIN-2): `ModNetworking.handleSessionOnClient` keeps the thread-affine work only,
+`NoderaPeerService.onServerSessionInfo` records what other code reads immediately and hands the rest
+to `nodera-client-bringup`, and the one step that needs the finished runtime — the node announce —
+is posted from that thread through `PacketDistributor` rather than the handler's own `reply`.
+Cancelling such work goes through a generation counter, never the monitor the shutdown path also
+wants, or the stall is moved rather than removed.
+
 **Cancel vanilla only where the commit is synchronous and local.** Cancelling against an *unconfirmed*
 network commit makes the player's action vanish while the network is still deciding. That rule is
 pinned by a Minecraft-free gate class, so it is testable rather than merely observed in a session.
