@@ -172,6 +172,28 @@ says so, so peers migrate before its circuits break.
   evidence, and therefore how many identities an attacker needs before the median moves.
 * Score reports carry their own per-IP quota, `per_ip_report_quota`, separate from announces.
 
+A `ServiceAnnounce` is admitted on the same rules as a peer announce — quota, signature over the
+bytes as they arrived, freshness, trust-on-first-use identity binding, then the directory ceiling —
+but the codes it answers with are its own, and they are stable and machine-readable rather than
+prose:
+
+| Ack code | `accepted` | Meaning |
+|---|---|---|
+| `quota` | `false` | The source address exceeded `per_ip_announce_quota` |
+| `bad-signature` | `false` | The signature did not verify against the record's own key |
+| `stale-record` | `false` | The record's issue time is outside `announce_clock_skew_seconds` |
+| `identity-mismatch` | `false` | This service `NodeId` is already bound to a different key here |
+| `directory-full` | `false` | At `max_services`, with no expired row to reuse |
+| `malformed-record` | `false` | `Draining` with no drain deadline — unplannable, and the shape a truncated record has |
+| `not-listed` | `false` | A `Stopped` record for a service this tracker was not listing |
+| *(empty)* | `true` | Registered, refreshed, or delisted |
+
+`not-listed` is the only one that is not a refusal to do something. The tracker did exactly what was
+asked — there was nothing to remove — and says so because it is the one fact the announcer cannot
+work out for itself: it means this service's listing had been expiring between announces, so peers
+querying *this* tracker were being answered without it. The draining service logs the code and the
+endpoint; a successful-looking round trip would have hidden a discovery outage.
+
 ## Settings
 
 Every setting is a key in `nodera-tracker.toml` **and** an environment variable: `NODERA_TRACKER_`
