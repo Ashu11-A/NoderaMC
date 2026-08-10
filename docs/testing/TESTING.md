@@ -5,15 +5,25 @@
      tool. Counts and last-run dates come from an actual run, never from memory. A scenario that is
      added or renamed updates this file in the same commit. -->
 
-**Category:** testing · **Last run:** 2026-08-06, the nine-module run recorded in commit `44069df` ·
-**44 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
+**Category:** testing · **Last run:** 2026-08-10, `./gradlew check` on the `#142` branch ·
+**51 unit tests · 0 failing** (module `testing`, from that run's per-module JUnit XML) — the live
 scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
-the smoke test that all twenty resolve.
+the smoke test that all twenty-two resolve.
 
-Whole-tree Java total for that same run: **2,271 tests · 0 failed · 0 skipped**. That figure is the
+**`e2e-live` last generated a matrix on 2026-08-10** — nineteen suites, derived from
+`nodera-test list --ids --exclude-tag hardware` rather than from a list kept in the workflow. The
+twelve nightlies before that (2026-07-30 → 2026-08-10) never got that far: the plan job compiles
+Java and had no JDK 21, so every one died in about ninety seconds with `error: release version 21
+not supported` and dispatched no suite at all ([#142](https://github.com/Ashu11-A/NoderaMC/issues/142)).
+Live evidence is only as old as the last nightly that ran.
+
+Whole-tree Java total for that same run: **2,276 tests · 0 failed · 12 skipped**. That figure is the
 sum of the nine per-module counts README's module table carries — core 314, engine 446, transport
-189, storage 158, testing 46, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
-where a reader should go for the per-module breakdown. To measure it rather than add it up, run
+189, storage 158, testing 51, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
+where a reader should go for the per-module breakdown. The twelve skips are the real-binary suites
+described below: this run was a developer machine that had not built the cargo services, and the
+`java` job in CI does build them, which is what the `Nothing skipped into green` step holds it to.
+To measure it rather than add it up, run
 `scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
 suite that skipped into green cannot contribute to the number.
 
@@ -27,6 +37,8 @@ commit.
 
 ```bash
 scripts/nodera-test.sh list                    # every scenario, its tags, what a pass proves
+scripts/nodera-test.sh list --ids              # bare ids, one per line, for scripts
+scripts/nodera-test.sh list --ids --exclude-tag hardware   # what e2e-live builds its matrix from
 scripts/nodera-test.sh run                     # the default queue (everything but 'hardware')
 scripts/nodera-test.sh run continuity crash    # a selection, in the order given
 scripts/nodera-test.sh run --tag server        # everything carrying a tag
@@ -134,6 +146,7 @@ report from the new tool maps onto an old run line by line.
 | `farlands` | live,ownership | two players 566 km apart each control the chunks they stand in |
 | `folia` | folia,server | the endpoint verifies ALIGN-1 on Folia and refuses to enable where it cannot hold |
 | `mesh-soak` | live,mesh | validated state keeps flowing over the live mesh under load, and the peers agree |
+| `mobile-continuity` | android,continuity,hardware,live | a phone peer holds a live world's content while two desktop players come and go |
 | `mobs` | entity,live | the ghost lane captures where a dimension opted in and refuses where it did not |
 | `ownership` | live,ownership | each player owns its own regions, and the world survives its host leaving |
 | `ownership-follow` | live,ownership | region ownership follows a walking player instead of freezing at its join position |
@@ -145,7 +158,13 @@ report from the new tool maps onto an old run line by line.
 | `rekey` | live,password,rekey | re-keying a world invalidates the old password at the live gate and re-seeds ciphertext |
 
 `scripts/nodera-test.sh list` prints this table from the code; if the two disagree, the code is
-right.
+right. The `mobile-continuity` row was missing from this copy until 2026-08-10 — twenty-two
+scenarios, twenty-one rows — which is the drift this table's instruction header exists to catch.
+
+The nineteen that are **not** tagged `hardware` are exactly what `e2e-live` dispatches, and the
+workflow now asks for them (`list --ids --exclude-tag hardware`) instead of keeping its own copy.
+Its copy had thirteen: `churn`, `endpoint`, `folia`, `ownership`, `plugins` and `telemetry` were
+written, registered, listed, validated against the tool — and never run by any nightly.
 
 ## 2. What a scenario may and may not do
 
@@ -221,6 +240,12 @@ downwards through `fixtures/structure/budget.json`. Details: the same task file.
 
 The tool is code, so it is held to the same standard as the rest of the tree: its classes are
 compiled by `./gradlew check`, and `scripts/nodera-test.sh list` is the smoke test that the registry
-resolves, the scenarios construct, and the CLI parses. The `e2e-live` plan job validates every
-requested scenario name against that command rather than against a list kept in the workflow, so a
-renamed scenario cannot leave CI dispatching something that no longer exists.
+resolves, the scenarios construct, and the CLI parses. The `e2e-live` plan job both **validates**
+every requested scenario name against that command and **derives** its default matrix from it
+(`list --ids --exclude-tag hardware`), so a renamed scenario cannot leave CI dispatching something
+that no longer exists and a new scenario cannot be left undispatched.
+
+Validating against the tool was never enough on its own: the workflow used to validate a
+hand-kept array, which only proved the array was stale in a legal way.
+`NoderaTestListTest.theRealRegistryYieldsEveryUnattendedScenarioToTheNightlyMatrix` is the unit
+test that holds the derived set equal to `ScenarioRegistry.defaultBatch()`.

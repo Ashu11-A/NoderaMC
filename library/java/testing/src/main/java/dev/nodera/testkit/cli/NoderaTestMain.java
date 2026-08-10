@@ -28,6 +28,7 @@ import java.util.List;
  *
  * <pre>
  *   nodera-test list                       # every scenario, its tags and what it proves
+ *   nodera-test list --ids --exclude-tag hardware   # the same set, machine-readable
  *   nodera-test run                        # the default queue (everything but hardware)
  *   nodera-test run continuity crash       # a selection, in the order given
  *   nodera-test run --tag server           # everything carrying a tag
@@ -75,9 +76,11 @@ public final class NoderaTestMain {
                 .orElse(paths.root().resolve("build/reports/nodera"));
         List<String> tags = new ArrayList<>();
         takeOption(rest, "--tag").ifPresent(tags::add);
+        boolean idsOnly = rest.remove("--ids");
+        String excludeTag = takeOption(rest, "--exclude-tag").orElse(null);
 
         return switch (command) {
-            case "list" -> list(registry);
+            case "list" -> list(registry, idsOnly, excludeTag);
             case "run" -> runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir);
             case "bench" -> bench(paths, full);
             case "structure" -> structure(paths, noDebug);
@@ -93,16 +96,46 @@ public final class NoderaTestMain {
         };
     }
 
-    private static int list(ScenarioRegistry registry) {
-        System.out.printf("%-18s %-34s %s%n", "SCENARIO", "TAGS", "WHAT A PASS PROVES");
-        for (Scenario scenario : registry.all()) {
-            System.out.printf("%-18s %-34s %s%n", scenario.id(),
-                    String.join(",", new java.util.TreeSet<>(scenario.tags())), scenario.title());
-        }
-        System.out.println();
-        System.out.println("Tags in use: " + String.join(", ", registry.tags()));
-        System.out.println("The default queue is everything not tagged 'hardware'.");
+    private static int list(ScenarioRegistry registry, boolean idsOnly, String excludeTag) {
+        listing(registry, idsOnly, excludeTag).forEach(System.out::println);
         return 0;
+    }
+
+    /**
+     * What {@code list} prints, as lines, so it can be asserted without capturing stdout.
+     *
+     * <p>{@code --ids} drops the table and prints one bare id per line, and {@code --exclude-tag}
+     * filters. Together they exist for one caller: the {@code e2e-live} workflow, which builds its
+     * job matrix from
+     * {@code nodera-test list --ids --exclude-tag hardware}. That workflow used to keep its own
+     * array of ids beside a check that validated the array against this tool — so a scenario added
+     * here was "known" to the check and still never dispatched, and the array had drifted six
+     * scenarios behind the registry. A machine-readable form of the list the tool already owns
+     * deletes the second table rather than re-synchronising it.
+     *
+     * <p>The human table is unchanged: it is what a person reading {@code list} wants, and no
+     * parser should have been reading it. The old workflow parsed it with
+     * {@code awk 'NR > 1 && NF {print $1}'}, which returned {@code Tags} and {@code The} from the
+     * footer alongside the scenario ids — and {@code SCENARIO} too whenever a build note occupied
+     * line 1, which on a cold CI runner it always did.
+     */
+    static List<String> listing(ScenarioRegistry registry, boolean idsOnly, String excludeTag) {
+        List<Scenario> scenarios = excludeTag == null
+                ? registry.all()
+                : registry.excludingTag(excludeTag);
+        if (idsOnly) {
+            return scenarios.stream().map(Scenario::id).toList();
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add(String.format("%-18s %-34s %s", "SCENARIO", "TAGS", "WHAT A PASS PROVES"));
+        for (Scenario scenario : scenarios) {
+            lines.add(String.format("%-18s %-34s %s", scenario.id(),
+                    String.join(",", new java.util.TreeSet<>(scenario.tags())), scenario.title()));
+        }
+        lines.add("");
+        lines.add("Tags in use: " + String.join(", ", registry.tags()));
+        lines.add("The default queue is everything not tagged 'hardware'.");
+        return lines;
     }
 
     private static int runScenarios(TestPaths paths, ScenarioRegistry registry, List<String> ids,
@@ -201,8 +234,10 @@ public final class NoderaTestMain {
                   --no-build       use what is already built
                   --keep-running   leave the stack up after the run
                   --report DIR     where the report goes (default build/reports/nodera)
+                  --ids            list: bare ids, one per line, for scripts
+                  --exclude-tag T  list: leave out everything carrying the tag
                 """);
-        return list(registry);
+        return list(registry, false, null);
     }
 
     private static java.util.Optional<String> takeOption(List<String> args, String name) {
