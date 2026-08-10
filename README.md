@@ -293,7 +293,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
 | `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 314 | ✅ |
-| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 446 | ✅ |
+| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 458 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 189 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 158 | ✅ |
 | `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 46 | ✅ |

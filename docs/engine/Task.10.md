@@ -55,7 +55,8 @@ At the standard 8×8×24 shape, dense work is bounded at 4×8×24×256 = 196,608
 source was visited first. `CrossRegionFluidTest` proves blocked uniform targets do not hide open
 cells, dense scans remain side-only, mixed water/lava uses water cadence, and the off-corner dense
 case schedules the exact same tick and root on two replicas. `RULES_VERSION` stays at the issue's
-6→7 increment; the palette remains `palette.v6`. Remaining: certified halo delivery and live
+6→7 increment (the tree is at 8 since [task 11](Task.11.md)'s mob-AI-memory increment); the palette
+remains `palette.v6`. Remaining: certified halo delivery and live
 evidence tracked by L-2. L-51 is RETIRED.
 
 ## Dependencies

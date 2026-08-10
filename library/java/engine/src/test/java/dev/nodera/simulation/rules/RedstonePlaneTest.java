@@ -800,7 +800,7 @@ final class RedstonePlaneTest {
             return new PersistedEntityState(new NetworkEntityId(id), EntityKind.MOB, 1,
                     new FixedVec3((long) x << 32, (long) y << 32, (long) z << 32), FixedVec3.ZERO,
                     1, PersistedEntityState.NEVER_DESPAWN,
-                    dev.nodera.simulation.entity.MobCombatRules.vitalsPayload(20, 20));
+                    dev.nodera.simulation.entity.MobState.fresh(20, 20).encode());
         }
 
         private static PersistedEntityState ghostAt(long id, int x, int y, int z) {

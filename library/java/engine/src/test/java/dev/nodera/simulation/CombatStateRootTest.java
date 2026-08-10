@@ -41,7 +41,7 @@ final class CombatStateRootTest {
         return new PersistedEntityState(MOB_ID, EntityKind.MOB, 1,
                 new FixedVec3(5L << 32, 70L << 32, 5L << 32), FixedVec3.ZERO,
                 10, PersistedEntityState.NEVER_DESPAWN,
-                MobCombatRules.vitalsPayload(health, MobCombatRules.ZOMBIE_MAX_HEALTH));
+                MobState.fresh(health, MobCombatRules.ZOMBIE_MAX_HEALTH).encode());
     }
 
     private static RegionSnapshot snapshotWith(PersistedEntityState... entities) {
@@ -79,7 +79,7 @@ final class CombatStateRootTest {
         StateRoot afterDeath = rootOf(snapshotWith());
         assertThat(afterDeath).isNotEqualTo(rootOf(snapshotWith(mob(1))));
         assertThat(org.assertj.core.api.Assertions
-                .catchThrowable(() -> MobCombatRules.vitalsPayload(0, 20)))
+                .catchThrowable(() -> MobState.fresh(0, 20)))
                 .as("zero health is not a representable state")
                 .isInstanceOf(IllegalArgumentException.class);
     }

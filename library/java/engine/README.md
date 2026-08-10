@@ -25,7 +25,8 @@ dev.nodera.simulation      THE region engine — the only re-executor
 ├── engine/                FlatWorldRegionEngine: (snapshot, batch, context) → (delta, root)
 ├── rules/                 the rule set: blocks, redstone, fluids, environment, entities,
 │                          containers, combat, movement, portals, commands, packs
-├── entity/                validated entity simulation and the ghost lane
+├── entity/                validated entity simulation and the ghost lane; MobState (the hashed
+│                          MOB payload: vitals + AI memory) and IntPathfinder (bounded integer A*)
 ├── lighting/              LightField — light as a pure function of committed state
 ├── border/                BorderSignal: the halo contract (the engine never writes halo state)
 ├── worldgen/              deterministic terrain from (seed, position), integer math only
@@ -76,15 +77,22 @@ courtesy is not.
   iteration, no IO, no static mutable state anywhere reachable from `dev.nodera.simulation`.
   Enforced by ArchUnit.
 - All randomness through `DeterministicRandom`; a rule that draws conditionally must draw a **fixed**
-  count per opportunity, or the stream desynchronises across replicas.
+  count per opportunity, or the stream desynchronises across replicas. The count may depend on values
+  already in the hashed root (entity kind does), never on the branch the rule chose.
+- A search or traversal whose result depends on the order it visited things needs an **ordered**
+  container and a **total** tie-break, stated in the code. `IntPathfinder`'s open set is ordered by
+  `(f, g descending, position)` in `NBlockPos`' canonical `(y, z, x)` order: shortest paths on a
+  Minecraft grid are almost never unique, so an unordered open set returns a different, equally short
+  route on two replicas and parts their roots with nothing logged anywhere.
 - Signed Q32.32 products use core's `FixedPoint`; entity motion copies use
   `PersistedEntityState.withMotion`; packed chunk coordinates use `ChunkKey`.
 - No Minecraft types. The live wiring lives in `neoforge-mod` and consumes seams defined here.
 
 ## Tests
 
-444 XML-reported tests (measured 2026-08-06): determinism property tests, negative determinism
-tests (dropping state from the hash must be detectable), the headless routing IT
+458 XML-reported tests (measured 2026-08-10): determinism property tests, negative determinism
+tests (dropping state from the hash must be detectable — `CombatStateRootTest` is the current
+example, guarding the mob AI memory that `RULES_VERSION` 8 put in the root), the headless routing IT
 (`FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas. The consensus ITs that
 used to be listed here drove the central-coordinator design deleted on 2026-08-06 (#210); the
 end-to-end quorum proof now lives in `:peer` as `WorkerQuorumValidationIT`.

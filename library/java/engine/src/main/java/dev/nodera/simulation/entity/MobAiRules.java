@@ -35,12 +35,16 @@ import java.util.Optional;
  *       species memory is exactly what retiring it from GHOST to MOB means.</li>
  * </ul>
  *
- * <p><b>A fixed draw count per decision.</b> Every decision opportunity draws exactly
- * {@link #DRAWS_PER_DECISION} values from the per-tick {@link DeterministicRandom} and discards
- * what the branch it took did not need. A mob that drew once when idling and twice when adopting a
- * goal would make every LATER mob's draws depend on the earlier mob's branch, so a single
- * one-block state difference between two replicas would not stay one block — it would re-randomise
- * the whole region. Mobs are processed in canonical entity-id order for the same reason.
+ * <p><b>A fixed draw count per decision.</b> An engine-owned MOB draws exactly
+ * {@link #DRAWS_PER_DECISION} values from the per-tick {@link DeterministicRandom} at every
+ * decision opportunity and discards what the branch it took did not need; a GHOST draws exactly
+ * one. The count varies with {@link PersistedEntityState#kind()} and with nothing else — kind is
+ * hashed root state, so two replicas holding the same root necessarily draw the same number of
+ * times in the same order. What is forbidden is a count that varies with the branch a mob
+ * <i>chose</i>: a mob that drew once when idling and twice when adopting a goal would make every
+ * LATER mob's draws depend on the earlier mob's branch, so a single one-block state difference
+ * between two replicas would not stay one block — it would re-randomise the whole region. Mobs are
+ * processed in canonical entity-id order for the same reason.
  *
  * <p>Mobs past their despawn horizon are removed every tick (the population breathes exactly like
  * vanilla's despawn cycle, deterministically). Targeting and combat goals arrive with later
@@ -52,7 +56,7 @@ public final class MobAiRules {
 
     /** Region ticks between AI decisions (vanilla-ish idle cadence, cheap and visible). */
     public static final int AI_INTERVAL_TICKS = 10;
-    /** Draws taken per decision opportunity, whatever the mob decides. */
+    /** Draws an engine-owned MOB takes per decision opportunity, whatever it decides. */
     public static final int DRAWS_PER_DECISION = 2;
     /** Horizontal reach of a wander destination, in blocks. */
     public static final int WANDER_RADIUS = 6;
@@ -70,9 +74,12 @@ public final class MobAiRules {
     public static final long KNOCKBACK_SETTLE = FixedVec3.ONE / 8;
 
     /**
-     * Candidate destination offsets, in fixed order: the eight compass points at
-     * {@link #WANDER_RADIUS}. A table rather than trigonometry — the offsets have to be integers
-     * anyway, and a table is auditable.
+     * Candidate destination offsets, in fixed order: the four cardinals then the four diagonals,
+     * each scaled by {@link #WANDER_RADIUS}. A table rather than trigonometry — the offsets have to
+     * be integers anyway, and a table is auditable. Note the diagonals land at
+     * {@code radius × √2} rather than at {@code radius}; the destination only has to be *somewhere
+     * plausible*, and normalising it would need either a square root or a second table of
+     * per-direction lengths, neither of which buys anything a mob can perceive.
      */
     private static final int[] WANDER_DX = {0, 0, -1, 1, -1, 1, -1, 1};
     private static final int[] WANDER_DZ = {-1, 1, 0, 0, -1, -1, 1, 1};

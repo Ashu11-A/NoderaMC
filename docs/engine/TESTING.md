@@ -6,21 +6,31 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-08-06 · **802 XML-reported · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-08-10 · **818 XML-reported · 0 failing · 0 skipped**
 
-> Counts above are `:core:test` + `:engine:test` + `:testing:test` from the nine-module run recorded
-> in commit `44069df` — the JUnit XML of that run is where README's module table was re-measured, and
+> Counts above are `:core:test` + `:engine:test` + `:testing:test` re-measured on 2026-08-10 from the
+> `./gradlew check` JUnit XML of the mob-memory/pathfinder commit (`:engine:test` 446 → **458**: seven
+> `PathfindingTest` cases, four `MobAiRulesTest` memory cases and the two `CombatStateRootTest`
+> negative-determinism cases the `RULES_VERSION` 7→8 root-shape change required, less the
+> `MobCombatTest` case that asserted the now-deleted duplicate vitals codec). The three cells
+> before that were from the nine-module run recorded in commit `44069df` — the JUnit XML of that run is where README's module table was re-measured, and
 > this register carries the same three cells rather than a second measurement. The run is dated
 > 2026-08-06, after the Plan 11 round 2 reduction (issue #210) deleted the shadow-validation and
 > central-coordinator clusters and 21 of their dedicated test files. The whole Java tree comes to
-> **2,271 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
+> **2,283 tests / 0 failed / 12 skipped** as the sum of README's nine measured module cells; to
 > measure it rather than add it up, run `scripts/test-totals.sh --java`. The **2,238** this file used
-> to carry predates that re-measurement and never agreed with README.
+> to carry predates that re-measurement and never agreed with README. The twelve skips are all one
+> circumstantial cause and none of them is in this category: `TrackerServiceIT` (7),
+> `TelemetryRegistryMirrorTest` (2), `RendezvousRelayIT`, `WorldContinuityIT` and
+> `CompanionCrashSurvivalIT` each `assumeTrue` on a Rust binary or a `:peer:installDist` output that
+> a Java-only local run has not built. CI builds them, so CI reports 0 skipped; a local
+> `./gradlew check` alone does not. Stated here because a skip that nobody writes down is how five
+> suites once sat asserting nothing.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
 | `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 314 | ✅ |
-| `engine` | Deterministic engine + consensus/committee/fallback, and the surviving `shadow` delta applier | 446 | ✅ |
+| `engine` | Deterministic engine + consensus/committee/fallback, and the surviving `shadow` delta applier | 458 | ✅ |
 | `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 46 | ✅ |
 
 Run with:
@@ -89,7 +99,9 @@ bytecode via `--release 21`, so ArchUnit's bundled ASM parses the classes and th
 | `RandomTickRulesTest` | 200-tick grass/dirt checkerboard soak with identical roots on 3 replicas **while the lane actively spreads** |
 | `FluidRulesTest` (6) | Level-per-hop, finite reach, source-break drain, fall-before-spread, mint protection, border signal — all through the full engine path |
 | `CrossRegionFluidTest` (9) | Complete uniform face scan, bounded ownership-facing dense scan with diagonal rejection, winning-fluid cadence, exact dense off-corner tick on two replicas, identical roots |
-| `MobAiRulesTest` (3) | 2400-tick soak: every ghost ends on a walkable cell with replica-identical roots; the despawn horizon fires exactly on time |
+| `MobAiRulesTest` (7) | 2400-tick soak: every mob ends on a walkable cell with replica-identical roots; the despawn horizon fires exactly on time; **six consecutive decisions walk six blocks towards one destination** — the assertion a memoryless mob cannot pass, and the reason `AiMemory` is in the hashed payload; being hit does not erase where a mob was going; a goal whose route is walled up is given up without moving |
+| `PathfindingTest` (7) | Bounded integer A*: the route goes **round** a two-high wall by the shortest detour and never onto a wall cell; equal-length routes are broken by canonical `(y, z, x)` order, pinned as an exact expected step — because "which of the equally short routes" is the answer and not a detail of it; the same room built in the opposite write order routes identically to all 121 destinations; the node budget is a hard ceiling |
+| `CombatStateRootTest` (2 of 5) | The `RULES_VERSION` 7→8 root-shape change, stated as the negative it has to be: identical vitals with different AI memory give **different** roots, and dropping the memory back out of the payload moves the root — so "simplifying" `MobState.encode` to its first four bytes cannot pass silently |
 | `SpawnRulesTest` | 2000-tick dark-shelter soak: population ≤ cap, every spawn inside the shelter, replica-identical roots; a lit platform spawns zero |
 | `PressurePlateStickyPistonTest` (7) | The full engine path for both components, including the order-independence root property |
 | `FixedPointTest` / `ChunkKeyTest` / `EntityLaneTypesTest` | L-52: full-range signed Q32.32 arithmetic matches `BigInteger`; packed signed chunk coordinates round-trip; entity motion copies remain byte-identical to direct canonical construction |

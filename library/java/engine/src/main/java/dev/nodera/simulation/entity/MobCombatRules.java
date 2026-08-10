@@ -1,6 +1,5 @@
 package dev.nodera.simulation.entity;
 
-import dev.nodera.core.Bytes;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.PersistedEntityState;
@@ -47,25 +46,6 @@ public final class MobCombatRules {
                 MELEE_DAMAGE,
                 MELEE_REACH,
                 BLAST_DAMAGE_MAX);
-    }
-
-    /**
-     * The MOB payload for a mob with no live intention. The vitals are the leading fields of
-     * {@link MobState}, which is the one definition of that payload's shape — a second encoder
-     * here is how the two would come to disagree.
-     */
-    public static Bytes vitalsPayload(int health, int maxHealth) {
-        return MobState.fresh(health, maxHealth).encode();
-    }
-
-    /** Decoded MOB vitals. */
-    public record Vitals(int health, int maxHealth) {
-    }
-
-    /** Read the vitals half of a MOB payload. */
-    public static Vitals decodeVitals(Bytes payload) {
-        MobState state = MobState.decode(payload);
-        return new Vitals(state.health(), state.maxHealth());
     }
 
     /**
