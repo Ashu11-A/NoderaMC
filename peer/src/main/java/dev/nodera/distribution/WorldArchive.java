@@ -137,10 +137,12 @@ public final class WorldArchive {
     /**
      * Read a directory tree into a path → bytes map, applying the archive's path filter.
      *
-     * <p>Separate from {@link #packDirectory} because a save is not always packed whole: the
-     * region-addressed lane reads the same tree and packs one blob per {@link SaveRegion}. Both
-     * callers must see exactly the same file set, which is why they share this step rather than
-     * each walking the directory with their own filter.
+     * <p>Separate from {@link #packDirectory} because a save is not always packed whole: a
+     * per-{@code r.X.Z.mca} lane used to read the same tree and pack one blob per region file, and
+     * the two had to see exactly the same file set — which is why the walk is one shared step and
+     * not a filter each caller applies for itself. That lane has since been retired (it never had a
+     * caller), so {@code packDirectory} is the only caller today; the split is kept because the
+     * invariant it protects belongs to whoever reintroduces a second one.
      *
      * @param root   the directory to read.
      * @param filter which files to include, judged on the {@code /}-separated relative path.
@@ -314,22 +316,27 @@ public final class WorldArchive {
     }
 
     /**
-     * Build the piece manifest for one <b>region's</b> archive blob.
+     * Build the piece manifest for one archive blob, under the region it belongs to.
      *
-     * <p>The region travels in the manifest, so it travels in the announce and in every holding a
-     * peer advertises: a piece is never just "part of some world", it is part of {@code r.X.Z.mca}
-     * of a named dimension, and a peer asking for the ground it is standing on can ask for exactly
-     * that. Identical in every other respect to the whole-world manifest — same splitter, same
-     * self-checking {@code regionRoot} over the bytes — because a region blob <i>is</i> an archive
-     * blob, of one region's files.
+     * <p>The region parameter is not decoration: the region travels in the manifest, so it travels
+     * in the announce and in every holding a peer advertises. A piece is never just "part of some
+     * world" — it is part of a named region of a named dimension, and a peer asking for the ground
+     * it is standing on can ask for exactly that. That is what makes a per-region lane expressible
+     * with no new message on the wire, and it is why the parameter stays even though only one value
+     * is passed today.
      *
-     * @param region  the region these bytes belong to ({@link SaveRegion#toRegionId()}).
+     * <p>Private, because it is: the per-region archive lane that supplied any other region was
+     * retired without ever having had a caller, so the sole caller is now the two-argument sibling
+     * above, which always passes {@link #ARCHIVE_REGION}. Public it read as a supported way to build
+     * a manifest for an arbitrary region, and nothing on the receive side was prepared for one.
+     *
+     * @param region  the region these bytes belong to; {@link #ARCHIVE_REGION} for a whole save.
      * @param version the archive snapshot version (monotonic per world; freshness ordering).
      * @param blob    the canonical archive bytes for that region.
      * @return the manifest.
      * @Thread-context any thread.
      */
-    public static PieceManifest manifestFor(RegionId region, long version, byte[] blob) {
+    private static PieceManifest manifestFor(RegionId region, long version, byte[] blob) {
         int[] starts = entryStarts(blob);
         List<Piece> pieces = starts == null
                 ? PieceSplitter.splitFixed(blob, ARCHIVE_PIECE_BYTES)
