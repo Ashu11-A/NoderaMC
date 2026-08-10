@@ -253,6 +253,25 @@ final class SafBlobDirectoryTest {
     }
 
     @Test
+    void theDocumentTreeEntryPointCannotBeTalkedIntoOpeningAFilesystemPath(@TempDir Path tmp) {
+        // The `NODERA-CONFIG` branch that accepts a picked folder calls openDocumentTree, not open,
+        // and this is why. `open` decides for itself and its other branch is `Path.of` — so a
+        // client-supplied string reaching it would have been an archive relocation to anywhere on
+        // disk, past the containment guard every other control verb goes through. This entry point
+        // has no path branch to fall through to, and refuses rather than resolves.
+        assertThrows(IllegalArgumentException.class,
+                () -> ArchiveDirectories.openDocumentTree(tmp.toString()));
+        assertThrows(IllegalArgumentException.class,
+                () -> ArchiveDirectories.openDocumentTree("../../../etc/nodera"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ArchiveDirectories.openDocumentTree(""));
+
+        assertEquals(0, FakeDocumentTree.blobCount(), "nothing went near the bridge");
+        assertFalse(Files.exists(tmp.resolve("content")),
+                "and nothing was created on the filesystem");
+    }
+
+    @Test
     void onlyAContentUriIsTreatedAsADocumentTree() {
         assertTrue(ArchiveDirectories.isDocumentTree(TREE));
         assertFalse(ArchiveDirectories.isDocumentTree("/home/player/.nodera/archive"));

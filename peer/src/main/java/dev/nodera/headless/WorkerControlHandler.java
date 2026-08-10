@@ -1782,8 +1782,12 @@ public final class WorkerControlHandler implements ControlHandler {
                     // exactly this app, because the user chose the folder in the system file
                     // manager; a local process that talked its way onto the control socket cannot
                     // conjure one.
+                    //
+                    // openDocumentTree, never open: `open` would decide for itself and its other
+                    // branch is `Path.of`, so a client-supplied string could still have reached the
+                    // filesystem past the containment guard. This branch cannot touch a path at all.
                     try {
-                        config.contentStore.relocateTo(ArchiveDirectories.open(path));
+                        config.contentStore.relocateTo(ArchiveDirectories.openDocumentTree(path));
                     } catch (RuntimeException refused) {
                         return refused.getMessage() == null
                                 ? "the chosen folder could not be opened" : refused.getMessage();

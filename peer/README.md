@@ -95,6 +95,13 @@ app's `dev.nodera.app.NoderaSafBlobs` reflectively — the worker ships as a dex
 loader's parent is the app's, so a shared interface cannot exist, and `scripts/android-apk.sh` keeps
 that class from R8 and asserts the rule landed.
 
+**A client picks the folder, not the branch.** `PeerNode` may use `ArchiveDirectories.open` because
+its string is this process's own environment. The `NODERA-CONFIG` handler may not: it tests with
+`isDocumentTree` and then calls either `ControlPaths.resolve` — normalise, then contain — or
+`ArchiveDirectories.openDocumentTree`, which cannot reach `java.nio.file` at all. A single method
+that decided for itself would hand a socket-supplied string to `Path.of` on the other side of the
+decision, which is an archive relocation to anywhere on disk.
+
 **Only the archive lane moves.** Identity, `worlds.dat`, the key store and RocksDB stay in
 app-private storage. A signing key in a folder the user browses — readable by anything else holding
 the same grant — is a security regression, not a feature, and the archive is content-addressed

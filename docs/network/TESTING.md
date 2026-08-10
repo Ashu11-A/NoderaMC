@@ -6,14 +6,14 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-08-10 · **1,217 Java test cases + 79 Rust
+**Category:** network · **Last run:** 2026-08-10 · **1,218 Java test cases + 79 Rust
 (`nodera-codec`) `#[test]` · 0 failing** — the Java figure sums the module table below
-(189 + 168 + 860), whose cells are README's, re-measured from the JUnit XML of the nine-module run
+(189 + 168 + 861), whose cells are README's, re-measured from the JUnit XML of the nine-module run
 recorded in commit `44069df`. Worker cases are also described under the worker category.
 
 > Re-measured on 2026-08-06 after the Plan 11 round 2 reduction (issue #210), which deleted the
 > archival audit triangle and the second discovery resolver from `:peer` along with their dedicated
-> suites. The whole Java tree comes to **2,291 tests / 0 failed / 0 skipped** as the sum of README's
+> suites. The whole Java tree comes to **2,292 tests / 0 failed / 0 skipped** as the sum of README's
 > nine measured module cells; to measure it rather than add it up, run `scripts/test-totals.sh
 > --java`. The **2,238** this file used to carry predates that re-measurement, as did `transport`
 > 186 and `peer` 835. The Rust count is unchanged by round 2, which touched no `nodera-codec` source.
@@ -32,7 +32,7 @@ recorded in commit `44069df`. Worker cases are also described under the worker c
 |---|---|---:|:---:|
 | `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard. Cross-language fixture coverage is **derived from `nodera-codec`'s own `SUPPORTED_MESSAGE_TAGS`** rather than a hand-written tag list | 189 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes including Android-denied store inspection; the `BlobDirectory` seam that lets the same content store write into an Android document tree (frontend M-1) | 168 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 860 | 🚧 |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 861 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 79 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything

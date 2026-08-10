@@ -92,11 +92,21 @@ Evidence, all on the ordinary gate:
 `ControlVerbsIT.ConfigVerbIT.aFolderPickedWithAndroidsFileManagerBecomesTheArchive` pushes the tree
 URI over the real control socket and asserts the hosted world's archive bytes land in the picked
 folder — with the fix removed it reports that the worker instead created a directory literally
-called `content:` under its working directory and stored the world there. `SafBlobDirectoryTest` (9)
+called `content:` under its working directory and stored the world there. `SafBlobDirectoryTest` (10)
 drives the reflective bridge by name, so a drifted signature fails here rather than as a
-`NoSuchMethodError` on a phone; `FsContentStoreBlobDirectoryTest` (9) holds the whole store contract
+`NoSuchMethodError` on a phone; `FsContentStoreBlobDirectoryTest` (10) holds the whole store contract
 over a non-filesystem directory; `a_picked_document_tree_is_never_probed_as_a_filesystem_path` stops
 the Rust side reporting the chosen folder as unwritable.
+
+One boundary is worth naming on its own, because CodeQL found it before a reviewer did. The
+`NODERA-CONFIG` branch that accepts a picked folder first called `ArchiveDirectories.open`, which
+decides for itself and whose other branch is `Path.of` — so a string from the **control socket**
+could still have reached the filesystem, past the containment guard (`ControlPaths.resolve`) every
+other client-supplied path goes through, with an archive relocation behind it. The branch now calls
+`ArchiveDirectories.openDocumentTree`, which has no path branch to fall through to and refuses
+anything that is not a `content://` tree;
+`SafBlobDirectoryTest.theDocumentTreeEntryPointCannotBeTalkedIntoOpeningAFilesystemPath` is the
+guard.
 
 **M-1 stays `OPEN`.** Its exit test names a device, no handset was attached, and nothing here has
 touched a real `DocumentsContract`. The manual acceptance script is [`TESTING.md`](TESTING.md) §4.8.

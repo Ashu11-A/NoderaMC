@@ -42,23 +42,67 @@ public final class ArchiveDirectories {
     }
 
     /**
-     * Open the archive location.
+     * Open a location already known to name a document tree.
+     *
+     * <p>This is a separate entry point rather than a branch inside {@link #open(String, Optional)},
+     * and the reason is a security boundary rather than tidiness. The {@code NODERA-CONFIG} handler
+     * takes this location <b>from the control socket</b>, and every other client-supplied path there
+     * goes through {@link ControlPaths#resolve} — normalised, then tested for containment inside a
+     * root this node has a reason to touch. A document tree cannot go through that guard, because it
+     * is not a path. So the branch that accepts one must be a branch that can never reach
+     * {@code java.nio.file} at all: calling a method that decides for itself would hand a
+     * socket-supplied string to {@code Path.of} on the other side of the decision, which is an
+     * unguarded write primitive with this node's whole content store behind it. That is what
+     * CodeQL's {@code java/path-injection} flagged when this branch called {@code open}, and it was
+     * right to.
+     *
+     * @param tree   a persisted {@code content://} tree URI.
+     * @param bridge the app-side SAF bridge, or empty when this process has none.
+     * @return where the content store should write.
+     * @throws IllegalArgumentException if {@code tree} does not name a document tree.
+     * @throws StorageException if no bridge can reach it — a worker that silently fell back to a
+     *         private directory would report a folder as in use while storing nothing in it, which
+     *         is the defect this whole lane exists to remove.
+     */
+    public static BlobDirectory openDocumentTree(
+            String tree, Optional<SafBlobDirectory.Bridge> bridge) {
+        if (!isDocumentTree(tree)) {
+            throw new IllegalArgumentException("not an Android document tree: " + tree);
+        }
+        return new SafBlobDirectory(tree, bridge.orElseThrow(() -> new StorageException(
+                "the archive location " + tree + " is an Android document tree, but this "
+                        + "process has no storage bridge to open it with")));
+    }
+
+    /**
+     * Open a document tree using whatever bridge this process actually has.
+     *
+     * @param tree a persisted {@code content://} tree URI.
+     * @return where the content store should write.
+     */
+    public static BlobDirectory openDocumentTree(String tree) {
+        return openDocumentTree(tree, SafBlobDirectory.Reflective.installed());
+    }
+
+    /**
+     * Open the archive location, whichever kind it is.
+     *
+     * <p>For the startup path, where the location comes from this process's own environment. A
+     * caller holding a string a <i>client</i> sent must not use this: it decides with
+     * {@link #isDocumentTree} and then calls {@link #openDocumentTree} or {@link ControlPaths}, so
+     * that the client cannot choose which of the two this node applies.
      *
      * @param location  the configured location: a directory path, or a {@code content://} tree.
      * @param bridge    the app-side SAF bridge, or empty when this process has none (every desktop
      *                  worker).
      * @return where the content store should write.
-     * @throws StorageException if a document tree is named but no bridge can reach it — a worker
-     *         that silently fell back to a private directory would report a folder as in use while
-     *         storing nothing in it, which is the defect this whole lane exists to remove.
+     * @throws StorageException if a document tree is named but no bridge can reach it.
      */
     public static BlobDirectory open(String location, Optional<SafBlobDirectory.Bridge> bridge) {
-        if (!isDocumentTree(location)) {
-            return new PathBlobDirectory(Path.of(location));
+        if (isDocumentTree(location)) {
+            return openDocumentTree(location, bridge);
         }
-        return new SafBlobDirectory(location, bridge.orElseThrow(() -> new StorageException(
-                "the archive location " + location + " is an Android document tree, but this "
-                        + "process has no storage bridge to open it with")));
+        return new PathBlobDirectory(Path.of(location));
     }
 
     /**

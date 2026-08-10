@@ -30,13 +30,25 @@ public final class PathBlobDirectory implements BlobDirectory {
 
     /**
      * @param root the archive directory; this directory owns its {@code content/} subdirectory.
+     *             It must be <b>absolute</b> — see below — and is normalised before use.
+     * @throws IllegalArgumentException if {@code root} is null or relative.
      * @throws StorageException if the directory cannot be created.
      */
     public PathBlobDirectory(Path root) {
         if (root == null) {
             throw new IllegalArgumentException("root must not be null");
         }
-        this.contentRoot = root.resolve("content");
+        // Absolute, and refused rather than resolved if it is not. A relative archive root lands
+        // wherever the worker happened to be launched from, which is not a location anybody chose:
+        // handed the Android document tree `content://…` before this lane understood one, the
+        // worker resolved it as a relative path and quietly stored a hosted world in a directory
+        // called `content:` beside its working directory. Normalised in the same breath so the
+        // stored root is the one the rest of this class compares blob paths against.
+        if (!root.isAbsolute()) {
+            throw new IllegalArgumentException(
+                    "the archive directory must be an absolute path, not " + root);
+        }
+        this.contentRoot = root.normalize().resolve("content");
         try {
             Files.createDirectories(contentRoot);
         } catch (IOException e) {

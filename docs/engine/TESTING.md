@@ -13,7 +13,7 @@
 > this register carries the same three cells rather than a second measurement. The run is dated
 > 2026-08-06, after the Plan 11 round 2 reduction (issue #210) deleted the shadow-validation and
 > central-coordinator clusters and 21 of their dedicated test files. The whole Java tree comes to
-> **2,291 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
+> **2,292 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
 > measure it rather than add it up, run `scripts/test-totals.sh --java`. The **2,238** this file used
 > to carry predates that re-measurement and never agreed with README.
 

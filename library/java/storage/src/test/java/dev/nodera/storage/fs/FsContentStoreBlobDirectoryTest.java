@@ -282,6 +282,14 @@ final class FsContentStoreBlobDirectoryTest {
         }
         assertThat(BlobDirectory.isBlobName("0".repeat(64))).isTrue();
         assertThat(BlobDirectory.isBlobName(null)).isFalse();
+
+        // …and the root itself must be somewhere somebody chose. A relative archive directory lands
+        // wherever the worker was launched from — which is exactly how a `content://` tree, before
+        // this lane understood one, became a folder called `content:` beside the working directory
+        // with a hosted world inside it.
+        assertThatThrownBy(() -> new PathBlobDirectory(Path.of("relative/archive")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("absolute");
     }
 
     @Test
