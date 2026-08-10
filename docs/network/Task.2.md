@@ -7,7 +7,7 @@
 
 **Status:** 🚧 IN PROGRESS (membership, election, continuity and the negotiation handshake landed;
 migration end-to-end remains)
-**Category:** network · **Owns:** L-30, L-84, L-85 · **Last audit:** 2026-07-29
+**Category:** network · **Owns:** L-30, L-84, L-85 · **Last audit:** 2026-08-10
 **Depends on:** [network 1](Task.1.md), [engine 5](../engine/Task.5.md)
 **Consumed by:** [worker 1](../peer/Task.1.md), [minecraft 2](../minecraft/Task.2.md), [rendezvous 3](../rendezvous/Task.3.md)
 
@@ -48,6 +48,19 @@ reachable only from its own tests — see the audit correction in [`LIMITATIONS.
 player is playing in, not just the host's, and the resident validator pool is a broadcast plan input
 so the host and the joining clients derive the *same* leases. What L-30 still needs is the live
 `mesh-soak` run; the two product gaps it had been reduced to are closed.
+
+**Correction 2026-08-10 ([#160](https://github.com/Ashu11-A/NoderaMC/issues/160)):** the sentence
+above understated what was missing, because the `mesh-soak` run had **never asserted L-30's exit
+clause** — nothing in it read `committee_commits` from a worker — and, worse, it had never *driven*
+anything a committee could see. Its block load was `/fill`, a direct world write that fires neither
+`BlockEvent.EntityPlaceEvent` nor `BlockEvent.BreakEvent`, so `BlockCaptureBridge` never captured it,
+no primary ever proposed, and the `votes_cast=0` the register recorded three times was a property of
+the drive rather than of the mesh. The load now goes through `/nodera debug drive` — the same
+`submitBlockAction` the bridge calls, as the player — a stage **S2b** asserts the exit clause on two
+headless workers, and `ValidatedLoadIsCapturedTest` pins both scenarios that measure the validated
+lane against a repeat. `ValidationLane.DETERMINISTIC_VALIDATION` also reads `true` now, so the
+release switch this row's history blames is no longer a blocker. The live run itself remains
+outstanding.
 
 **Remaining:** session-gateway **migration** end to end — freeze, reconnect, exactly-once resubmit
 with sequence dedupe — over direct, punched, and relayed paths, plus the recorded full-peer-down

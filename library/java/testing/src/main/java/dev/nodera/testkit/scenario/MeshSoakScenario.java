@@ -35,17 +35,31 @@ import java.util.stream.Stream;
  *
  * <ol>
  *   <li>S0 the standard topology with both players in-world and the entity lane live.</li>
- *   <li>S1 SUSTAINED LOAD: rounds of block edits, mob summons and movement over RCON, so regions
- *       keep committing versions rather than settling after one burst.</li>
+ *   <li>S1 SUSTAINED LOAD: rounds of <b>captured</b> block edits, mob summons and movement over
+ *       RCON, so regions keep committing versions rather than settling after one burst.</li>
  *   <li>S2 WHO validated it. Under field-of-view ownership the seats sit on the PLAYERS' client
  *       lanes, not on the headless workers, so the client lane is the thing that must show it
  *       re-executed and voted under load.</li>
- *   <li>S3 THE EXIT: every region root that more than one peer reports must be IDENTICAL. When no
- *       WORKER holds a replica there are no two inspectable peers to compare — the stage says so and
- *       names L-60/L-30 rather than passing quietly. Two peers that validated the same region and
- *       disagree about its root is the failure this whole lane exists to prevent.</li>
+ *   <li>S2b THE EXIT, first half: two headless WORKERS — not the clients — must each report a
+ *       non-zero {@code committee_commits}. A worker only reaches that counter by voting on a
+ *       proposal it re-executed itself, so it is the one number that cannot be reached by
+ *       certified state simply arriving.</li>
+ *   <li>S3 THE EXIT, second half: every region root that more than one peer reports must be
+ *       IDENTICAL. Two peers that validated the same region and disagree about its root is the
+ *       failure this whole lane exists to prevent.</li>
  *   <li>S4 no errors accumulated across the soak; artefacts collected.</li>
  * </ol>
+ *
+ * <p><b>Why S1 does not use {@code fill} any more.</b> A {@code /fill} — like {@code /setblock} —
+ * is a direct world write: it fires neither {@code BlockEvent.EntityPlaceEvent} nor
+ * {@code BlockEvent.BreakEvent}, so {@code BlockCaptureBridge} never sees it and nothing reaches
+ * the validated lane. Every mesh-soak run this row has ever recorded drove its load that way, which
+ * is why the workers reported {@code votes_cast=0} while holding dozens of seats: there was never
+ * an action for a primary to propose. What moved the region versions was the ghost lane's
+ * {@code ExternalDelta} stream — certified state arriving, not a committee round. {@code /nodera
+ * debug drive} runs the same {@code submitBlockAction} the bridge runs, as the player, so the edit
+ * is captured, signed, forwarded to its primary, proposed and voted on. {@code DeterminismScenario}
+ * learned this first and this scenario did not follow.
  *
  * <p>Thread-context: run on the runner's thread; stateless between runs.
  */
@@ -92,16 +106,23 @@ public final class MeshSoakScenario implements Scenario {
         context.stage("S0", "both players are in-world, the lane is live, every peer is up", () ->
                 HostWorldSupport.dedicatedTwoPlayers(context));
 
+        List<String> players = context.topology().players() >= 2
+                ? List.of("JoinerDev", "JoinerTwo") : List.of("JoinerDev");
+
         context.stage("S1", "sustained load applied for " + SOAK.toSeconds() + "s", () -> {
             mark[0] = serverLog.lineCount();
-            rcon.require("gamemode creative JoinerDev");
+            players.forEach(who -> rcon.require("gamemode creative " + who));
             long deadline = System.nanoTime() + context.topology().scaled(SOAK).toNanos();
             int round = 0;
             while (System.nanoTime() < deadline) {
                 round++;
-                // Block edits are the cheapest thing that produces a committed delta per region tick.
-                rcon.send("execute at JoinerDev run fill ~-2 ~ ~-2 ~2 ~ ~2 minecraft:stone");
-                rcon.send("execute at JoinerDev run fill ~-2 ~ ~-2 ~2 ~ ~2 minecraft:air");
+                // CAPTURED block edits: the same submitBlockAction the bridge calls, as the player,
+                // so the edit is signed, forwarded to its primary, proposed and voted on. A `fill`
+                // here is a direct world write that reaches the lane through nothing at all — see
+                // the class javadoc, and DeterminismScenario's D2, which found this first.
+                for (String who : players) {
+                    rcon.send("execute as " + who + " run nodera debug drive 2");
+                }
                 // A mob keeps the entity lane busy alongside the block lane.
                 rcon.send("execute at JoinerDev run summon minecraft:zombie ~ ~ ~");
                 // Movement re-plans ownership, which is what makes this a mesh soak rather than a
@@ -133,6 +154,54 @@ public final class MeshSoakScenario implements Scenario {
             context.note("the walking player's lane covered " + regions.getAsInt() + " region(s)");
         });
 
+        context.stage("S2b", "two headless workers each committed as a committee member", () -> {
+            // THE EXIT CLAUSE, first half (L-30): "two headless workers (not the clients) both
+            // report non-zero committee_commits". The counter is only reachable from
+            // WorkerValidationService.onCommitAnnounce -> commitLocally, which returns early unless
+            // this worker already cast a ballot on a proposal it re-executed itself. So a non-zero
+            // committee_commits cannot be produced by certified state merely arriving: the
+            // ExternalDelta path advances a replica's version and root without touching it, which
+            // is exactly how every previous run of this scenario reported active regions, advancing
+            // roots and votes_cast=0 at the same time.
+            stack.collectWorkerState();
+            // The capture ledger, for whoever reads this when it fails: "nothing was captured" and
+            // "everything was captured" are indistinguishable from the counters alone.
+            HostWorldSupport.transcript(context, "soak.log", "=== capture ledger: "
+                    + rcon.send("nodera debug capture").orElse("<no answer>"));
+            List<Path> states = workerStates(context);
+            context.check(!states.isEmpty(),
+                    "S2b: no worker answered NODERA-STATE at all, so nothing can be read about the "
+                            + "committee (check the control sockets in " + stack.logDir() + ")");
+            List<String> voting = new ArrayList<>();
+            List<String> silent = new ArrayList<>();
+            for (Path state : states) {
+                Object document = ServerJson.tryParse(readOrEmpty(state)).orElse(Map.of());
+                String worker = workerName(state);
+                long commits = ServerJson.number(document, "validation.committee_commits");
+                String line = worker
+                        + ": committee_commits=" + commits
+                        + " votes_cast=" + ServerJson.number(document, "validation.votes_cast")
+                        + " votes_received="
+                        + ServerJson.number(document, "validation.votes_received")
+                        + " active_regions="
+                        + ServerJson.number(document, "validation.active_regions");
+                HostWorldSupport.transcript(context, "soak.log", "=== " + line);
+                context.note(line);
+                (commits > 0 ? voting : silent).add(worker);
+            }
+            context.check(voting.size() >= 2,
+                    "S2b: L-30's exit clause is unmet — only " + voting.size()
+                            + " headless worker(s) report a non-zero committee_commits ("
+                            + (voting.isEmpty() ? "none" : String.join(", ", voting))
+                            + "); silent: " + String.join(", ", silent)
+                            + ". A worker holding seats and replicas while committing nothing means "
+                            + "certified state is ARRIVING (ExternalDelta) rather than being "
+                            + "PROPOSED to it — start at WorkerValidationService.proposeBatch's "
+                            + "addressee log, then at onProposal's body-version check");
+            context.note("S2b: " + voting.size() + " worker(s) committed as committee members: "
+                    + String.join(", ", voting));
+        });
+
         context.stage("S3", "every region held at the same version by more than one peer has the "
                 + "same root", () -> compareRegionRoots(context));
 
@@ -161,17 +230,14 @@ public final class MeshSoakScenario implements Scenario {
         int seats = roots.values().stream().mapToInt(Map::size).sum();
         HostWorldSupport.transcript(context, "soak.log",
                 "=== worker-held region replicas: " + seats);
-        if (seats == 0) {
-            // The honest state of the world, not a green tick over an assertion nobody can make
-            // here.
-            HostWorldSupport.transcript(context, "soak.log",
-                    "=== S3 skipped: no worker holds a region replica (L-60 / L-30)");
-            context.note("S3: SKIPPED — no WORKER holds a region replica, so there are no two "
-                    + "inspectable peers to compare roots between. The seats are on the players' "
-                    + "client lanes, whose roots the control socket cannot see. That is L-30's "
-                    + "remaining gap, and it shares L-60's cause.");
-            return;
-        }
+        // This used to note "S3: SKIPPED" and return green, which is how a stage that asserted
+        // nothing survived several runs. S2b now proves two workers committed as committee
+        // members before this stage runs, so a worker holding no region replica here is a
+        // contradiction, not a topology this scenario has to tolerate.
+        context.check(seats > 0, "S3: no WORKER holds a region replica, so there are no two "
+                + "inspectable peers to compare roots between — yet S2b saw workers commit. The "
+                + "seats would be on the players' client lanes, whose roots the control socket "
+                + "cannot see (L-30 / L-60)");
 
         int comparable = 0;
         int skew = 0;
@@ -214,37 +280,53 @@ public final class MeshSoakScenario implements Scenario {
                 + "holders are at different points in the same history (L-30)");
     }
 
+    /**
+     * Every {@code state-<worker>.json} {@link LiveStack#collectWorkerState()} wrote, in a stable
+     * order. These are the HEADLESS workers' answers and only theirs — the clients have no control
+     * socket, which is precisely why L-30's exit clause is phrased about workers.
+     */
+    private static List<Path> workerStates(ScenarioContext context) {
+        Path results = context.stack().resultsDir();
+        if (!Files.isDirectory(results)) {
+            return List.of();
+        }
+        try (Stream<Path> files = Files.list(results)) {
+            return files.filter(file -> file.getFileName().toString().startsWith("state-")
+                            && file.getFileName().toString().endsWith(".json"))
+                    .sorted()
+                    .toList();
+        } catch (Exception unreadable) {
+            return List.of();
+        }
+    }
+
+    /** {@code state-peer1.json} → {@code peer1}. */
+    private static String workerName(Path state) {
+        String name = state.getFileName().toString();
+        return name.substring("state-".length(), name.length() - ".json".length());
+    }
+
+    /** A state document the worker never answered is not a divergence; read it as empty. */
+    private static String readOrEmpty(Path state) {
+        try {
+            return Files.readString(state, StandardCharsets.UTF_8);
+        } catch (Exception unreadable) {
+            return "";
+        }
+    }
+
     /** Every worker's {@code region_roots}, keyed by region and then by the worker that holds it. */
     private Map<String, Map<String, VersionedRoot>> readRegionRoots(ScenarioContext context) {
         Map<String, Map<String, VersionedRoot>> roots = new TreeMap<>();
-        Path results = context.stack().resultsDir();
-        if (!Files.isDirectory(results)) {
-            return roots;
-        }
-        try (Stream<Path> files = Files.list(results)) {
-            for (Path file : files.sorted().toList()) {
-                String name = file.getFileName().toString();
-                if (!name.startsWith("state-") || !name.endsWith(".json")) {
-                    continue;
-                }
-                String worker = name.substring("state-".length(), name.length() - ".json".length());
-                String document;
-                try {
-                    document = Files.readString(file, StandardCharsets.UTF_8);
-                } catch (Exception unreadable) {
-                    // A state document the worker never answered is not a divergence; skip it the
-                    // way the shell's json.load did.
-                    continue;
-                }
-                Matcher matcher = REGION_ROOT.matcher(document);
-                while (matcher.find()) {
-                    roots.computeIfAbsent(matcher.group(1), key -> new LinkedHashMap<>())
-                            .put(worker, new VersionedRoot(Long.parseLong(matcher.group(3)),
-                                    matcher.group(2)));
-                }
+        for (Path file : workerStates(context)) {
+            String worker = workerName(file);
+            String document = readOrEmpty(file);
+            Matcher matcher = REGION_ROOT.matcher(document);
+            while (matcher.find()) {
+                roots.computeIfAbsent(matcher.group(1), key -> new LinkedHashMap<>())
+                        .put(worker, new VersionedRoot(Long.parseLong(matcher.group(3)),
+                                matcher.group(2)));
             }
-        } catch (Exception unreadable) {
-            return roots;
         }
         return roots;
     }

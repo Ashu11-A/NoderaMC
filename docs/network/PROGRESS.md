@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-08-06 · Tasks completed: **11 / 15**
+**Category:** network · **Last audit:** 2026-08-10 · Tasks completed: **11 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -35,6 +35,52 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — L-30: the mesh soak measured an idle lane, and never asserted its own exit clause
+
+Two findings, both about the measurement rather than the mesh
+([#160](https://github.com/Ashu11-A/NoderaMC/issues/160)).
+
+**The soak drove nothing the committee could see.** `MeshSoakScenario` S1 applied its block load with
+`/fill`. A `fill` — like `setblock` — is a direct world write: it fires neither
+`BlockEvent.EntityPlaceEvent` nor `BlockEvent.BreakEvent`, so `BlockCaptureBridge` never sees it, no
+`ActionEnvelope` is ever signed, no primary ever calls `proposeBatch`, and no `RegionProposal` is
+ever addressed to anybody. That is the whole of `votes_cast=0`. What *did* advance the workers'
+region versions was the ghost lane's `ExternalDelta` stream, which moves a validator's snapshot and
+head root without touching a counter — which is precisely the artefact signature the L-30 row has
+been recording since 2026-07-30: active regions, roots climbing to v43, and three workers reporting
+zero votes. `DeterminismScenario` was caught by the identical defect on 2026-07-31 (197 rounds of
+`setblock` against an empty capture ledger) and fixed by driving `/nodera debug drive`, which calls
+the same `submitBlockAction` the bridge calls, as the player. `mesh-soak` was never updated to
+follow; it is now. Evidence: `ValidatedLoadIsCapturedTest` (2), verified failing against the pre-fix
+scenario — a call-site guard, because the fault was an absence.
+
+**The scenario did not assert the clause it exists for.** L-30's exit test names *two headless
+workers* reporting non-zero `committee_commits`. S2 asserted that the walking **client's** lane
+activated; S3 compared roots and, when no worker held a replica, wrote `S3: SKIPPED` and returned
+green. Nothing read `committee_commits` anywhere. Stage **S2b** now reads every worker's
+`NODERA-STATE` and requires two of them non-zero, and the silent-pass branch in S3 is a hard check.
+The counter is only reachable through `onCommitAnnounce → commitLocally`, which returns early unless
+the worker already cast a ballot on a proposal it re-executed — so it cannot be produced by state
+merely arriving.
+
+**Diagnostics on the send arm.** A seated validator whose address the primary does not hold was
+dropped in complete silence inside `WorkerValidationService.proposeBatch`; it now warns once per node
+and names the registered peer set, the first proposal a node sends names its addressees, and
+`onProposal`'s body-version rejection is out of the unlogged compound guard. Three live runs asked
+"are the proposals addressed to the residents at all?" with no line anywhere able to answer.
+
+**Also corrected:** `ValidationLane.DETERMINISTIC_VALIDATION` reads `true` on this tree. The row and
+two harness javadocs still described it as a compile-time `false`. The guards that name it are
+log-content guards, so they self-disable rather than skipping; they stay for a build that flips the
+switch back.
+
+L-30 stays **OPEN**. Its exit clause is a live run, and the run could not be performed on 2026-08-10:
+`MemAvailable` was 4.7 GiB against the scenario's declared 5 GiB floor, and TCP 25610 — peer1's
+control port in `Topology` — was held by this machine's *installed* Nodera worker
+(`/usr/lib/Nodera/resources/nodera-headless`, running since 04:12), which the harness preflight
+reports as "port 25610 is still held" — exactly the shape of the stale 2026-08-07 report, and not a
+process a test run may kill.
 
 ### 2026-08-06 — L-36 REOPENED: the multi-factor score never ran in a shipped build
 

@@ -265,6 +265,12 @@ public final class WorkerValidationService {
     private final AtomicLong committeeCommits = new AtomicLong();
     private final AtomicLong fallbackCommits = new AtomicLong();
 
+    /** Validators already reported as unaddressable, so the warning fires once per node. */
+    private final Set<NodeId> unaddressableValidators = ConcurrentHashMap.newKeySet();
+
+    /** Proposal senders already reported as speaking an unreadable body version (once per node). */
+    private final Set<NodeId> mismatchedProposalVersions = ConcurrentHashMap.newKeySet();
+
     /**
      * Re-executions that did not agree (issue #5 — the Phase-1 exit gate's measurement).
      *
@@ -789,17 +795,37 @@ public final class WorkerValidationService {
                 identity.sign(unsignedProposal.signedPortion()), haloPins);
         for (NodeId validator : lease.validators()) {
             PeerAddress addr = peers.get(validator);
-            if (addr != null) {
-                try {
-                    transport.send(addr, WireCodec.encode(proposal));
-                    transport.send(addr, WireCodec.encode(new ActionBatchMsg(batch)));
-                } catch (dev.nodera.transport.TransportException unreachable) {
-                    // A dead validator is an absent vote, not a failed proposal: quorum is a
-                    // strict majority of the committee, so the round proceeds with whoever is
-                    // reachable and times out honestly if a majority is not (Task 8 acceptance:
-                    // kill 2/3 falls back within the lease — not with an exception).
+            if (addr == null) {
+                // A seated validator this node cannot address is a vote that will never arrive, and
+                // until now it was dropped in complete silence: the primary counted a proposal
+                // sent, the validator recorded nothing, and the only observable was a round that
+                // timed out. L-30 spent three live runs on "seats held, votes_cast=0" with no line
+                // anywhere naming an addressee. Once per node, because a busy region proposes
+                // several times a second.
+                if (unaddressableValidators.add(validator)) {
+                    LOG.warn("proposal for {}: validator {} is seated but has no registered "
+                                    + "address — it cannot be sent a proposal and cannot vote "
+                                    + "(registered peers: {})",
+                            region, validator, peers.keySet());
                 }
+                continue;
             }
+            try {
+                transport.send(addr, WireCodec.encode(proposal));
+                transport.send(addr, WireCodec.encode(new ActionBatchMsg(batch)));
+            } catch (dev.nodera.transport.TransportException unreachable) {
+                // A dead validator is an absent vote, not a failed proposal: quorum is a
+                // strict majority of the committee, so the round proceeds with whoever is
+                // reachable and times out honestly if a majority is not (Task 8 acceptance:
+                // kill 2/3 falls back within the lease — not with an exception).
+            }
+        }
+        if (proposalsSent.get() == 0) {
+            // The first proposal this node ever sends, named with who it went to. "Does the primary
+            // address the seated residents at all?" is the question every L-30 diagnosis has had to
+            // guess at from the absence of an answer.
+            LOG.info("first region proposal from this node: {} epoch {} → validator(s) {}",
+                    region, lease.epoch().value(), lease.validators());
         }
         proposalsSent.incrementAndGet();
 
@@ -1761,9 +1787,22 @@ public final class WorkerValidationService {
         if (replica == null || !isAuthenticatedMember(from, replica.lease.primary())) {
             return;
         }
+        if (proposal.bodyVersion() != RegionProposal.PROPOSAL_ENCODING_VERSION) {
+            // A body version this build cannot read is a fact about the sender's age, not a
+            // malformed frame — and dropping it inside the compound guard below made it
+            // indistinguishable from a bad signature. It is the one rejection here that a reader
+            // can act on (L-87/L-88: the peer should have been demoted at the handshake), so it
+            // says so once per sender.
+            if (mismatchedProposalVersions.add(replica.lease.primary())) {
+                LOG.warn("proposal for {} from {} carries body version {}, this build reads {} — "
+                                + "no vote can be cast on it",
+                        proposal.region(), replica.lease.primary(), proposal.bodyVersion(),
+                        RegionProposal.PROPOSAL_ENCODING_VERSION);
+            }
+            return;
+        }
         Bytes primaryKey = publicKey(replica.lease.primary());
         if (primaryKey == null
-                || proposal.bodyVersion() != RegionProposal.PROPOSAL_ENCODING_VERSION
                 || !proposal.epoch().equals(replica.lease.epoch())
                 || !proposal.baseVersion().equals(replica.snapshot.version())
                 || !proposal.prevRoot().equals(replica.headRoot)

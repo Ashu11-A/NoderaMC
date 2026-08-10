@@ -181,12 +181,17 @@ public final class HostWorldSupport {
     /**
      * Wait for the validated lane — or say, at once, that this build cannot have one.
      *
-     * <p>{@code ValidationLane.DETERMINISTIC_VALIDATION} is {@code false}: deterministic
-     * re-execution and committee co-signing are deliberately out of scope for the initial release,
-     * and the host says so on every share — <i>"'world' runs WITHOUT deterministic region validation
-     * — the deterministic validation lane is switched off for this release"</i>. So {@code "entity
-     * lane live"} is a line this build never prints, and every scenario built on this setup spent
-     * 300 s waiting for it and then failed as though something had broken.
+     * <p>{@code ValidationLane.DETERMINISTIC_VALIDATION} was {@code false} when this guard was
+     * written: deterministic re-execution and committee co-signing were out of scope for the initial
+     * release, and the host said so on every share — <i>"'world' runs WITHOUT deterministic region
+     * validation — the deterministic validation lane is switched off for this release"</i>. So
+     * {@code "entity lane live"} was a line that build never printed, and every scenario built on
+     * this setup spent 300 s waiting for it and then failed as though something had broken.
+     *
+     * <p><b>The constant reads {@code true} on this tree</b> (checked 2026-08-10), so the guard
+     * self-disables — it triggers only when the share line is genuinely in the log. It stays because
+     * the constant is a release switch: a build that flips it back must skip these scenarios rather
+     * than time out inside them.
      *
      * <p>A skip is the honest outcome and a timeout is not: the difference between "this build does
      * not have the feature" and "the feature is broken" is exactly what a suite exists to tell a
@@ -209,7 +214,9 @@ public final class HostWorldSupport {
      *
      * <p>The dedicated-server shape has had this since {@link #awaitEntityLane}: with
      * {@code ValidationLane.DETERMINISTIC_VALIDATION} compiled to {@code false} there are no
-     * committees, so {@code "member node(s)"} is a line the build never prints. The host-client
+     * committees, so {@code "member node(s)"} is a line that build never prints. (It reads
+     * {@code true} on this tree — see {@link #awaitEntityLane} — so this guard self-disables and is
+     * kept for a build that flips the switch back.) The host-client
      * scenarios waited for it anyway — five of them — and each burned its full 180 s before failing
      * with a message that reads like a product defect rather than like a feature that is switched
      * off. A named skip is the honest outcome, and it names the constant so whoever flips it knows
