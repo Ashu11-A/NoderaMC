@@ -138,8 +138,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
       - name: Build stack
+        # `nodera-telemetry` is here because the FIRST full-matrix dispatch (run 31396175753)
+        # failed the `telemetry` leg on `T0: no collector binary at target/release/nodera-telemetry`.
+        # That leg had never been dispatched by any nightly — the workflow's matrix was a hand-kept
+        # list of thirteen that omitted it — so nothing had ever asked this step for the collector,
+        # and the step built the two services it did know about. It is a harness fault rather than a
+        # property of the runner, which is exactly why it now FAILS the leg instead of skipping it
+        # (PR #259): a structural skip is red under every flag, and this is what that rule is for.
+        # Keep this list in step with what the scenarios resolve out of `target/release`.
         run: |
-          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry)
           ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
             -x test -x check
       # The server-category scenarios need a Paper or Folia jar, and nothing in this repository

@@ -175,30 +175,26 @@ class LiveStackLivenessTest {
     // ---------------------------------------------------------------------------------------
 
     /**
-     * A stack on a throwaway root, with the game and RCON ports moved to whatever this machine has
-     * free.
+     * A stack on a throwaway root, on a port block nothing else on this machine is using.
      *
-     * <p>Not the standard 25599/25575: a developer box in this repository frequently has a live
-     * stack on those, and a readiness probe that succeeded against SOMEBODY ELSE'S server would turn
-     * a deterministic assertion into a three-minute intermittent one.
+     * <p>This used to build a {@link Topology} component by component, substituting a freshly
+     * probed free port for the game and RCON ports, because a developer box in this repository
+     * frequently has a live stack on the standard ones and a readiness probe that succeeded against
+     * SOMEBODY ELSE'S server would turn a deterministic assertion into a three-minute intermittent
+     * one.
+     *
+     * <p>That concern is now the harness's own, and stating it twice would be two places describing
+     * one rule. {@code Topology.standard()} takes its base from {@link Topology#chosenBase()},
+     * which probes the whole block and steps to the next one if anything at all is listening in it
+     * — the same reasoning applied to every port in the run rather than to the two this test
+     * happened to name. Assembling the record by hand is also precisely what broke when it gained a
+     * {@code portBase} and lost its individual port components: this file and that change were
+     * written on different branches, each merged cleanly, and the compiler was the only thing that
+     * noticed.
      */
     private static LiveStack stackOn(Path root) {
-        Topology standard = Topology.standard();
-        Topology isolated = new Topology(standard.players(), standard.sparePeers(),
-                standard.trackers(), standard.rendezvous(), freePort(), standard.trackerPort(),
-                standard.rendezvousPort(), standard.workerControlBase(), standard.workerP2pBase(),
-                freePort(), standard.rconPassword(), standard.joinTimeout(),
-                standard.timeoutMultiplier());
-        return new LiveStack(TestPaths.of(root), isolated, root.resolve("results"), false);
-    }
-
-    /** A port nothing is listening on right now — closed again, so the stack may claim it. */
-    private static int freePort() {
-        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
-            return socket.getLocalPort();
-        } catch (IOException noPorts) {
-            throw new IllegalStateException("cannot reserve a free port", noPorts);
-        }
+        return new LiveStack(TestPaths.of(root), Topology.standard(), root.resolve("results"),
+                false);
     }
 
     private static void stubGradlew(Path root, String script) throws IOException {

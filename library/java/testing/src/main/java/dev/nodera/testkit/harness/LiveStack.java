@@ -558,6 +558,37 @@ public final class LiveStack implements AutoCloseable {
                     // turning the repack off had opened. Whatever the product decides is what the
                     // suites should measure.
                     hostConfigOverrides.getOrDefault("streamIntervalTicks", "12000")));
+            // The dedicated server needs the SAME companion pointer a client gets, and for a long
+            // time it got one only by accident. `companion.controlEndpoint` defaults to
+            // 127.0.0.1:25610 (NoderaConfig), and the harness used to put its own first worker on
+            // exactly 25610 — so `ServerBootstrap.linkServerWorker` found the harness's worker
+            // without anyone writing it down. Moving the harness to its own 26500 block (#266), so
+            // that a developer running the real companion app could run a suite at all, broke that
+            // coincidence and nothing replaced it: the staged server went on dialling 25610, which
+            // in CI is nothing at all.
+            //
+            // The consequence is not a skip. `companion.required` defaults to TRUE, so
+            // `CompanionGate.requireRunning` throws `CompanionUnavailableException` out of
+            // `ServerStartedEvent` — and NeoForge's EventBus does not isolate listener exceptions,
+            // so the SERVER CRASHES during startup. The first full-matrix dispatch
+            // (run 31396175753) failed churn/crash/mesh-soak at their first stage with "the server
+            // never answered RCON ... the game port was open, so the server bound and then did not
+            // answer": the game port was NeoForge's, and the server was already dying behind it.
+            //
+            // Writing the pointer explicitly is also the only version of this that is HONEST on a
+            // developer box. On this machine 25610 is the user's own installed companion app, so
+            // the fallback does not fail there — it silently links the world under test to the
+            // developer's personal daemon and calls the run green. A suite must talk to the worker
+            // its own harness started, and now it says so.
+            //
+            // Worker 0 is the one the old default resolved to (control ports are allocated in start
+            // order from the block's base), so this preserves the topology every dedicated-server
+            // scenario was written against rather than inventing a new one. Taken from the
+            // TOPOLOGY rather than from the started worker so that the staged file is a pure
+            // function of the plan — which is what lets a unit test read it without binding a
+            // socket or launching a peer.
+            toml.append("[companion]\n\tcontrolEndpoint = \"127.0.0.1:")
+                    .append(topology.workerControlPort(0)).append("\"\n\trequired = true\n");
             toml.append("[tracker]\n\tendpoints = ")
                     .append(tomlArray(topology.trackerEndpoints())).append('\n');
             toml.append("[rendezvous]\n\tendpoints = ")

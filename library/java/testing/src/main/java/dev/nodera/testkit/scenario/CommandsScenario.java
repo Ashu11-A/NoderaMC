@@ -155,11 +155,23 @@ public final class CommandsScenario implements Scenario {
         expect(context, run(context, rcon, player, "nodera worlds"), "worlds");
         expect(context, run(context, rcon, player, "nodera share status"), "Sharing: yes");
         expect(context, run(context, rcon, player, "nodera whois " + other), "whois for " + other);
-        expect(context, run(context, rcon, player, "nodera hud tab off"), "hud tab off");
-        expect(context, run(context, rcon, player, "nodera hud tab on"), "hud tab on");
-        expect(context, run(context, rcon, player, "nodera hud bars on"), "hud bars on");
-        expect(context, run(context, rcon, player, "nodera hud alerts on"), "hud alerts on");
-        expect(context, run(context, rcon, player, "nodera hud all on"), "hud all");
+        // The HUD reply is COMPOSED, and the needles below used to assume it was not. The command
+        // answers `nodera.cmd.hud.set` = "HUD %s %s", where the first argument is the surface's own
+        // translated phrase (`nodera.cmd.hud.surface.<name>`) and the second is `nodera.cmd.state.
+        // {on,off}` — see NoderaCommand.setHud. So the sub-command word is NOT what comes back:
+        // `hud tab` answers "HUD tab list", `hud bars` answers "HUD boss bars", `hud alerts`
+        // answers "HUD zone alerts". Four of these five needles were written against the
+        // pre-translation reply, which was assembled in English at the call site (#113 moved it),
+        // and `expect` is a case-insensitive CONTAINS — "HUD tab list off" does not contain
+        // "hud tab off", so each was a real failure waiting for the first live run of this leg.
+        // Only "hud all" survived, by being short enough to remain a prefix of "HUD all surfaces".
+        // Recorded as one block because they fail one at a time: fixing only the one issue #258
+        // names buys exactly one more live run before the next identical failure.
+        expect(context, run(context, rcon, player, "nodera hud tab off"), "HUD tab list off");
+        expect(context, run(context, rcon, player, "nodera hud tab on"), "HUD tab list on");
+        expect(context, run(context, rcon, player, "nodera hud bars on"), "HUD boss bars on");
+        expect(context, run(context, rcon, player, "nodera hud alerts on"), "HUD zone alerts on");
+        expect(context, run(context, rcon, player, "nodera hud all on"), "HUD all surfaces on");
         expect(context, run(context, rcon, player, "nodera debug sample-rate 20"),
                 "sample rate = 20");
         expect(context, run(context, rcon, player, "nodera debug verbose on"), "debug console ON");
