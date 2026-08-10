@@ -55,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -245,6 +246,63 @@ final class ControlVerbsIT {
                     "the seeded blob survived the move, so the swarm's requests still hit");
             assertFalse(worker.archive().holdingsFor(worldIdHex).isEmpty(),
                     "and the node still advertises what it holds");
+        }
+
+        /**
+         * frontend M-1 — <b>the folder the user picked on Android becomes the archive, and a world
+         * archive is written into it.</b>
+         *
+         * <p>The app has always been able to open the system folder picker and persist the grant.
+         * What it could not do was hand the result to the peer: Android 11+ withholds raw file
+         * access to shared storage regardless of the grant, so what comes back is a
+         * {@code content://} tree and the worker writes with {@code java.nio.file}. Pushing that URI
+         * as {@code storage.peer_worlds_dir} used to reach the same path-containment guard the seed
+         * and fetch verbs use, which correctly refused a string that is not a path — leaving the
+         * setting {@code rejected} and the chosen folder decorative.
+         *
+         * <p>This drives the real control socket with the real verb and then asserts the thing the
+         * limitation's exit clause actually names: <b>the world's archive bytes are in the picked
+         * folder</b>, and the swarm can still be served from there. The document tree is a fake one
+         * standing in for {@code DocumentsContract}; the physical exit test on a handset is the
+         * clause this cannot reach, and it stays named in the register.
+         */
+        @Test
+        void aFolderPickedWithAndroidsFileManagerBecomesTheArchive(@TempDir Path tmp)
+                throws Exception {
+            System.setProperty(SafBlobDirectory.BRIDGE_CLASS_PROPERTY,
+                    FakeDocumentTree.class.getName());
+            FakeDocumentTree.reset();
+            try {
+                worker(tmp.resolve("app-private"));
+
+                String worldIdHex = hashes.sha256("picked-folder-world"
+                        .getBytes(StandardCharsets.UTF_8)).toHex();
+                byte[] blob = new byte[128_000];
+                new java.util.Random(23L).nextBytes(blob);
+                var manifest = worker.archive().seedArchive(worldIdHex, blob);
+                assertTrue(diskStore.size() > 0, "the node is holding a world to move");
+
+                String tree = "content://com.android.externalstorage.documents"
+                        + "/tree/primary%3ADocuments";
+                String reply = config("{\"storage.peer_worlds_dir\":\"" + tree + "\"}");
+
+                assertNotNull(reply);
+                assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+                assertTrue(reply.contains("\"applied\":[\"storage.peer_worlds_dir\"]"),
+                        "a folder the user picked must be APPLIED, not rejected as a bad path: "
+                                + reply);
+                assertEquals(tree, diskStore.contentLocation());
+                assertNull(diskStore.contentRoot(), "a document tree has no filesystem path");
+                assertTrue(FakeDocumentTree.blobCount() > 0,
+                        "the world archive's bytes are in the folder the user chose");
+                assertTrue(diskStore.has(manifest.blob()),
+                        "and the swarm's piece requests still hit");
+                assertFalse(worker.archive().holdingsFor(worldIdHex).isEmpty(),
+                        "the node still advertises what it holds");
+            } finally {
+                System.clearProperty(SafBlobDirectory.BRIDGE_CLASS_PROPERTY);
+                FakeDocumentTree.reset();
+            }
         }
 
         @Test

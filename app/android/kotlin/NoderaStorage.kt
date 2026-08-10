@@ -19,23 +19,28 @@ import org.json.JSONObject
  * the system's own file manager, and what comes back is a `content://` tree URI plus a grant this
  * app must explicitly persist if it wants the folder after a reboot.
  *
- * # The part that has to be said plainly
+ * # Two ways the peer can reach a folder, and which one wins
  *
- * The Nodera worker is a Java program that writes with `java.io.File`. It cannot open a
- * `content://` URI. So a SAF grant alone does not make a folder usable by the peer — it makes it
- * usable by *this* app through `DocumentFile`.
+ * A filesystem path is the better answer where one exists: writes are atomic, and nothing goes
+ * through a content provider. So this class still maps a tree URI back to a real path
+ * (`primary:Music` → `/storage/emulated/0/Music`) and **probes it with a real write**, because on
+ * Android 11+ raw access to arbitrary shared folders is refused regardless of the SAF grant.
  *
- * This class therefore does three things and reports all three:
+ * When that refusal comes — which is every folder outside app-specific storage on a modern
+ * handset — the folder is no longer reported as unusable. [NoderaSafBlobs] writes the peer's
+ * archive blobs through the Storage Access Framework instead, and the worker's content store
+ * accepts a `content://` tree as its archive location (frontend M-1). So the second probe is a SAF
+ * probe, and what is handed on as the peer's storage location is the tree URI itself.
+ *
+ * This class therefore does four things and reports the outcome of all four:
  *
  *  1. opens the system picker and **persists** the grant;
- *  2. maps the tree URI back to a real filesystem path where such a mapping exists
- *     (`primary:Music` → `/storage/emulated/0/Music`, `1A2B-3C4D:Worlds` → `/storage/1A2B-3C4D/Worlds`);
- *  3. **probes it with a real write**, because on Android 11+ raw access to arbitrary shared folders
- *     is refused regardless of the SAF grant.
+ *  2. maps the tree URI back to a real filesystem path where such a mapping exists;
+ *  3. probes that path with a real write, and uses it when it works;
+ *  4. otherwise probes the tree through SAF, and hands on the `content://` URI when *that* works.
  *
- * When the probe fails the folder is reported as picked-but-unusable, with the reason. That is the
- * permission problem the user asked to be able to see, rather than a peer that silently stores
- * nothing.
+ * Only when both fail is the folder reported as picked-but-unusable, with the platform's own
+ * reason. That is still the honest answer — it is simply now the rare one.
  */
 object NoderaStorage {
 
@@ -117,38 +122,54 @@ object NoderaStorage {
         }.onFailure { Log.w(TAG, "storage: the grant could not be persisted", it) }
 
         val display = DocumentFile.fromTreeUri(activity, uri)?.name ?: uri.lastPathSegment ?: "Folder"
-        val path = filesystemPath(uri)
-        if (path == null) {
+        val direct = directPath(activity, uri)
+        if (direct != null) {
             write(
                 activity,
                 uri = uri.toString(),
                 label = display,
-                error = "Android did not expose a file path for this folder, so the peer cannot " +
-                    "write to it. Choose a folder on internal or SD storage.",
+                path = direct.absolutePath,
+                writable = true,
             )
             return
         }
-        val canonical = runCatching { path.canonicalFile }.getOrNull()
-        if (canonical == null || workerRoots(activity).none { root ->
-                canonical.toPath().startsWith(root.toPath())
-            }) {
-            write(
-                activity,
-                uri = uri.toString(),
-                label = display,
-                error = "The peer cannot safely use this folder. Choose app storage, shared app storage, or an SD-card location offered by Nodera.",
-            )
+        // No usable file path — the ordinary case on Android 11+, and until frontend M-1 the end
+        // of the road. The peer now speaks SAF, so the question becomes whether it can write
+        // through the grant rather than around it. The bridge is attached here as well as from the
+        // worker, because a folder can be picked before the worker has ever started.
+        NoderaSafBlobs.attach(activity)
+        val safFailure = NoderaSafBlobs.probe(uri.toString())
+        if (safFailure != null) {
+            write(activity, uri = uri.toString(), label = display, error = safFailure)
             return
         }
-        val probe = probeWritable(canonical)
+        // The `content://` URI IS the peer's storage location from here on: it travels over
+        // NODERA-CONFIG as `storage.peer_worlds_dir` exactly like a path would, and the worker's
+        // `ArchiveDirectories` decides which of the two it has been handed.
         write(
             activity,
             uri = uri.toString(),
             label = display,
-            path = canonical.absolutePath,
-            writable = probe == null,
-            error = probe ?: "",
+            path = uri.toString(),
+            writable = true,
         )
+    }
+
+    /**
+     * The picked folder as a real filesystem path the worker may use, or null when there is none.
+     *
+     * Null covers three different disappointments — no path behind the provider at all, a path
+     * outside the roots the worker will accept, and a path Android refuses to let this app write —
+     * and they collapse into one answer on purpose: the caller's next move is the same for all
+     * three, and it is no longer "give up".
+     */
+    private fun directPath(context: android.content.Context, uri: Uri): File? {
+        val canonical = runCatching { filesystemPath(uri)?.canonicalFile }.getOrNull() ?: return null
+        val permitted = workerRoots(context).any { root ->
+            canonical.toPath().startsWith(root.toPath())
+        }
+        if (!permitted) return null
+        return if (probeWritable(canonical) == null) canonical else null
     }
 
     /**

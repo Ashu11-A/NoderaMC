@@ -1775,6 +1775,25 @@ public final class WorkerControlHandler implements ControlHandler {
                 if (path.isEmpty()) {
                     return "an empty archive directory is not a location";
                 }
+                if (ArchiveDirectories.isDocumentTree(path)) {
+                    // A folder the user picked on Android (frontend M-1). It has no filesystem
+                    // path, so the containment guard below has nothing to test — and it needs
+                    // none: the grant IS the guard. Android issued it for exactly this tree, to
+                    // exactly this app, because the user chose the folder in the system file
+                    // manager; a local process that talked its way onto the control socket cannot
+                    // conjure one.
+                    //
+                    // openDocumentTree, never open: `open` would decide for itself and its other
+                    // branch is `Path.of`, so a client-supplied string could still have reached the
+                    // filesystem past the containment guard. This branch cannot touch a path at all.
+                    try {
+                        config.contentStore.relocateTo(ArchiveDirectories.openDocumentTree(path));
+                    } catch (RuntimeException refused) {
+                        return refused.getMessage() == null
+                                ? "the chosen folder could not be opened" : refused.getMessage();
+                    }
+                    return null;
+                }
                 // Same guard as the seed/fetch verbs: this one MOVES every blob this node holds,
                 // so an unconstrained destination is a write primitive with the node's whole
                 // content store behind it.

@@ -210,13 +210,22 @@ public final class PeerNode implements AutoCloseable {
         // The world-archive lane (the continuity increment): this worker seeds the canonical
         // archives of the worlds it hosts and can fetch any world's archive from the swarm, so a
         // shared world's save bytes survive the hosting player's game — and machine — going away.
-        Path archiveDir = Path.of(env("NODERA_ARCHIVE_DIR",
-                System.getProperty("user.home") + "/.nodera/archive"));
+        // Usually a directory path. On Android it may instead be a `content://` document tree —
+        // the folder the user picked with the system file manager, which has no filesystem path at
+        // all (frontend M-1). ArchiveDirectories is the one place that decides which it is.
+        String archiveLocation = env("NODERA_ARCHIVE_DIR",
+                System.getProperty("user.home") + "/.nodera/archive");
         // Held by reference so the archive directory is a live setting rather than a
         // restart-required one that strands what this node is already seeding (L-58).
         dev.nodera.storage.fs.FsContentStore contentStore =
                 new dev.nodera.storage.fs.FsContentStore(
-                        archiveDir, new dev.nodera.core.crypto.HashService());
+                        ArchiveDirectories.open(archiveLocation),
+                        new dev.nodera.core.crypto.HashService());
+        // Said once at startup, because "where are my worlds?" is otherwise unanswerable from the
+        // log on a phone: the archive can be a document tree with no path, and the store's own
+        // location is the only honest answer to it.
+        LOG.info("Archive content stored at {} ({} blob(s) already held)",
+                contentStore.contentLocation(), contentStore.size());
         WorldArchiveService archive = new WorldArchiveService(identity, metered, contentStore,
                 tracker);
         // Continuous archive streaming appends a version every `archive.streamIntervalTicks`, so

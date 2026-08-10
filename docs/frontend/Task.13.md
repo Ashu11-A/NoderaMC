@@ -5,7 +5,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** frontend · **Owns:** `app/android/kotlin/ui/`
-**Last audit:** 2026-08-01
+**Last audit:** 2026-08-10
 **Depends on:** [frontend 12](Task.12.md), [frontend 6](Task.6.md)
 **Consumed by:** [frontend 15](Task.15.md)
 
@@ -54,6 +54,32 @@ Native first run asks them, once, in a scrollable layout safe for landscape and 
 A third screen appears **only if** Android is currently restricting the app: battery optimisation,
 with the vendor's page on <https://dontkillmyapp.com> and a route to the system setting. Optional,
 and skippable, but not invisible — a node the OS may stop is a node other people cannot rely on.
+
+## A folder the user picks has to be a folder the peer can use (M-1)
+
+Asking the first question honestly means being able to accept the answer. Android 11+ withholds raw
+`File` access to every folder outside app-specific storage regardless of the SAF grant, so until
+2026-08-10 the picker could return a folder the app then reported as picked-but-unusable — true, and
+still a dead end.
+
+The peer now speaks the other protocol. `FsContentStore` writes through a `BlobDirectory` seam;
+`dev.nodera.headless.SafBlobDirectory` implements it over `NoderaSafBlobs`, reached **by name**
+across the `DexClassLoader` boundary because the worker ships as a dexed asset and app code can
+never see `dev.nodera.headless`. A `content://` tree therefore travels over `NODERA-CONFIG` as
+`storage.peer_worlds_dir` exactly as a path would, and `ArchiveDirectories` is the one place that
+decides which of the two it has been handed. `NoderaStorage` still prefers a real filesystem path
+where Android allows one — atomic writes are worth having — and falls back to a SAF probe rather
+than to a refusal.
+
+Two things are said rather than papered over. **Only the archive lane moves**: identity, the world
+registry, the key store and RocksDB stay in app-private storage, because a signing key in a folder
+the user browses is a security regression. And **SAF has no atomic move**: a new blob is written to
+`<name>.tmp`, synced, then renamed, which is ordered rather than atomic. Content addressing is what
+keeps that from being a correctness problem — the blob's name is its hash and every read re-hashes,
+so a torn write is reported as corruption and refetched, never served as a world.
+
+The row stays `OPEN`: its exit test names a device, and no device has run it. The manual script is
+[`TESTING.md` §4.8](TESTING.md).
 
 ## Tracker-store trust boundary
 

@@ -48,7 +48,8 @@ public final class ControlPaths {
 
     /**
      * @param stateDir   the worker's state directory.
-     * @param archiveDir the worker's content/archive directory.
+     * @param archiveDir the worker's content/archive directory, or {@code null} when the archive
+     *                   is not on this filesystem at all (an Android document tree).
      */
     public ControlPaths(Path stateDir, Path archiveDir) {
         List<Path> permitted = new ArrayList<>();
@@ -83,7 +84,12 @@ public final class ControlPaths {
         String home = System.getProperty("user.home", "");
         String state = env("NODERA_STATE_DIR", home + "/.nodera");
         String archive = env("NODERA_ARCHIVE_DIR", home + "/.nodera/archive");
-        return new ControlPaths(Path.of(state), Path.of(archive));
+        // The archive location is not always a directory: on Android it may be a `content://`
+        // document tree, which has no filesystem path (frontend M-1). Path.of would happily turn
+        // that string into a RELATIVE path and add `<cwd>/content:` to the permitted roots — a
+        // directory nobody meant to open. There is nothing on disk to permit, so nothing is added.
+        return new ControlPaths(Path.of(state),
+                ArchiveDirectories.isDocumentTree(archive) ? null : Path.of(archive));
     }
 
     private static String env(String key, String fallback) {

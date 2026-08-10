@@ -67,6 +67,10 @@ dev.nodera.headless           the always-on services (src/main), plus the entry 
 ├── WorkerControlHandler      loopback control verbs and NODERA-STATE
 ├── WorldHostingService       persisted host/seed claims and tracker/rendezvous announces
 ├── WorldArchiveService       archive and committed-region piece seeding/fetch
+├── ArchiveDirectories        is `storage.peer_worlds_dir` a directory or an Android
+│                             document tree? the ONE place that decides
+├── SafBlobDirectory          the archive's blobs inside a folder the user picked, over
+│                             the app's `NoderaSafBlobs`, reached BY NAME (frontend M-1)
 ├── WorldRegistryStore        worlds.dat
 ├── WorldKeyStore             per-world administrator private keys
 ├── WorldTombstoneStore       durable owner-authorized deletion records
@@ -80,6 +84,28 @@ dev.nodera.headless           the always-on services (src/main), plus the entry 
 ```
 
 ## Durable state
+
+**Where the archive lives is not always a directory.** `PeerNode` builds the content store through
+`ArchiveDirectories.open`, which reads one string — `NODERA_ARCHIVE_DIR`, or
+`storage.peer_worlds_dir` over `NODERA-CONFIG`. A path gives the filesystem store it has always
+given. A `content://` tree gives `SafBlobDirectory`, because on Android 11+ a folder the user picks
+with the system file manager has no path behind it at all (frontend M-1). The store above it is the
+same object either way: one byte budget, one pin set, one hash check. `SafBlobDirectory` reaches the
+app's `dev.nodera.app.NoderaSafBlobs` reflectively — the worker ships as a dexed asset whose class
+loader's parent is the app's, so a shared interface cannot exist, and `scripts/android-apk.sh` keeps
+that class from R8 and asserts the rule landed.
+
+**A client picks the folder, not the branch.** `PeerNode` may use `ArchiveDirectories.open` because
+its string is this process's own environment. The `NODERA-CONFIG` handler may not: it tests with
+`isDocumentTree` and then calls either `ControlPaths.resolve` — normalise, then contain — or
+`ArchiveDirectories.openDocumentTree`, which cannot reach `java.nio.file` at all. A single method
+that decided for itself would hand a socket-supplied string to `Path.of` on the other side of the
+decision, which is an archive relocation to anywhere on disk.
+
+**Only the archive lane moves.** Identity, `worlds.dat`, the key store and RocksDB stay in
+app-private storage. A signing key in a folder the user browses — readable by anything else holding
+the same grant — is a security regression, not a feature, and the archive is content-addressed
+public data every peer verifies by hash. They are not the same bytes.
 
 `LocalFiles` and `PersistentIdentityStore` both delegate to `storage.io.AtomicFileWriter
 .writeOwnerOnly`. On a POSIX `FileStore`, temporary files are created `0600` before secret bytes are
