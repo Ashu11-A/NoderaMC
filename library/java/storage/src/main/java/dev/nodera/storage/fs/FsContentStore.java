@@ -216,7 +216,7 @@ public final class FsContentStore implements PinnableContentStore {
      */
     private static ContentId idOf(BlobDirectory.Entry blob) {
         String hex = blob.name();
-        if (hex.length() != 64) {
+        if (!BlobDirectory.isBlobName(hex)) {
             return null;
         }
         try {

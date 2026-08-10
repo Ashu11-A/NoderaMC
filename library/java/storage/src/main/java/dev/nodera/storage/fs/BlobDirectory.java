@@ -42,6 +42,35 @@ import java.util.List;
  */
 public interface BlobDirectory {
 
+    /** A blob name is the hex of a SHA-256, so exactly 64 characters. */
+    int NAME_LENGTH = 64;
+
+    /**
+     * Is {@code name} one of ours?
+     *
+     * <p>Asked at every boundary where a name arrives from somewhere other than a
+     * {@code ContentId}. Two of them exist and both are real: a folder the user picked holds
+     * whatever the user put there, so a listing can contain anything at all; and a name that
+     * reaches {@link PathBlobDirectory} becomes a filesystem path, where {@code ../} would be a
+     * traversal out of the store. Constraining the character class rather than filtering separators
+     * is what makes the second one impossible instead of merely unlikely.
+     *
+     * @param name the candidate.
+     * @return true if it is exactly 64 lowercase hex characters — what {@code Bytes.toHex} emits.
+     */
+    static boolean isBlobName(String name) {
+        if (name == null || name.length() != NAME_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < NAME_LENGTH; i++) {
+            char c = name.charAt(i);
+            if ((c < '0' || c > '9') && (c < 'a' || c > 'f')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * One stored blob, as the directory can describe it without reading its bytes.
      *

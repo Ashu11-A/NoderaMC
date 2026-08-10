@@ -76,12 +76,13 @@ eviction signals repair so redundancy is restored elsewhere.
 
 ## Tests
 
-167 tests: durable seam parity across close and reopen (including head-recovery-fed validation),
+168 tests: durable seam parity across close and reopen (including head-recovery-fed validation),
 checkpoint ordering, content-addressed certificate idempotency, corrupt-blob read rejection, the
 forced-kill `RocksCrashRecoveryIT`, certified forward sync with an uncertified tail refused, and
 `FsContentStoreRelocationTest` (blobs survive relocation and a **reopened** store finds them),
-`FsContentStoreBlobDirectoryTest` (9 — the whole store contract over a directory that is not a
-filesystem, including relocation in both directions), plus `AtomicFileWriterTest` owner-only creation
+`FsContentStoreBlobDirectoryTest` (10 — the whole store contract over a directory that is not a
+filesystem, including relocation in both directions and the refusal to turn a name that is not a
+content hash into a path), plus `AtomicFileWriterTest` owner-only creation
 and failure cleanup.
 
 ```bash

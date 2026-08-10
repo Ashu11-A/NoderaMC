@@ -295,7 +295,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 314 | ✅ |
 | `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 446 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 189 | ✅ |
-| `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 167 | ✅ |
+| `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 168 | ✅ |
 | `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 46 | ✅ |
 | `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 860 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 114 | 🚧 |

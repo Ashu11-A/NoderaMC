@@ -263,6 +263,28 @@ final class FsContentStoreBlobDirectoryTest {
     }
 
     @Test
+    void aNameThatIsNotAContentHashNeverBecomesAPath(@TempDir Path tmp) {
+        // The filesystem back end is the one place a blob name becomes a path, and a name does not
+        // always come from a ContentId: `list()` reads whatever is in the directory, and on Android
+        // that directory is a folder the user picked and puts their own things in.
+        PathBlobDirectory directory = new PathBlobDirectory(tmp);
+
+        for (String hostile : new String[] {
+            "../../../../etc/passwd",
+            "/etc/passwd",
+            "..".repeat(32),
+            "ZZ" + "0".repeat(62),
+            "0".repeat(63),
+        }) {
+            assertThatThrownBy(() -> directory.exists(hostile))
+                    .as(hostile)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(BlobDirectory.isBlobName("0".repeat(64))).isTrue();
+        assertThat(BlobDirectory.isBlobName(null)).isFalse();
+    }
+
+    @Test
     void relocatingOntoTheSameLocationIsANoOp() {
         MemoryBlobDirectory tree = new MemoryBlobDirectory("content://tree/x");
         FsContentStore store = new FsContentStore(tree, hashes);

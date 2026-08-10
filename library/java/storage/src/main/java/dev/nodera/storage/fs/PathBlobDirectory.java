@@ -26,9 +26,6 @@ public final class PathBlobDirectory implements BlobDirectory {
 
     private static final String SUFFIX = ".bin";
 
-    /** Blob names are the hex of a SHA-256, so exactly 64 characters. */
-    private static final int NAME_LENGTH = 64;
-
     private final Path contentRoot;
 
     /**
@@ -89,7 +86,7 @@ public final class PathBlobDirectory implements BlobDirectory {
             for (Path blob : blobs) {
                 String fileName = blob.getFileName().toString();
                 String name = fileName.substring(0, fileName.length() - SUFFIX.length());
-                if (name.length() != NAME_LENGTH) {
+                if (!BlobDirectory.isBlobName(name)) {
                     continue;
                 }
                 entries.add(new Entry(name, Files.size(blob),
@@ -113,8 +110,27 @@ public final class PathBlobDirectory implements BlobDirectory {
         return contentRoot.toString();
     }
 
+    /**
+     * The file a blob name maps to, fanned out by its first two bytes.
+     *
+     * <p>Two guards, not one, because this is the method that turns a string into a filesystem
+     * path. {@link BlobDirectory#isBlobName} constrains the character class, so a name carrying
+     * {@code ../} or an absolute prefix never reaches {@code resolve} at all; the containment check
+     * afterwards is the belt to that brace, comparing the <b>normalised</b> result against the
+     * content root rather than comparing text. The store's own names always pass both — they are
+     * {@code ContentId.hash().toHex()} — but a name can also come from a directory listing, and a
+     * folder the user picked holds whatever the user put in it.
+     */
     private Path pathFor(String name) {
-        return contentRoot.resolve(name.substring(0, 2)).resolve(name.substring(2, 4))
-                .resolve(name + SUFFIX);
+        if (!BlobDirectory.isBlobName(name)) {
+            throw new IllegalArgumentException(
+                    "not a content-addressed blob name: " + name);
+        }
+        Path candidate = contentRoot.resolve(name.substring(0, 2)).resolve(name.substring(2, 4))
+                .resolve(name + SUFFIX).normalize();
+        if (!candidate.startsWith(contentRoot)) {
+            throw new IllegalArgumentException("blob name escapes the content store: " + name);
+        }
+        return candidate;
     }
 }

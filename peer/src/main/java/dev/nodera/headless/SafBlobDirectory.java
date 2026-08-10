@@ -74,9 +74,6 @@ public final class SafBlobDirectory implements BlobDirectory {
      */
     static final String BRIDGE_CLASS_PROPERTY = "nodera.storage.blob.bridge";
 
-    /** Blob names are the hex of a SHA-256, so exactly 64 characters. */
-    private static final int NAME_LENGTH = 64;
-
     /**
      * What the app side must provide. Every method is total: it reports failure in its return
      * value and leaves the reason in {@link #lastError()}, because an exception thrown across a
@@ -170,7 +167,7 @@ public final class SafBlobDirectory implements BlobDirectory {
             // A folder the user picked holds whatever the user put there. Anything that is not one
             // of our blobs — a photo, a half-written .tmp, a subdirectory — is skipped rather than
             // counted against the byte budget or offered to the swarm.
-            if (parts.length != 3 || parts[0].length() != NAME_LENGTH) {
+            if (parts.length != 3 || !BlobDirectory.isBlobName(parts[0])) {
                 continue;
             }
             try {
