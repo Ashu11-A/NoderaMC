@@ -142,6 +142,21 @@ jobs:
           (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
             -x test -x check
+      # The server-category scenarios need a Paper or Folia jar, and nothing in this repository
+      # ever staged one — so `ServerEndpointSupport.skipReason` fired on every machine, including
+      # this runner, and `endpoint`/`folia`/`plugins` had never actually run anywhere. That is a
+      # STRUCTURAL skip, which `docs/testing/Task.0.md` bans: requirements describe the MACHINE,
+      # and anything that can be fetched or built is fetched or built rather than waited for. The
+      # suites still download nothing themselves — one script, called here, so a local run and a CI
+      # run stay the same code path (server task 4; L-64's live half, L-66's exit).
+      - name: Stage the platform jar
+        if: matrix.suite == 'endpoint' || matrix.suite == 'folia' || matrix.suite == 'plugins'
+        run: |
+          case "${{ matrix.suite }}" in
+            folia)            scripts/stage-server-jars.sh folia ;;
+            endpoint|plugins) scripts/stage-server-jars.sh paper ;;
+          esac
+
       - name: ${{ matrix.suite }} under Xvfb
         env:
           # Only the determinism scenario reads it; empty leaves the scenario's own default.

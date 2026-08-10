@@ -340,7 +340,14 @@ tasks.register<Test>("structureReport") {
         ":testing:classes",
         ":endpoint:classes", ":endpoint:testClasses",
         ":neoforge-mod:classes", ":neoforge-mod:testClasses",
-        ":paper-plugin:classes",
+        // `:paper-plugin:testClasses` was missing here until 2026-08-10, and the omission was
+        // invisible only because that module had no production method a test was the sole caller
+        // of. The moment one existed, CI (which builds nothing else) counted three of them as
+        // "referenced by NOTHING", while a developer who had just run `check` saw the same three
+        // correctly as "test-only" — one tree, two verdicts, and the stricter bucket is the one
+        // with no headroom. A module whose callers are not compiled is a module whose callers
+        // vanish, which is exactly what the comment above this list says.
+        ":paper-plugin:classes", ":paper-plugin:testClasses",
         tasks.named("classes"), tasks.named("testClasses"),
         tasks.named("jmhClasses"), tasks.named("headlessClasses"),
     )
