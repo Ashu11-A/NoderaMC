@@ -55,7 +55,17 @@ jobs:
           set -euo pipefail
           cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry
           ./gradlew :peer:installDist
-      - run: ./gradlew check build --stacktrace
+      # `-Dnodera.test.requireServiceBinaries=true` is the promise the step above just kept, made
+      # legible to the suites. `SpawnedService` turns a missing service binary from an `assumeTrue`
+      # skip into a failure only when it is set, and `NoderaServiceBinaries.kt` forwards it from the
+      # launcher into every `Test` worker (a bare `-D` reaches the Gradle daemon and nothing else).
+      # Nothing set it, so the mechanism ran by hand only.
+      #
+      # This adds no coverage: `Nothing skipped into green` below already refuses ANY skip, which is
+      # the stronger property. What it adds is a specific failure — the suite that could not find
+      # `target/release/nodera-tracker` says so at the point it looked, instead of the job ending on
+      # a count of skips that somebody then has to attribute.
+      - run: ./gradlew check build --stacktrace -Dnodera.test.requireServiceBinaries=true
       # `check build` is cacheable end to end, so a healthy run can finish in ~40s with every
       # `:*:test` FROM-CACHE — visually identical to a job that skipped into green. Judge the gate
       # by what it reported, not by how long it took: this asserts that every module with test
@@ -64,6 +74,18 @@ jobs:
       - name: Java tests reported results
         if: always()
         run: scripts/java-test-report.sh --summary
+      # And the nine numbers README prints beside those modules. `test-counts.sh` resolved only
+      # `crate.*` and `package.*`, so ten rows of that table were measured and the nine Java ones were
+      # typed — same table, same column, rendered identically, checked by nothing. Three had drifted
+      # (`engine` 444 against 446, `testing` 44 against 46, `neoforge-mod` 133 against 134).
+      #
+      # `--check java` measures exactly the Gradle modules, from the JUnit XML the step above just
+      # read, so it costs no cargo enumeration and cannot run before there are results. Naming them
+      # is what makes a missing result a failure here rather than the `skipped` the two jobs without
+      # Java results are entitled to. Re-stamp a deliberate change with `test-counts.sh --write java`.
+      - name: README's Java module counts match the suites
+        if: always()
+        run: scripts/test-counts.sh --check java
       # The number README's badge shows. Measured from the JUnit XML this job just produced, not
       # from a second, cheaper run — see scripts/test-totals.sh for why that distinction is the
       # whole point of the badge.
@@ -470,8 +492,24 @@ jobs:
   # packages; this job only sums and renders. Nothing is re-run to produce a badge, because a number
   # from a second, cheaper run would be a badge about a run nobody looked at.
   #
-  # `always()` on purpose: a red run is exactly when the failed count must update. The publish is
-  # skipped when a totals file is missing, since a partial sum would silently understate the tree.
+  # `always()` on purpose: a red run is exactly when the failed count must update.
+  #
+  # ## A missing half is a failure, not a skip
+  #
+  # `Every half reported` used to answer a missing totals file with `::warning::` and an output that
+  # switched the remaining two steps off, so the job concluded SUCCESS while the badge kept last
+  # week's number — the same "green about nothing" shape the badge itself was built to replace, one
+  # level up. There were three ways into it when it was written and there are five now, and the two
+  # newest (`app-ui`, `site`) come out of the `companion` job at the end of the longest dependency
+  # chain in this workflow: `bun install`, the Tauri system deps, `:peer:installDist`,
+  # `:neoforge-mod:jar`. Any of those breaking on `main` is exactly the case where nobody would look.
+  #
+  # So it fails. The badge is stale either way; the only thing that changes is whether anyone knows.
+  # A second red X on a run whose upstream job already failed is the cost, and it is the right cost —
+  # it says "the published totals no longer describe this tree", which is true.
+  #
+  # There is no tolerant branch for other events because this job never sees one: the `if:` below
+  # restricts it to a push on `main`, the only event that publishes anything.
   #
   # ## Why an orphan branch
   #
@@ -492,27 +530,27 @@ jobs:
           path: run/totals
           pattern: totals-*
           merge-multiple: true
+      # Every part is named, not just the first missing one: a run where the whole `companion` job
+      # failed is missing three, and reporting one of them sends the reader to the wrong job.
       - name: Every half reported
-        id: parts
         run: |
           set -euo pipefail
-          missing=0
+          missing=()
           for part in java rust app app-ui site; do
-            if [[ ! -s "run/totals/$part.json" ]]; then
-              echo "::warning::no totals for $part — the badge would understate the tree, so it is not updated"
-              missing=1
-            fi
+            [[ -s "run/totals/$part.json" ]] || missing+=("$part")
           done
-          echo "complete=$((1 - missing))" >> "$GITHUB_OUTPUT"
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::no totals for: ${missing[*]} — the published badge still shows the previous run's number and no longer describes this tree. Fix the job that produces the missing part; do not downgrade this to a warning."
+            exit 1
+          fi
+          echo "all five totals present"
       - name: Sum and render
-        if: steps.parts.outputs.complete == '1'
         run: |
           scripts/test-totals.sh --merge run/totals/java.json run/totals/rust.json \
             run/totals/app.json run/totals/app-ui.json run/totals/site.json \
             --badges run/badges
           cat run/badges/tests-passed.json run/badges/tests-failed.json
       - name: Publish to the badges branch
-        if: steps.parts.outputs.complete == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

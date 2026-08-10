@@ -156,6 +156,17 @@ Measured on the six branches merged together, because a per-branch figure does n
 | `ts.code` | 11,405 | 11,382 | −23 |
 | **total code** | **164,552** | **163,156** | **−1,396 (−0.85%)** |
 
+> **SUPERSEDED — this is round 1's headline and it stopped being the programme's two rounds ago.**
+> It is kept because the reasoning below it is what re-scoped the plan, and because a superseded
+> number that is still labelled is worth more than a corrected one nobody can trace. Two things about
+> it: the buckets are the pre-correction ones (`.mjs`/`.js` counted as nothing, Rust `#[cfg(test)]`
+> counted as production, `ts` unsplit), so neither figure is comparable to anything after
+> §"The measurement was wrong a third and fourth time"; and re-measured under today's definitions the
+> same two commits are **169,094 → 167,711, −1,383**, which is almost exactly the same answer. The
+> −1,396 was never wrong. It was quoted as the programme's result long after two more rounds had
+> landed, including in the pull-request body, which is the failure this note exists to stop.
+> **The programme's result is [§Round 3](#round-3--the-correctness-round-and-the-programmes-final-numbers).**
+
 The target was 30% and the answer is 0.85%. The plan said the headline was directional and that the
 programme would report its honest number, so here it is, along with why.
 
@@ -565,7 +576,10 @@ Executed 2026-08-06 by five agents in parallel worktrees (#225 frame helper, #22
 fixers (#234 gate + regression tests, #235 documentation truth). Merged into
 `refactor/reuse-driven-shrink` = PR #222.
 
-**Result: 167,711 → 158,551 code lines, −9,160, −5.46%.**
+**Result: 167,711 → 158,551 code lines, −9,160, −5.46%.** Both endpoints are stamped and re-derivable —
+`git show f507eff:scripts/lib/loc-baseline.json` and `git show 4589d0c:…` — and this is round 2's
+figure, not the programme's: round 3 was a correctness round and it bought its fixes with lines.
+**The programme's result is [§Round 3](#round-3--the-correctness-round-and-the-programmes-final-numbers).**
 
 | branch | claimed | measured |
 |---|---:|---:|
@@ -575,7 +589,8 @@ fixers (#234 gate + regression tests, #235 documentation truth). Merged into
 | frontend + gates | −132 | −132 ✅ |
 | frame helper | −204 | **−164 merged** (20 sites sat in files the deletion removed) |
 
-Gate on the merged tree: `./gradlew check` green, **2,243 Java passed / 0 failed / 0 skipped**,
+Gate on the merged tree at round 2's end: `./gradlew check` green, **2,243 Java passed / 0 failed / 0
+skipped**,
 `cargo test` 730/0/1, clippy zero warnings, every script gate green.
 
 ### The skip count reached zero
@@ -587,6 +602,12 @@ and `SpawnedService` turns a missing binary into a failure at the suite. **2,423
 became 2,243 / 0 skipped** — the fall in passes is 43 test files leaving with the design they
 tested, verified class-by-class: every one referenced a deleted class and could not have compiled,
 and every surviving class they also drove retains production callers and other tests.
+
+The `2,423 / 12` end of that is verified: the `java` job on `61e0936`, the last commit before round 2
+executed, reported `{"source":"java","passed":2423,"failed":0,"skipped":12}` (run 31070756099). The
+`2,243` end is not — no retained CI run covers round 2's merge commit, so it is a figure this document
+asserts and nothing re-derives. **Neither number describes the current tree**; round 3 added tests and
+the head reports 2,272 / 0 / 0. §Round 3 carries the ladder.
 
 ### What round 3 must assume
 
@@ -629,3 +650,144 @@ actually created value.
 - **A read-only analysis cannot see a test that enforces a call site.** Twelve "dead" TypeScript
   exports were held live by `ux-honesty.test.mjs` asserting every registered Tauri command has a
   frontend caller.
+
+---
+
+## Round 3 — the correctness round, and the programme's final numbers
+
+Executed 2026-08-06/07 by five agents in parallel worktrees (the EventBus and traversal fixes, the
+dead-lane wiring, the delegability decision, the named-file levers, the error-rate checks), then a
+five-validator pass, then eight fixers. Head at the time of writing: `6ab62f1`.
+
+**Round 3 was not a reduction round and its stamped baseline says so: `158,551 -> 159400`, a
+deliberate rise, paid for a live symlink-traversal hole, a game-bus handler that could crash the
+integrated server, a `SpawnedService` deadline that could never fire, a teardown guard that skipped
+the tree's only caller of `PlayerNodeRegistry.forget`, a restored test for a class on the live
+validation path, and two gates whose entire purpose is to fail.** The full accounting is in
+`scripts/lib/loc-baseline.json`'s `measured` field, which is where it belongs: the ratchet permits a
+rise only when it is stamped in the same commit, so the reason is a reviewable line in a diff.
+
+### The one table
+
+Three different headline results were in circulation — −0.85%, −5.46%, −4.96% — and neither of the two
+a reviewer met was reproducible on the head they were reading. All three were true of something; none
+of them was true of the tree. So, once, against one endpoint, on today's bucket definitions:
+
+| bucket | `main` (`9959df1`) | head (`6ab62f1`) | delta |
+|---|---:|---:|---:|
+| `java.main.code` | 60,815 | 56,456 | −4,359 |
+| `java.test.code` | 60,440 | 55,039 | −5,401 |
+| `rust.main.code` | 20,039 | 19,576 | −463 |
+| `rust.test.code` | 11,853 | 12,197 | **+344** |
+| `ts.main.code` | 12,743 | 12,588 | −155 |
+| `ts.test.code` | 3,204 | 3,544 | **+340** |
+| **total code** | **169,094** | **159,400** | **−9,694 (−5.73%)** |
+| total comment | 60,636 | 60,570 | −66 |
+
+**−9,694 code lines, −5.73%, against a 30% target re-scoped to 10% and a measured ceiling of 14,800.**
+The two rises are round 3 buying correctness with tests, and they are the honest half of the number.
+
+Reproduce the head column with `scripts/loc-metrics.py --json`. The `main` column needs one step of
+setup, because **`scripts/loc-metrics.py` does not exist on `main` — the whole measurement apparatus,
+this ratchet included, is introduced by this branch.** So it is run against `main`'s tracked file set
+rather than from it:
+
+```bash
+git archive main | tar -x -C /tmp/main-tree
+cd /tmp/main-tree && git init -q . && git add -A && git -c user.email=a@b -c user.name=a commit -qm x
+cp -r <this-branch>/scripts/loc-metrics.py <this-branch>/scripts/lib /tmp/main-tree/scripts/
+python3 scripts/loc-metrics.py --json          # 169,094 code, 60,636 comment
+```
+
+Untracked files are not counted, which is what makes copying the tool in safe: the number describes
+`main`'s tree and nothing else.
+
+### Why `main` measures 169,094 and §The measurement says 164,552
+
+The same commit, two definitions, and the difference reconciles exactly:
+
+| | round 1's definition | today's | difference |
+|---|---:|---:|---:|
+| Java (main + test) | 121,255 | 121,255 | 0 |
+| Rust (main + test) | 31,892 | 31,892 | 0 — a pure re-bucketing |
+| TypeScript + `.mjs`/`.js` | 11,405 | 15,947 | **+4,542** |
+| **total** | **164,552** | **169,094** | **+4,542** |
+
+Every line of the difference is `.mjs`/`.js` that the tool did not count at all — the site's generator
+chain, both frontend test suites, two of `nodera-ui`'s largest modules — and the Rust correction moved
+11,409 lines from `main` to `test` without changing the total. Java is identical to the line.
+
+This is why round 1's `−1,396 (−0.85%)` is labelled superseded rather than corrected. Re-measured
+under today's definitions the same pair of commits is **169,094 → 167,711, −1,383**: the number was
+right, and it was still being quoted as the programme's result two rounds later.
+
+### The stamped ladder
+
+Every step is `scripts/lib/loc-baseline.json` in this branch's history, so the whole programme is
+re-derivable with `git show <commit>:scripts/lib/loc-baseline.json`:
+
+| commit | what it stamps | total code |
+|---|---|---:|
+| — | `main`, measured with this branch's tool | 169,094 |
+| `f507eff` | round-1 merge, buckets corrected for the third and fourth time | 167,711 |
+| `b60a34d` | round-2 merge, re-measured rather than merged | 158,310 |
+| `4589d0c` | round 2 after its review follow-ups | 158,551 |
+| `0dcb74f` | round-3 merge | 159,048 |
+| `ef48cea` | a restored test for `CommitteeMember` | 159,125 |
+| `80007ac` | a frontend gate that had been counting nothing | 159,144 |
+| `a1d54d3` | a `SpawnedService` deadline that could never fire | 159,298 |
+| `6ab62f1` | the validation pass: the path guard, the handler self-catch, the teardown split | 159,400 |
+
+`-8,311, -4.96%` — the figure `loc-baseline.json` reports — is this ladder from `f507eff` down, and it
+is correct for what it measures: the two rounds that had a stamped starting line. The programme total
+is the row above it, because the programme started on `main`.
+
+### Gate state on this head
+
+Measured, not remembered. `./gradlew check build` is green in run 31140767547 and every counter below
+comes from that run or from a file in this commit.
+
+| gate | value on `6ab62f1` | source |
+|---|---|---|
+| Java tests | **2,272 passed / 0 failed / 0 skipped** | `java` job 92749994323; `Nothing skipped into green` printed `no Java test skipped` |
+| Java per module | `core` 314 · `endpoint` 114 · `engine` 446 · `neoforge-mod` 134 · `paper-plugin` 20 · `peer` 852 · `storage` 158 · `testing` 46 · `transport` 188 | `scripts/java-test-report.sh` in the same job |
+| `loc-metrics --check` | `OK — 159400 code, 60570 comment, within baseline` | zero headroom on all twelve buckets, by construction of `--baseline` |
+| `dead_classes` | 0 | `fixtures/structure/budget.json` |
+| `test_only_classes` | 11 | same |
+| `never_referenced_methods` | 2 | same — no headroom; both are filed defects kept fixable-by-wiring |
+| `test_only_methods` | 312 | same |
+| `unreachable_methods` | 115 | same |
+| `huge_methods` | 0 | same |
+| `severe_cost_findings` | 3 | same |
+| `fixtures/wire/` | every tracked byte identical to `main`; four `.bin` files **moved** out of `java-only/` | `git diff main --stat -- fixtures/` |
+
+The test ladder, for the same reason the line ladder is written out: **2,423 / 12 skipped** on
+`61e0936` (run 31070756099, the last commit before round 2 executed) → **2,243 / 0** claimed at round
+2's merge, which no retained run covers → **2,267 / 0** on `44069df` just after the round-3 merge (run
+31137013033) → **2,272 / 0** on the head. The fall from 2,423 is 43 test files leaving with the design
+they tested; the rise across round 3 is the regression tests it added.
+
+### What this round is actually worth
+
+Round 2 already recorded that its most valuable output was not lines. Round 3 is the round where that
+stopped being a consolation and became the plan: it went **up** 849 lines and closed a traversal hole,
+a crash path, a deadline that never fired, a cleanup step that was being jumped over, and two gates
+that were reporting agreement about nothing. A programme whose only reportable number is a size
+delta cannot price any of that, which is the limitation of the metric rather than of the work.
+
+**And the metric had to be defended three separate times to mean anything at all.** Round 1 corrected
+`:testing`'s bucket; round 2 found the same mistake twice more; the validation pass found `.mjs`
+droppable from `_EXTENSIONS` with `--selftest` still 18/18 and `--check` still green, reporting a
+phantom −4,882-line reduction, and found two `#[cfg(test)] mod test_support;` declarations pulling the
+whole body of two `async fn main()` into `rust.test`. Every one of those was the tool making the tree
+look smaller. **A reduction programme's tooling fails in exactly one direction, and a number nobody
+can re-derive from a commit is not evidence — which is the whole reason this section exists in the
+shape it does.**
+
+### The next stamp is not this one
+
+`fixtures/structure/budget.json` and `scripts/lib/loc-baseline.json` are re-measured on the merge
+commit, every time, and the five fix branches in flight when this section was written each change the
+tree. **The tables above describe `6ab62f1` and are expected to be superseded at the merge.** They are
+dated and sourced so that superseding them is an edit somebody makes on purpose, rather than a number
+that quietly stops being true — the failure this whole section is a correction of.
