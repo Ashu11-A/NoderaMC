@@ -9,7 +9,7 @@
      product exposes (the control socket, RCON, a log line), never a test-only accessor, or the
      suite can pass on a state the product cannot see. -->
 
-**Category:** testing · **Owns:** the test tooling · **Last audit:** 2026-07-29
+**Category:** testing · **Owns:** the test tooling · **Last audit:** 2026-08-10
 **Code:** `library/java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh`, `scripts/bench-report.py`,
 `peer/src/jmh`, `peer/src/test/java/dev/nodera/structure`
 
@@ -54,15 +54,67 @@ Every scenario gets the same shape unless it asks for another:
 ```
 2 players · 1 tracker · 1 rendezvous · 3 headless peers
 
-  peer 1  player 1's companion worker   control 25610 · p2p 25620   role PLAYER_ONE
-  peer 2  player 2's companion worker   control 25611 · p2p 25621   role PLAYER_TWO
-  peer 3  spare standalone headless     control 25612 · p2p 25622   role SPARE
+  peer 1  player 1's companion worker   control 26610 · p2p 26620   role PLAYER_ONE
+  peer 2  player 2's companion worker   control 26611 · p2p 26621   role PLAYER_TWO
+  peer 3  spare standalone headless     control 26612 · p2p 26622   role SPARE
 ```
 
 Three peers is the quorum floor: `DiagnosticsCollector.deriveHealth` reports DEGRADED below three
 session members, so a thinner run measures a degraded system and calls the result normal. The spare
 peer has no client; it holds the swarm above that floor and keeps seeding when a player's worker
 dies with its game — which the continuity and crash scenarios arrange on purpose.
+
+### 3.1 The harness's port block is not the product's
+
+Every port above is `portBase + offset`. The base defaults to **26500** — the product's block plus a
+thousand — and the offsets are the historical ones, so `PRODUCTION_PORT_BASE` (25500) `+ offset`
+gives the numbers every older log, script and doc names:
+
+| Offset | What | Harness default | Product default |
+|---|---|---|---|
+| `+75` | RCON of the staged dedicated server | 26575 | 25575 |
+| `+99` | game | 26599 | — |
+| `+100` | tracker 1 (`+140+i` for extras) | 26600 | 25600 |
+| `+101` | rendezvous 1 (`+150+i` for extras) | 26601 | 25601 |
+| `+110+i` | worker `i` control | 26610 | 25610 |
+| `+120+i` | worker `i` P2P | 26620 | 25620 |
+| `+130+i` | `Topology.scenarioPort(i)` — a service only one scenario starts | 26630 | — |
+
+Until 2026-08-10 the two right-hand columns were **one column**, and the consequence was that nobody
+with Nodera installed could run the suite: the companion app holds 25610, the preflight refused
+every scenario, and the more complete somebody's install the less of the test matrix they could
+execute. The live report of 2026-08-07 — 0 passed, 17 failed, every failure `port 25600 is still
+held after 60s` — is that collision, filed at the time as a stale test stack
+([#266](https://github.com/Ashu11-A/NoderaMC/issues/266)).
+
+`Topology.chosenBase()` probes the whole block at startup, steps 200 upward if anything at all is
+listening in it, and prints the block it settled on as the run's first line, so a failing run can be
+traced to the ports it actually used:
+
+```
+nodera-test: port block 26500 (free) — tracker 26600, rendezvous 26601, worker control 26610+i, …
+```
+
+`NODERA_E2E_PORT_BASE` pins the base when a run must be reproducible port for port. And when a port
+really is held, the preflight names the process and says which kind of problem it is — an installed
+Nodera to quit, a leftover from this checkout to kill, or something unrelated — because
+`port 25610 is still held` sent every reader hunting a stale test stack that did not exist:
+
+```
+FAILED   telemetry   port 25610 is still held after 60s by pid 742938 →
+  /usr/lib/jvm/java-25-openjdk-amd64/bin/java (an INSTALLED Nodera
+  (/usr/lib/Nodera/resources/nodera-headless/lib/peer-headless.jar), not a leftover test stack
+  — quit the app, or leave it running and let the harness move its own block)
+```
+
+**A scenario that starts its own service asks the topology for the port.** `scenarioPort(i)` exists
+because `TelemetryScenario` carried the literals 25630/25640/25641: inside the product's block, and
+outside the startup probe, so a block could be declared free while a developer's dev stack already
+held one of them. Any port a run binds is in the block, or the probe is decorative.
+
+`scripts/dev.sh` and `scripts/lib/e2e-main.sh` deliberately stay on the product's own numbers: that
+stack is a playground meant to behave exactly like an install, and the harness moving out of its way
+is what lets the two run side by side.
 
 ## 4. Roles: workers know which player they are
 
