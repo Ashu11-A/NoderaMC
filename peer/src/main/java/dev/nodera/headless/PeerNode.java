@@ -221,6 +221,11 @@ public final class PeerNode implements AutoCloseable {
                 new dev.nodera.storage.fs.FsContentStore(
                         ArchiveDirectories.open(archiveLocation),
                         new dev.nodera.core.crypto.HashService());
+        // Said once at startup, because "where are my worlds?" is otherwise unanswerable from the
+        // log on a phone: the archive can be a document tree with no path, and the store's own
+        // location is the only honest answer to it.
+        LOG.info("Archive content stored at {} ({} blob(s) already held)",
+                contentStore.contentLocation(), contentStore.size());
         WorldArchiveService archive = new WorldArchiveService(identity, metered, contentStore,
                 tracker);
         // Continuous archive streaming appends a version every `archive.streamIntervalTicks`, so

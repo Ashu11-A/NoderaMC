@@ -81,7 +81,7 @@ final class SafBlobDirectoryTest {
     void aDesktopWorkerHasNoBridgeAndIsNotSupposedTo() {
         System.clearProperty(SafBlobDirectory.BRIDGE_CLASS_PROPERTY);
 
-        assertFalse(SafBlobDirectory.Reflective.isInstalled(),
+        assertTrue(SafBlobDirectory.Reflective.installed().isEmpty(),
                 "dev.nodera.app.NoderaSafBlobs exists only inside the Android app");
     }
 

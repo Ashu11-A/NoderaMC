@@ -243,11 +243,6 @@ public final class SafBlobDirectory implements BlobDirectory {
             }
         }
 
-        /** @return whether this process can reach an app-side SAF bridge at all. */
-        public static boolean isInstalled() {
-            return installed().isPresent();
-        }
-
         @Override
         public boolean exists(String treeUri, String name) {
             return (boolean) call(exists, false, treeUri, name);
