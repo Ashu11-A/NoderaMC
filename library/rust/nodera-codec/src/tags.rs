@@ -139,6 +139,15 @@ pub use crate::kinds::message_tags;
 /// Deliberately a subset of the Java registry: the services only ever handle discovery traffic
 /// (Task 0 §4 rule 7 — no game, consensus, or storage logic on the Rust side). The mirror test
 /// asserts these numbers agree with Java, not that the sets are equal.
+///
+/// The two tombstone kinds are the one documented crossing of that line, and not a widening of it:
+/// a tracker must be able to tell a straggler that a world was deleted, and it reaches that verdict
+/// by verifying the owner's signature itself rather than by holding any authority of its own.
+///
+/// This list is a **contract with the fixture gate**: Java's `WireFixtureTest` reads it out of this
+/// file and fails when a kind named here has no golden bytes in the shared corpus. A kind this crate
+/// decodes in production but omits here is therefore held to nothing, which is exactly what the two
+/// tombstone kinds were.
 pub const SUPPORTED_MESSAGE_TAGS: &[u16] = &[
     message_tags::TRACKER_QUERY,
     message_tags::TRACKER_RESPONSE,
@@ -158,6 +167,13 @@ pub const SUPPORTED_MESSAGE_TAGS: &[u16] = &[
     message_tags::TRACKER_CATALOG_RESPONSE,
     message_tags::TRACKER_ROUTES_QUERY,
     message_tags::TRACKER_ROUTES_RESPONSE,
+    // The tombstone lane. Two consensus kinds in an otherwise discovery-only list, and they belong
+    // here: `tracker/src/service.rs` dispatches both inside `handle_frame`, and
+    // `tracker/src/deletion.rs` verifies the owner's signature on each, so the Rust side really does
+    // decide whether a world stays deleted. Omitting them made the derived fixture gate blind to
+    // exactly the two kinds whose Rust verdict has to match Java's.
+    message_tags::WORLD_DELETION_GOSSIP,
+    message_tags::WORLD_REVIVAL_GOSSIP,
     message_tags::SERVICE_ANNOUNCE,
     message_tags::SERVICE_ANNOUNCE_ACK,
     message_tags::SERVICE_DIRECTORY_QUERY,

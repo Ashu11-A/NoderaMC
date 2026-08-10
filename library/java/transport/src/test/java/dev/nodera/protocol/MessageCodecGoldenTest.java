@@ -7,6 +7,7 @@ import dev.nodera.core.consensuscert.VoteDecision;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.BreakBlockAction;
 import dev.nodera.core.action.PlaceBlockAction;
+import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.DimensionKey;
@@ -147,6 +148,70 @@ final class MessageCodecGoldenTest {
         assertThat(decoded).isEqualTo(legacy);
         assertThat(decoded.signedPortion()).isEqualTo(decoded.resultingRoot().hash());
         assertThat(current.signedPortion()).isNotEqualTo(legacy.signedPortion());
+    }
+
+    /**
+     * Tag 11's signed body is spelled twice, and this is the assertion that holds the two spellings
+     * together.
+     *
+     * <p>{@link RegionProposal#signedPortion()} re-derives the frame prefix — the header plus eight
+     * to ten fields — that {@code CodecRegistry}'s {@code versioned(TAG_REGION_PROPOSAL, …)} row
+     * already writes. Production signs and verifies through {@code signedPortion()} (see
+     * {@code WorkerValidationService}) while the bytes that travel come from the codec, and nothing
+     * asserted the two agree. Appending field 9 at {@code bodyVersion = 5} and editing only the codec
+     * row would have put the new field <b>outside the signature</b> with every gate in the build
+     * green: the frame carries it, the signed prefix does not, and the existing signature still
+     * verifies over the short prefix.
+     *
+     * <p>Asserted as an exact decomposition rather than a prefix match, because "the frame is the
+     * signed portion followed by nothing but the signature" is the real invariant — a field appended
+     * <i>after</i> {@code proposerSig} in only one of the two places fails here as well.
+     *
+     * <p>Body version 1 is deliberately excluded: its signature covers
+     * {@code resultingRoot.hash()} and is not a frame prefix at all. That contract is pinned by
+     * {@link #legacyRegionProposalRetainsRootOnlySignatureContract()} above.
+     */
+    @Test
+    void everyAcceptedProposalVersionSignsExactlyItsOwnFramePrefix() {
+        for (int bodyVersion = 2; bodyVersion <= RegionProposal.PROPOSAL_ENCODING_VERSION;
+                bodyVersion++) {
+            RegionProposal proposal = proposalAtVersion(bodyVersion);
+            assertThat(proposal.bodyVersion()).isEqualTo(bodyVersion);
+
+            byte[] frame = MessageCodec.encode(proposal);
+            byte[] signed = proposal.signedPortion().toArray();
+            byte[] signature =
+                    new CanonicalWriter().writeBytes(proposal.proposerSig()).toBytes().toArray();
+
+            assertThat(frame)
+                    .as("v%d: the codec row and signedPortion() must spell one body, not two",
+                            bodyVersion)
+                    .isEqualTo(concat(signed, signature));
+            // And the frame still round-trips, so the two spellings agree on something real.
+            assertThat(MessageCodec.decode(frame)).isEqualTo(proposal);
+        }
+    }
+
+    /** The sample proposal restated at one accepted body version, carrying only that version's fields. */
+    private static RegionProposal proposalAtVersion(int bodyVersion) {
+        RegionProposal current = sampleRegionProposal();
+        return new RegionProposal(
+                current.region(), current.epoch(), current.baseVersion(),
+                current.tickFrom(), current.tickTo(), current.prevRoot(), current.resultingRoot(),
+                current.encodedDelta(),
+                bodyVersion >= 3 ? current.batchRoot() : null,
+                current.proposerSig(),
+                bodyVersion,
+                bodyVersion >= 4
+                        ? List.of(new RegionProposal.HaloPin(
+                                regionOverworld(), new SnapshotVersion(9)))
+                        : null);
+    }
+
+    private static byte[] concat(byte[] head, byte[] tail) {
+        byte[] out = Arrays.copyOf(head, head.length + tail.length);
+        System.arraycopy(tail, 0, out, head.length, tail.length);
+        return out;
     }
 
     /**
