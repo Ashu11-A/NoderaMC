@@ -12,10 +12,28 @@ repositories {
     maven("https://repo.papermc.io/repository/maven-public/") {
         name = "papermc"
     }
+    // EngineHub, for WorldEdit's API. Same isolation argument as PaperMC's above, and for the same
+    // reason: both are `compileOnly` platform APIs that only THIS module ever needs.
+    maven("https://maven.enginehub.org/repo/") {
+        name = "enginehub"
+    }
 }
 
 dependencies {
     compileOnly(libs.paper.api)
+    // WorldEdit, and only WorldEdit, gets a compile-time dependency — because it is the only member
+    // of the corpus whose writes are INVISIBLE to Bukkit. `//set` fires no BlockPlaceEvent; it goes
+    // straight down WorldEdit's own extent pipeline into the world. A foreign-write bridge built on
+    // Bukkit events alone would report "certified" for a player placing one block by hand and see
+    // NOTHING AT ALL for the operation L-65's exit clause actually names, which is a green test
+    // that asserts nothing. `compat/WorldEditBulkWrites` is the answer and this is what it compiles
+    // against; `worldedit-core` is enough, since the extent pipeline, the event bus and the block
+    // states all live in it and `worldedit-bukkit` would only add adapters Bukkit already gives us.
+    //
+    // compileOnly and never bundled: a server with WorldEdit provides it, and a server WITHOUT it
+    // must still load this plugin — which is why every reference to these types sits behind the
+    // guarded install in `NoderaEndpointPlugin`.
+    compileOnly(libs.worldedit.core)
     implementation(project(":core"))
     // The peer stack. This plugin is how an UNMODIFIED Paper/Folia server joins the network: the
     // server has no companion app supervising a worker beside it, so the peer runs in-process here.
@@ -34,6 +52,12 @@ dependencies {
     testImplementation(project(":engine"))
     testImplementation(project(":storage"))
     testImplementation(project(":testing"))
+    // ForeignWriteBridgeTest asserts the payload a plugin subscribing to NoderaRegionDeniedEvent
+    // receives, so the Bukkit event types have to be on the TEST classpath even though they are
+    // compileOnly for main. No server is started: `Location`'s world is nullable and Bukkit's
+    // HandlerList is a plain object, which is the whole reason deliverable 3 is testable at all.
+    testCompileOnly(libs.paper.api)
+    testRuntimeOnly(libs.paper.api)
 }
 
 // The harness stages `endpoints/paper-plugin/build/libs/nodera-paper.jar` (TestPaths), so the

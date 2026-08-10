@@ -7,9 +7,10 @@
      SKIPPED naming the LIMITATIONS.md row that blocks it, and the suite exits 0 — a nightly run must
      read as "not built yet", never as "broken". Update this file whenever a script gains a stage. -->
 
-**Category:** server · **Last run:** 2026-08-10 · **35 unit tests · 0 failing** (module
+**Category:** server · **Last run:** 2026-08-10 · **44 unit tests · 0 failing** (module
 `paper-plugin`: `EndpointConfigTest` 9 · `EndpointPlatformTest` 5 · `EndpointPeerLinkTest` 6 ·
-`NoderaFoliaRegionMapTest` 7 · `CrossRegionCommitTest` 4 · `CrossFoliaRegionCommitIT` 4),
+`NoderaFoliaRegionMapTest` 7 · `CrossRegionCommitTest` 4 · `CrossFoliaRegionCommitIT` 4 ·
+`ForeignWriteBridgeTest` 9),
 plus **3 scripted live suites, green for the built subset**: `e2e-endpoint.sh` against a real Paper
 1.21.1 (including **E4**: the server JVM is SIGKILLed and the world stays hosted by its worker — L-71's
 exit), `e2e-folia.sh` against a real Folia (ALIGN-1 passes at the platform default and **refuses** at
@@ -83,7 +84,7 @@ is present — so a local run and a CI run execute the same code path. Stage the
 |---|---|---|
 | `e2e-endpoint.sh` | **An unmodified client and a modded client in the same world** — one joining directly at the endpoint's game port with nothing installed, one joining through the NoderaMC network — with an item passing between them **exactly once**. *Built subset (E1–E4: enable, refuse-to-disable, external worker link, SIGKILL survival) green now; headline P-stages skip on open rows* | ~10 min |
 | `e2e-folia.sh` | Two Folia regions ticking and committing **concurrently**; ALIGN-1 holding live; **zero** thread-context violations across the whole run. *ALIGN-1 stages (F0/F1) green now; parallel-region stages skip on open rows* | ~10 min |
-| `e2e-plugins.sh` | The pinned plugin corpus loads; a WorldEdit `//set` in a delegated region is **certified**, not suppressed and not silently reverted; the log audit is clean. *Co-existence stage green now; WorldEdit-certification stage skips* | ~8 min |
+| `e2e-plugins.sh` | The pinned plugin corpus loads; a WorldEdit `//set` in a delegated region is **certified**, not suppressed and not silently reverted; the log audit is clean. *C0–C5 all assert now (2026-08-10). What C3 asserts is that the `//set` **reaches** the bridge, block for block, and lands — not that it is certified, which needs a delegated region* | ~10 min |
 
 ### 1.2.1 Profiling a server suite
 
@@ -143,20 +144,51 @@ F6 is a grep, not a judgement call — which is the point. On Folia an uncaught 
 thread **halts the scheduler and stops the entire server**, so a thread-context violation is both the
 likeliest failure mode and the loudest one.
 
-## 1.5 `e2e-plugins.sh` — the corpus
+## 1.5 `plugins` — the corpus and its stages
 
-Pinned by version so the corpus is reproducible. On Folia it narrows to the Folia-ready members and
-the suite **names the ones it dropped**, rather than quietly testing less.
+Pinned by version so the corpus is reproducible: `scripts/stage-plugin-corpus.sh` resolves each
+member through Modrinth's v2 API with a sha512 check, and CI calls exactly it. On Folia it narrows to
+the Folia-ready members and the suite **names the ones it dropped**, rather than quietly testing less.
 
-| Plugin | Exercises |
-|---|---|
-| WorldEdit / FAWE | bulk foreign writes — the hardest PC-3 case |
-| EssentialsX | commands, teleports, inventories |
-| LuckPerms | permission resolution on every gate |
-| Vault | the services manager, alongside `NoderaEndpointAPI` |
-| PlaceholderAPI | async expansion resolution |
-| CoreProtect | block logging at `MONITOR` — a direct PC-2 collision test |
-| ViaVersion | protocol translation in front of the endpoint |
+| Plugin | Pin | Staged | Exercises |
+|---|---|---|---|
+| WorldEdit | 7.3.9 | ✅ automatic | bulk foreign writes — the hardest PC-3 case, and the one no Bukkit event can see |
+| CoreProtect | 23.2 (Community Edition) | ✅ automatic | block logging at `MONITOR` — a direct PC-2 collision test |
+| EssentialsX | — | by hand | commands, teleports, inventories |
+| LuckPerms | — | by hand | permission resolution on every gate |
+| Vault | — | by hand | the services manager, alongside `NoderaEndpointAPI` |
+| PlaceholderAPI | — | by hand | async expansion resolution |
+| ViaVersion | — | by hand | protocol translation in front of the endpoint |
+
+Only the two members an exit clause names are downloaded. The rest are picked up and named if an
+operator drops them into `run/plugins`; five more jars per CI leg buys no assertion.
+
+**CoreProtect is the Community Edition fork**, because the upstream build is behind SpigotMC's login
+wall and no script can fetch it. Stated rather than discovered: a corpus that silently tests a fork
+of the plugin it claims to test is the shape of a green test that asserts nothing.
+
+| Stage | Assertion | Blocked by |
+|---|---|---|
+| C0 | A plugin jar and a Paper jar are both present | *(green)* |
+| C1 | Paper boots with `nodera-endpoint` and every corpus jar found; present **and** absent are both named | *(green)* |
+| C2 | Every staged plugin loaded and nothing threw | *(green)* |
+| C3 | A WorldEdit `//set` of **1,280** blocks is observed by the bridge block-for-block, and the world holds what the operator asked for | *(green — but the word* certified *is [L-65](LIMITATIONS.md), which needs a delegated region: [server 2](Task.2.md)/[3](Task.3.md))* |
+| C4 | CoreProtect logged every one of those changes — proven by rolling the edit back from its own record | *(green)* |
+| C5 | The server stops cleanly with the corpus loaded | *(green)* |
+
+**C3 and C4 fail when their subject is absent from the corpus.** They do not note it and continue,
+which is what C1 used to do for the whole corpus — so "the compatibility suite is green" and "the
+compatibility suite ran against a server with no plugins on it" were the same sentence.
+
+**Why C3 asserts a number.** `//set` fires no Bukkit block event at all. A bridge built on
+`BlockPlaceEvent` and friends sees a player placing one block by hand and sees *nothing* for the bulk
+operation, so a stage that drove a `//set` and asserted "no error in the log" would pass against a
+bridge that observed zero blocks. `0` is precisely the signature of that bug, and it is what the
+first real run of this code printed.
+
+**Why C4 rolls back instead of looking up.** CoreProtect answers a `/co lookup` asynchronously, after
+the RCON exchange has closed, so the result never reaches the caller — the same platform fact §1.2.1
+records for spark. A rollback's effect is in the world, where `execute if block` can see it.
 
 ## 1.6 How the clients are driven — no GUI automation anywhere
 
@@ -168,6 +200,22 @@ The **unmodified** client is `dev.nodera.testkit.scenario.ServerVanillaBot` (the
 that performs
 the handshake, offline-mode login, and play-state exchange, and can move, chat, run a command, and
 drop an item. It is deliberately **not** a second launched game —
+
+> **Two packet shapes were wrong for the pinned version until 2026-08-10** (issue #176), and both
+> made every stage that drives an unmodified client unreachable — on any machine, silently, because
+> neither failure names a packet:
+>
+> - `client_information` carried NINE fields. `particleStatus` was appended in **1.21.2**; on 1.21.1
+>   Paper answers *"Failed to decode packet 'serverbound/minecraft:client_information'"* and closes
+>   the connection during CONFIGURATION, **after** a successful login — so the bot reports "the
+>   server refused us".
+> - `chat_command` carried the pre-**1.20.5** signed shape. That packet was split in 1.20.5 and the
+>   unsigned form now carries only the command string; the timestamp, salt, signature array and
+>   acknowledged bitset were *"21 bytes extra"* and Paper dropped the connection mid-stage.
+>
+> Both were found by driving a real Paper 1.21.1-133, not by a unit test — the packet table has no
+> other reader. A change to `MINECRAFT_PROTOCOL` must revisit both.
+
 
 - a vanilla client needs a Mojang launcher, an asset index, and an account, none of which belong in CI;
 - two Minecraft clients plus a Paper server plus three workers on one runner is a memory problem, not
@@ -238,7 +286,7 @@ of another module's.
 | `TenantIdTest` | Determinism across restarts, distinctness across endpoints, never collides with a real `NodeId` | [6](Task.6.md) | ⬜ |
 | `TenantLimboTest` | No world interaction before release; a wrong password throttles then disconnects | [6](Task.6.md) | ⬜ |
 | `EndpointHandshakeTest` | The `nodera:v1` flow; replayed challenge refused; a refusal always names a reason | [7](Task.7.md) | ⬜ |
-| `ForeignWriteBridgeTest` | A foreign write is certified; a raced one is reverted **and** fires `NoderaRegionDeniedEvent` | [8](Task.8.md) | ⬜ |
+| `ForeignWriteBridgeTest` | A foreign write into a delegated region is recorded for certification; one that raced a committed delta is refused **and** reaches every plugin as `NoderaRegionDeniedEvent` carrying the region, the block, the reason and the state the world keeps; a bulk write folds every `flushThreshold`; a block outside the palette is neither certified nor refused; `observed` counts every write the bridge is handed — the number a Bukkit-events-only bridge gets wrong for a `//set`. *Not yet: a write over the rate policy revoking the region* | [8](Task.8.md) | ✅ (9) |
 
 > **Why the two custody rows are marked withdrawn (2026-08-06, issue #210).** They carried a ✅ —
 > a claim of proof — against suites that no longer exist. `CustodyDigest` and `CustodyAudit` were

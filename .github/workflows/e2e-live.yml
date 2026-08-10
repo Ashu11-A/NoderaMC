@@ -131,6 +131,15 @@ jobs:
             endpoint|plugins) scripts/stage-server-jars.sh paper ;;
           esac
 
+      # C3 and C4 drive WorldEdit and CoreProtect BY NAME and FAIL when their subject is missing,
+      # rather than noting an empty corpus and carrying on — which is what the scenario used to do,
+      # so "the compatibility suite is green" and "the compatibility suite ran against a server with
+      # no plugins on it" were the same sentence. Pinned by version inside the script, and WorldEdit
+      # is pinned to the same version `:paper-plugin` compiles against (server task 8, L-65).
+      - name: Stage the plugin corpus
+        if: matrix.suite == 'plugins'
+        run: scripts/stage-plugin-corpus.sh
+
       - name: ${{ matrix.suite }} under Xvfb
         env:
           # Only the determinism scenario reads it; empty leaves the scenario's own default.

@@ -26,13 +26,64 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED | Owns L-70. Admission is `registryFingerprint` equality |
-| [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED | Owns L-65. PC-1…PC-4 make "100 %" falsifiable |
+| [8](Task.8.md) | Plugin compatibility contract | 🚧 IN PROGRESS | Owns L-65. PC-1…PC-4 make "100 %" falsifiable. **Deliverables 2, 3 and the feed half of 4, 2026-08-10:** `ForeignWriteBridge` + `BukkitForeignWrites` (gate at `HIGH`, observe at `MONITOR`) + `WorldEditBulkWrites` (WorldEdit's extent pipeline, the only path a `//set` takes) + `NoderaRegionDeniedEvent` on every refusal; corpus pinned by `scripts/stage-plugin-corpus.sh`; `PluginsScenario` gains C3/C4. L-65 stays OPEN on the word *certified* |
 | [9](Task.9.md) | Live acceptance: mixed-client suites + CI | 🚧 IN PROGRESS | The three suites + launcher + CI matrix are **committed and green for the built subset** (enable, ALIGN-1, external link). Headline stages (P5, F3/F6, WorldEdit cert.) skip on open rows |
 | [10](Task.10.md) | Endpoint telemetry + the tenant boundary | 🚧 IN PROGRESS | **L-79 retired 2026-07-26**: `TenantBoundary` + floor landed and tested; the reporter itself remains, and must emit through it |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — a WorldEdit `//set` reaches Nodera's foreign-write guard (issue #176)
+
+The headless half of PC-3 has been green since engine task 11: `MutationGuard` classifies a foreign
+write and `InterferenceCommitter` folds it into the version chain as a signed `EXTERNAL_MUTATION`.
+Nothing had ever fed it from a real server — `endpoints/paper-plugin` had no `compat/` package at
+all, and `PluginsScenario` had stages C0–C2 with no WorldEdit stage in any form, not even a skipped
+one.
+
+**The trap this lands around.** `//set` fires *no Bukkit block event*. A bridge listening to
+`BlockPlaceEvent`, `BlockBreakEvent` and `EntityChangeBlockEvent` would report "certified" for a
+player placing one block by hand and observe **nothing at all** for the bulk operation L-65's exit
+clause names — a stage that looked green while asserting nothing about its own subject. So there are
+two feeds: `BukkitForeignWrites` for the events, and `WorldEditBulkWrites`, which subscribes to
+WorldEdit's own event bus and wraps the `BEFORE_CHANGE` extent at `VERY_EARLY` so it sits innermost,
+nearest the world.
+
+**Evidence — a real Paper 1.21.1-133, WorldEdit 7.3.9, CoreProtect 23.2, driven by hand:**
+
+```
+[NoderaEndpoint] WorldEdit is installed: its bulk write path is bridged into Nodera's foreign-write
+                 certification (server task 8 PC-3).
+nodera_builder issued server command: //set glass
+[NoderaEndpoint] WorldEdit edit session in world: 1280 foreign block write(s) observed, 0 refused,
+                 0 uncaptured
+```
+
+1,280 is exactly the selected volume (16 × 5 × 16), and the same run showed CoreProtect rolling the
+whole edit back — so both plugins observed every block, which is the PC-2 collision test.
+
+**Two live-only defects the run found**, both in the harness rather than the product, and both of
+which made every stage that drives an unmodified client unreachable:
+
+- `ServerVanillaBot.configuration` sent a NINE-field `client_information` packet. `particleStatus`
+  was appended in 1.21.2; on the pinned 1.21.1 Paper answered *"Failed to decode packet
+  'serverbound/minecraft:client_information'"* and closed the connection **after** a successful
+  login — so it read as "the server refused us", not as a packet bug.
+- `ServerVanillaBot.sendCommand` sent the pre-1.20.5 signed shape. `chat_command` was split in
+  1.20.5 and now carries only the command string; the extra timestamp, salt, signature array and
+  bitset were *"21 bytes extra"* and Paper dropped the connection mid-stage.
+
+**One product defect the run found**, which no unit test could have: the per-session report was
+logged from `commitBefore()`, and `BatchingExtent`/`ChunkBatchingExtent` sit *above* the
+`BEFORE_CHANGE` wrapper and hold every block until the commit *operation* is executed. The first live
+run logged `0 foreign block write(s) observed` while the world dutifully turned to stone. The report
+is now an `Operation`, which the queue runs after those flushes.
+
+**L-65 stays OPEN.** The clause is *certified*, and certification needs a delegated region (tasks
+[2](Task.2.md)/[3](Task.3.md)) and a node key the endpoint does not hold under `peer.mode: external`
+(L-71). The bridge is wired with an empty delegation view and a sink that returns nothing —
+deliberately, and visibly, in `NoderaEndpointPlugin.installForeignWriteBridge`.
 
 ### 2026-08-10 — the cross-Folia-region delta is detectable, refusable, and commitable (issue #179)
 

@@ -1,7 +1,13 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.coordinator.interference.InterferenceBuffer;
+import dev.nodera.coordinator.interference.InterferenceStats;
+import dev.nodera.coordinator.interference.MutationGuard;
 import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.endpoint.paper.compat.BukkitForeignWrites;
+import dev.nodera.endpoint.paper.compat.ForeignWriteBridge;
+import dev.nodera.endpoint.paper.compat.WorldEditBulkWrites;
 import dev.nodera.endpoint.paper.world.CrossRegionCommit;
 import dev.nodera.endpoint.paper.world.CrossRegionRefusedException;
 import dev.nodera.endpoint.paper.world.FoliaOwnershipProbe;
@@ -10,6 +16,8 @@ import dev.nodera.peer.control.CompanionClient;
 import dev.nodera.core.region.RegionAlignment;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.Optional;
 
 /**
  * `nodera-endpoint` — the Paper/Folia endpoint plugin's entry point (server task 1, L-61).
@@ -29,11 +37,23 @@ import org.bukkit.plugin.java.JavaPlugin;
  */
 public final class NoderaEndpointPlugin extends JavaPlugin {
 
+    /**
+     * Pending foreign writes before a region is folded into the certified chain.
+     *
+     * <p>PC-3 consequence 1 made operational: a {@code //set} over a million blocks becomes a stream
+     * of bounded deltas rather than one delta the size of the operation. 4096 is one region's worth
+     * of a 16×16×16 volume — small enough that a bulk edit never parks an unbounded buffer on the
+     * server thread, large enough that an ordinary player's building never flushes at all.
+     */
+    private static final int FOREIGN_WRITE_FLUSH_THRESHOLD = 4096;
+
     private EndpointPlatform platform = EndpointPlatform.UNKNOWN;
     private EndpointConfig config;
     private EndpointPeerLink peerLink;
     private NoderaFoliaRegionMap regionMap;
     private CrossRegionCommit crossRegionCommit;
+    private ForeignWriteBridge foreignWrites;
+    private WorldEditBulkWrites worldEditWrites;
 
     @Override
     public void onEnable() {
@@ -87,7 +107,87 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
                 + (config.listed() ? " · listed" : " · unlisted")
                 + " · " + config.trackers().size() + " tracker(s)");
 
+        installForeignWriteBridge();
         linkPeer();
+    }
+
+    /**
+     * PC-3, wired: every foreign write this endpoint can see reaches the interference guard
+     * (server task 8 deliverables 2–4, L-65).
+     *
+     * <blockquote><b>Plugins keep authority over the world; Nodera certifies what they did.</b>
+     * </blockquote>
+     *
+     * <p>Two feeds, because one of them is not enough and believing otherwise is the failure this
+     * method's shape exists to prevent:
+     *
+     * <ul>
+     *   <li>{@link BukkitForeignWrites} — the Bukkit events, gating at {@code HIGH} and observing at
+     *       {@code MONITOR} beside CoreProtect;</li>
+     *   <li>{@link WorldEditBulkWrites} — WorldEdit's own extent pipeline, which is the ONLY way to
+     *       see a {@code //set}. It fires no Bukkit event at all.</li>
+     * </ul>
+     *
+     * <h2>What is honestly connected, and what is not</h2>
+     *
+     * <p>The delegation view is <b>empty</b> and the certification sink returns nothing, and both are
+     * deliberate rather than unfinished-by-accident:
+     *
+     * <ul>
+     *   <li>nothing on the plugin path delegates a region yet — that is server tasks 2 and 3 — so
+     *       "is this region delegated" has exactly one honest answer today, and a predicate that
+     *       guessed anything else would certify writes into a chain that does not exist;</li>
+     *   <li>an {@code EXTERNAL_MUTATION} certificate is <b>signed by the node</b>, and under
+     *       {@code peer.mode: external} the node and its key are a separate process (L-71). The
+     *       endpoint can classify, gate, announce and record today; it cannot sign.</li>
+     * </ul>
+     *
+     * <p>So on this tree the bridge's honest output is {@code observed} — the count of foreign
+     * writes that reached Nodera — and that is exactly the number the live corpus stage reads,
+     * because it is the number a Bukkit-events-only bridge would get wrong for a {@code //set}.
+     * L-65's "certified" clause is not met by this method and the register says so.
+     */
+    private void installForeignWriteBridge() {
+        foreignWrites = new ForeignWriteBridge(
+                // CONVERT is the product default and the only mode that keeps a plugin's write.
+                // STRICT cancels foreign writes outright and exists for CI determinism runs.
+                new MutationGuard(region -> false, MutationGuard.Mode.CONVERT,
+                        new InterferenceBuffer(), new InterferenceStats()),
+                region -> Optional.empty(),
+                (region, pos) -> ForeignWriteBridge.CertifiedHead.UNKNOWN,
+                BukkitForeignWrites.denials(this),
+                FOREIGN_WRITE_FLUSH_THRESHOLD);
+        getServer().getPluginManager()
+                .registerEvents(new BukkitForeignWrites(foreignWrites, this), this);
+        installWorldEditBridge();
+    }
+
+    /**
+     * Subscribe to WorldEdit's event bus, if this server has WorldEdit.
+     *
+     * <p>Guarded by a class check and a {@code LinkageError} catch because {@code paper-plugin.yml}
+     * gives every plugin its own classloader: without the {@code dependencies.server.WorldEdit}
+     * entry in that descriptor these types are simply not visible, and with it they are visible only
+     * when WorldEdit is installed. A server without WorldEdit must still enable this plugin, so the
+     * absence is an {@code info} line and never a refusal.
+     */
+    private void installWorldEditBridge() {
+        try {
+            Class.forName("com.sk89q.worldedit.WorldEdit");
+        } catch (ClassNotFoundException | LinkageError absent) {
+            getLogger().info("WorldEdit is not installed, so no bulk-write bridge is needed."
+                    + " Bukkit's block events are the whole foreign-write feed on this server.");
+            return;
+        }
+        try {
+            worldEditWrites = new WorldEditBulkWrites(foreignWrites, this);
+            worldEditWrites.install();
+        } catch (RuntimeException | LinkageError broken) {
+            worldEditWrites = null;
+            getLogger().warning("WorldEdit is installed but its bulk write path could NOT be bridged"
+                    + " (" + broken + "). A //set on this server is invisible to Nodera; hand-placed"
+                    + " blocks are still observed. This is a compatibility gap, not a refusal.");
+        }
     }
 
     /**
@@ -137,6 +237,17 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (worldEditWrites != null) {
+            // A WorldEdit bus subscription that outlives the plugin holds our whole classloader.
+            worldEditWrites.uninstall();
+            worldEditWrites = null;
+        }
+        if (foreignWrites != null) {
+            // A buffer that outlives the server is a foreign write nobody ever certified.
+            foreignWrites.flushAll();
+            getLogger().info(foreignWrites.summary());
+            foreignWrites = null;
+        }
         if (peerLink != null) {
             peerLink.close();
             peerLink = null;

@@ -76,6 +76,17 @@ import java.util.Set;
  *       class for what it does and does not reach.</li>
  * </ol>
  *
+ * <h2>What "certified" costs today</h2>
+ *
+ * <p>{@link #record} can only answer {@link Outcome#CERTIFIED} for a region the guard calls
+ * <i>delegated</i>, and on this tree <b>nothing on the plugin path delegates a region</b> — that is
+ * server tasks 2 and 3. So a live endpoint drives this class with an empty delegation view and every
+ * write answers {@link Outcome#PASS}. {@link #observed} is the counter that still moves, and it is
+ * the one the live stage reads: it is the difference between "the bulk path reaches Nodera" and "the
+ * bulk path is invisible to Nodera", which is a real, falsifiable property and is exactly what a
+ * Bukkit-events-only bridge would get wrong. It is <b>not</b> L-65's exit clause, and this file does
+ * not pretend otherwise.
+ *
  * @Thread-context one instance per endpoint. Every method must be called from the thread that owns
  *                 the region being written — the main thread on Paper, that region's thread on
  *                 Folia. The guard's single-writer discipline is what this inherits; there is no
@@ -181,6 +192,7 @@ public final class ForeignWriteBridge {
     private final Set<RegionId> pending = new LinkedHashSet<>();
     private int pendingWrites;
 
+    private long observed;
     private long passed;
     private long certified;
     private long refused;
@@ -280,6 +292,7 @@ public final class ForeignWriteBridge {
         if (source == null) {
             throw new IllegalArgumentException("source must not be null");
         }
+        observed++;
         int previousId = VanillaPalette.idFor(before.key(), before.properties());
         int newId = VanillaPalette.idFor(after.key(), after.properties());
         if (previousId == VanillaPalette.UNSUPPORTED || newId == VanillaPalette.UNSUPPORTED) {
@@ -335,13 +348,20 @@ public final class ForeignWriteBridge {
     /**
      * One line an operator can read, and the only thing the plugin logs on a quiet server.
      *
-     * <p>{@code not certifiable} is the number that matters on this tree: regions whose foreign
-     * writes were recorded and then could not be signed, which is the honest shape of the note on
-     * {@link Certification}.
+     * <p>{@code observed} leads because it is the number that is meaningful before a region is ever
+     * delegated: it separates "the write reached Nodera" from "the write was certified", and only
+     * the first question has an answer on this tree. {@code not certifiable} is the honest shape of
+     * the note on {@link Certification} — regions whose foreign writes were recorded and then could
+     * not be signed.
+     *
+     * <p>There is deliberately no per-counter accessor. The counters exist to be read by a human in
+     * a log and by the live corpus stage that greps one, and an accessor per field would be six
+     * methods with one caller each, in a test.
      */
     public String summary() {
-        return "foreign writes: " + passed + " passed · " + certified + " certified · "
-                + refused + " refused · " + unsupported + " outside the palette · "
+        return "foreign writes: " + observed + " observed · " + passed + " passed · "
+                + certified + " certified · " + refused + " refused · "
+                + unsupported + " outside the palette · "
                 + uncertifiable + " recorded but not certifiable";
     }
 

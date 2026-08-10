@@ -327,10 +327,19 @@ public final class ServerVanillaBot implements AutoCloseable {
     /** The configuration phase, accepted wholesale. */
     public void configuration() {
         try {
-            // A minimal, honest client-information packet: locale, view distance, chat settings,
-            // skin parts, main hand, text filtering, server listing, particles.
+            // A minimal, honest client-information packet: locale, view distance, chat mode, chat
+            // colours, skin parts, main hand, text filtering, server listing.
+            //
+            // EIGHT fields, not nine. `particleStatus` was appended to this packet in 1.21.2; on
+            // the 1.21.1 the mod pins ({@link ServerEndpointSupport#MINECRAFT_PROTOCOL} 767) a
+            // ninth field is one byte too many, and Paper answers "Failed to decode packet
+            // 'serverbound/minecraft:client_information'" and closes the connection during
+            // CONFIGURATION — after a successful login, which is why it reads as "the server
+            // refused us" rather than as a packet bug. Every stage that drives an unmodified client
+            // was unreachable until this matched the pin. Verified against a real Paper 1.21.1-133
+            // on 2026-08-10 (issue #176).
             byte[] info = concat(mcString("en_us"), new byte[] {10}, varInt(0), new byte[] {1},
-                    new byte[] {0x7F}, varInt(1), new byte[] {0}, new byte[] {1}, varInt(0));
+                    new byte[] {0x7F}, varInt(1), new byte[] {0}, new byte[] {1});
             send(ids.get("sb_cfg_client_information"), info);
             send(ids.get("sb_cfg_plugin_message"),
                     concat(mcString("minecraft:brand"), mcString("nodera-vanilla-bot")));
@@ -418,14 +427,22 @@ public final class ServerVanillaBot implements AutoCloseable {
         return true;
     }
 
-    /** Run a command as the player — WITHOUT the leading slash. */
+    /**
+     * Run a command as the player — WITHOUT the leading slash.
+     *
+     * <p>A WorldEdit command keeps its own leading slash, because that is part of the command's
+     * NAME: chat {@code //set} is command {@code /set}. So {@code sendCommand("/set stone")} is
+     * right and {@code sendCommand("//set stone")} is a command nobody registered.
+     */
     public void sendCommand(String command) {
         try {
-            // ChatCommand: the command, a timestamp, a salt, an empty signature array, and the
-            // message-count/acknowledged bitset.
-            send(ids.get("sb_play_chat_command"), concat(mcString(command),
-                    longBe(System.currentTimeMillis()), longBe(0), varInt(0), varInt(0),
-                    new byte[3]));
+            // The command, and nothing else. 1.20.5 split ServerboundChatCommandPacket in two: the
+            // unsigned form (0x04 here) carries ONLY the command string, and the timestamp, salt,
+            // signature array and acknowledged bitset moved to chat_command_signed. Sending the old
+            // shape put 21 unexpected bytes on the wire and Paper closed the connection mid-stage,
+            // which reads as "the server kicked the bot" rather than as a packet bug. Verified
+            // against a real Paper 1.21.1-133 on 2026-08-10 (issue #176).
+            send(ids.get("sb_play_chat_command"), mcString(command));
         } catch (IOException e) {
             die("could not send the command '" + command + "': " + e);
         }

@@ -18,6 +18,7 @@ import org.bukkit.plugin.Plugin;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
@@ -61,14 +62,22 @@ import java.util.logging.Level;
  *                 region's thread on Folia. Nothing here is shared across regions except the
  *                 dimension-key cache, which is written with values that are always equal.
  */
-public final class BukkitForeignWrites implements Listener, ForeignWriteBridge.Denials {
+public final class BukkitForeignWrites implements Listener {
 
     /** Blocks per Nodera region axis: {@code REGION_SIZE_CHUNKS} chunks of 16. */
     private static final int CHUNK_SHIFT = 4;
 
+    /**
+     * World key → Nodera dimension, shared with {@link WorldEditBulkWrites}.
+     *
+     * <p>Static because both adapters ask the same question about the same worlds, and concurrent
+     * because on Folia two region threads ask it at once. Every write stores an equal value for an
+     * equal key, so a race can only ever recompute one.
+     */
+    private static final Map<String, DimensionKey> DIMENSIONS = new ConcurrentHashMap<>();
+
     private final ForeignWriteBridge bridge;
     private final Plugin plugin;
-    private final Map<String, DimensionKey> dimensions = new HashMap<>();
 
     public BukkitForeignWrites(ForeignWriteBridge bridge, Plugin plugin) {
         if (bridge == null) {
@@ -155,24 +164,52 @@ public final class BukkitForeignWrites implements Listener, ForeignWriteBridge.D
     // Denials
     // -------------------------------------------------------------------------------------
 
-    @Override
-    public void deny(ForeignWriteBridge.Denial denial) {
+    /**
+     * How a refusal reaches the rest of the server: as {@link NoderaRegionDeniedEvent}, always.
+     *
+     * <p>Static, and therefore <b>not</b> a method on the listener, for a reason worth stating: the
+     * bridge needs a {@code Denials} to construct and the listener needs the bridge to construct, so
+     * making the listener the publisher would be a cycle. It does not need to be one — publishing a
+     * denial needs the plugin and nothing else.
+     */
+    public static ForeignWriteBridge.Denials denials(Plugin plugin) {
+        if (plugin == null) {
+            throw new IllegalArgumentException("plugin must not be null");
+        }
+        return denial -> {
+            NoderaRegionDeniedEvent event = denialEvent(plugin, denial);
+            if (event != null) {
+                plugin.getServer().getPluginManager().callEvent(event);
+            }
+        };
+    }
+
+    /**
+     * One denial as the event every other plugin on the server receives.
+     *
+     * <p>Split out of {@link #denials} so the payload deliverable 3 promises — region, location,
+     * reason, and the state the world KEEPS — is assertable without a running server.
+     *
+     * @return the event, or {@code null} when the world it names is no longer loaded. That is the
+     *         one case where a denial cannot be located, and it is logged rather than dropped: a
+     *         denial nobody can find is still a denial, and silence is what this whole class exists
+     *         to avoid.
+     */
+    static NoderaRegionDeniedEvent denialEvent(Plugin plugin, ForeignWriteBridge.Denial denial) {
         org.bukkit.World world = plugin.getServer().getWorld(
                 new org.bukkit.NamespacedKey(denial.region().dimension().namespace(),
                         denial.region().dimension().path()));
         if (world == null) {
-            // The only way here is a region in a world that has been unloaded between the write and
-            // the denial. Say so; a denial that cannot be located is still a denial.
             plugin.getLogger().warning("Nodera refused a write in " + denial.region()
                     + " (" + denial.reason() + ") but that world is no longer loaded");
-            return;
+            return null;
         }
-        plugin.getServer().getPluginManager().callEvent(new NoderaRegionDeniedEvent(
+        return new NoderaRegionDeniedEvent(
                 denial.region().toString(),
                 new org.bukkit.Location(world, denial.pos().x(), denial.pos().y(),
                         denial.pos().z()),
                 denial.reason(),
-                asRegistryKey(denial.certified())));
+                asRegistryKey(denial.certified()));
     }
 
     // -------------------------------------------------------------------------------------
@@ -180,9 +217,13 @@ public final class BukkitForeignWrites implements Listener, ForeignWriteBridge.D
     // -------------------------------------------------------------------------------------
 
     /** The Nodera region a block falls in. */
-    private RegionId regionOf(Block block) {
-        return RegionId.fromChunk(dimensionOf(block), block.getX() >> CHUNK_SHIFT,
-                block.getZ() >> CHUNK_SHIFT);
+    private static RegionId regionOf(Block block) {
+        return regionOf(block.getWorld(), block.getX(), block.getZ());
+    }
+
+    /** The Nodera region a block coordinate in {@code world} falls in. */
+    static RegionId regionOf(org.bukkit.World world, int blockX, int blockZ) {
+        return RegionId.fromChunk(dimensionOf(world), blockX >> CHUNK_SHIFT, blockZ >> CHUNK_SHIFT);
     }
 
     private static NBlockPos posOf(Block block) {
@@ -196,23 +237,31 @@ public final class BukkitForeignWrites implements Listener, ForeignWriteBridge.D
      * dimension and collapse two regions into one. The key is what Minecraft itself identifies a
      * level by, and it is what the mod reads from {@code ServerLevel#dimension()}.
      */
-    private DimensionKey dimensionOf(Block block) {
-        org.bukkit.NamespacedKey key = block.getWorld().getKey();
-        return dimensions.computeIfAbsent(key.toString(),
+    static DimensionKey dimensionOf(org.bukkit.World world) {
+        org.bukkit.NamespacedKey key = world.getKey();
+        return DIMENSIONS.computeIfAbsent(key.toString(),
                 ignored -> DimensionKey.of(key.getNamespace(), key.getKey()));
     }
 
-    /**
-     * A Bukkit block state as the palette's {@code (key, properties)} pair.
-     *
-     * <p>Read from {@link BlockData#getAsString()} rather than from the typed {@code BlockData}
-     * subinterfaces, because the palette's binding is keyed by vanilla's own property spellings and
-     * that string is exactly those: {@code minecraft:redstone_torch[lit=true]}. Going through the
-     * typed API would mean a {@code switch} over every {@code BlockData} subtype that drifts every
-     * Minecraft version, for the same answer.
-     */
+    /** A Bukkit block state as the palette's {@code (key, properties)} pair. */
     static VanillaPalette.VanillaBlock stateOf(BlockData data) {
-        String encoded = data.getAsString();
+        return stateOf(data.getAsString());
+    }
+
+    /**
+     * A vanilla block-state string as the palette's {@code (key, properties)} pair.
+     *
+     * <p>Read from the encoded form — {@code minecraft:redstone_torch[lit=true]} — rather than from
+     * the typed {@code BlockData} subinterfaces, because the palette's binding is keyed by vanilla's
+     * own property spellings and that string is exactly those. Going through the typed API would
+     * mean a {@code switch} over every {@code BlockData} subtype that drifts every Minecraft
+     * version, for the same answer.
+     *
+     * <p>It is also why {@link WorldEditBulkWrites} can share this method: WorldEdit's
+     * {@code BlockState#getAsString()} produces the identical spelling, because both are printing
+     * the same registry.
+     */
+    static VanillaPalette.VanillaBlock stateOf(String encoded) {
         int bracket = encoded.indexOf('[');
         if (bracket < 0) {
             return VanillaPalette.VanillaBlock.of(encoded);
@@ -235,12 +284,21 @@ public final class BukkitForeignWrites implements Listener, ForeignWriteBridge.D
         return VanillaPalette.VanillaBlock.of("minecraft:air");
     }
 
-    /** A palette state as something a plugin can read out of the denied event. */
+    /**
+     * A palette state as something a plugin can read out of the denied event.
+     *
+     * <p>The namespace is restored here. The palette's own reverse table stores bare paths
+     * ({@code stone}), which is right for the consensus tables and wrong for an event another
+     * plugin's author reads: {@code Material.matchMaterial} and every registry lookup on the
+     * platform expect {@code minecraft:stone}.
+     */
     static String asRegistryKey(VanillaPalette.VanillaBlock block) {
+        String key = block.key().indexOf(':') >= 0
+                ? block.key() : VanillaPalette.NAMESPACE + ":" + block.key();
         if (block.properties().isEmpty()) {
-            return block.key();
+            return key;
         }
-        StringBuilder rendered = new StringBuilder(block.key()).append('[');
+        StringBuilder rendered = new StringBuilder(key).append('[');
         boolean first = true;
         for (Map.Entry<String, String> property : new java.util.TreeMap<>(block.properties())
                 .entrySet()) {
