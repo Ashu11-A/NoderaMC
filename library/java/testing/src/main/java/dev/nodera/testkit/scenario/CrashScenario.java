@@ -72,7 +72,7 @@ public final class CrashScenario implements Scenario {
         context.stage("X0", "two players in-world on the staged world, every peer up", () -> {
             Path config = HostWorldSupport.stagedWorld(context);
             // The crash test measures disruption, not the ownership drive.
-            HostWorldSupport.setHostConfig(config, "debug", "regionDrive", "false");
+            LiveStack.setHostConfig(config, "debug", "regionDrive", "false");
             players[0] = HostWorldSupport.hostedTwoPlayers(context);
             HostWorldSupport.awaitMemberNodes(context, hostLog, "X0");
             context.settle(Duration.ofSeconds(10));  // let the session settle so the crash hits a
@@ -102,8 +102,10 @@ public final class CrashScenario implements Scenario {
 
         context.stage("X2", "the survivor is undisturbed: no continuity arm, no migration screen, "
                 + "no errors", () -> {
-            hostLog.awaitAfter("JoinerDev left the game", Duration.ofSeconds(120), mark[0]);
-            hostLog.awaitAfter("member node(s)", Duration.ofSeconds(240), mark[0]);
+            hostLog.awaitWithLagGuard("JoinerDev left the game", Duration.ofSeconds(120),
+                    hostLogFile, mark[0]);
+            hostLog.awaitWithLagGuard("member node(s)", Duration.ofSeconds(240),
+                    hostLogFile, mark[0]);
             context.settle(Duration.ofSeconds(20));  // observation window: any delayed fallout shows
                                                      // up here
 
@@ -134,7 +136,8 @@ public final class CrashScenario implements Scenario {
         context.stage("X3", "the world is still live: player B rejoins the same session", () -> {
             mark[0] = hostLog.lineCount();
             stack.startClient("runClientJoin", "client-rejoin.log");
-            hostLog.awaitAfter("JoinerDev joined the game", Duration.ofSeconds(600), mark[0]);
+            hostLog.awaitWithLagGuard("JoinerDev joined the game", Duration.ofSeconds(600),
+                    hostLogFile, mark[0]);
         });
 
         stack.collectWorkerState();

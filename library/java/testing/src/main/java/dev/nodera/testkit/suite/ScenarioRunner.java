@@ -65,12 +65,13 @@ public final class ScenarioRunner {
     /** Run one scenario, whatever happens. */
     public ScenarioResult run(Scenario scenario) {
         Instant started = Instant.now();
-        Optional<String> unmet = scenario.requirements().unmet(paths);
+        Optional<Skip> unmet = scenario.requirements().unmet(paths);
         var resultsDir = paths.newRunDirectory(scenario.id());
         if (unmet.isPresent()) {
             return new ScenarioResult(scenario.id(), scenario.title(),
-                    List.copyOf(scenario.tags()), StageResult.Outcome.SKIPPED, unmet.get(),
-                    List.of(), started, Duration.between(started, Instant.now()), resultsDir);
+                    List.copyOf(scenario.tags()), StageResult.Outcome.SKIPPED,
+                    unmet.get().reason(), List.of(), started,
+                    Duration.between(started, Instant.now()), resultsDir, unmet.get().kind());
         }
 
         Topology topology = scenario.topology();
@@ -88,7 +89,7 @@ public final class ScenarioRunner {
             return new ScenarioResult(scenario.id(), scenario.title(), List.copyOf(scenario.tags()),
                     StageResult.Outcome.SKIPPED, skip.getMessage(),
                     context == null ? List.of() : context.stages(), started,
-                    Duration.between(started, Instant.now()), resultsDir);
+                    Duration.between(started, Instant.now()), resultsDir, skip.kind());
         } catch (Exception failure) {
             return new ScenarioResult(scenario.id(), scenario.title(), List.copyOf(scenario.tags()),
                     StageResult.Outcome.FAILED, describe(failure),

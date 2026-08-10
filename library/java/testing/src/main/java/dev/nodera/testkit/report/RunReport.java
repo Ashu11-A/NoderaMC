@@ -46,9 +46,40 @@ public final class RunReport {
         this.generatedAt = Instant.now();
     }
 
-    /** {@code true} if any scenario failed — the runner's exit status. */
+    /** {@code true} if any scenario failed. */
     public boolean anyFailed() {
         return scenarios.stream().anyMatch(ScenarioResult::failed);
+    }
+
+    /** {@code true} if any scenario did not run. */
+    public boolean anySkipped() {
+        return scenarios.stream().anyMatch(ScenarioResult::skipped);
+    }
+
+    /** How many scenarios did not run. */
+    public long skippedCount() {
+        return scenarios.stream().filter(ScenarioResult::skipped).count();
+    }
+
+    /**
+     * {@code true} if any scenario was skipped for a reason the machine does not explain.
+     *
+     * <p>Separate from {@link #anySkipped} because the two have different verdicts: a structural
+     * skip is never tolerable, and a circumstantial one is tolerable only when the operator says
+     * so. Both used to be the same boolean and neither affected the exit status at all — a matrix
+     * in which every leg skipped exited 0 and rendered green.
+     */
+    public boolean anyStructuralSkip() {
+        return scenarios.stream().anyMatch(ScenarioResult::skippedStructurally);
+    }
+
+    /** The ids and reasons of every skipped scenario, one per line. */
+    public String skipSummary() {
+        return scenarios.stream().filter(ScenarioResult::skipped)
+                .map(result -> "  " + result.id() + " ["
+                        + (result.skipKind() == null ? "CIRCUMSTANTIAL" : result.skipKind())
+                        + "] " + result.message())
+                .reduce((a, b) -> a + "\n" + b).orElse("");
     }
 
     /** A one-line summary for a terminal or a CI step name. */
@@ -131,6 +162,8 @@ public final class RunReport {
         StringBuilder out = new StringBuilder("{\n");
         out.append("  \"generatedAt\": \"").append(generatedAt).append("\",\n");
         out.append("  \"headline\": \"").append(headline()).append("\",\n");
+        out.append("  \"skipped\": ").append(skippedCount()).append(",\n");
+        out.append("  \"structuralSkips\": ").append(anyStructuralSkip()).append(",\n");
         out.append("  \"scenarios\": [");
         for (int i = 0; i < scenarios.size(); i++) {
             ScenarioResult result = scenarios.get(i);
@@ -139,6 +172,8 @@ public final class RunReport {
             out.append("      \"id\": \"").append(result.id()).append("\",\n");
             out.append("      \"title\": ").append(quote(result.title())).append(",\n");
             out.append("      \"outcome\": \"").append(result.outcome()).append("\",\n");
+            out.append("      \"skipKind\": ").append(result.skipKind() == null ? "null"
+                    : quote(result.skipKind().toString())).append(",\n");
             out.append("      \"message\": ").append(quote(result.message())).append(",\n");
             out.append("      \"durationSeconds\": ").append(result.duration().toSeconds()).append(",\n");
             out.append("      \"resultsDir\": ").append(quote(result.resultsDir().toString())).append(",\n");
