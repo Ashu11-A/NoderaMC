@@ -414,21 +414,40 @@ public final class CompanionClient implements CompanionProbe {
      */
     public Optional<String> fetchRegion(String worldId, String dimension, int regionX, int regionZ,
                                         java.nio.file.Path destPath, String haveIndexRoot,
-                                        long timeoutSeconds) {
-        String reply = exchange(ControlProtocol.FETCH_REGION + " "
-                        + ControlProtocol.PROTOCOL_VERSION
-                        + " " + worldId + " " + dimension + " " + regionX + " " + regionZ
-                        + " " + b64Path(destPath)
-                        // The sentinel, not an empty token: the line is split on whitespace, so an
-                        // empty argument silently shifts every later one along by a position.
-                        + " " + (haveIndexRoot == null || haveIndexRoot.isBlank()
-                                ? ControlProtocol.NO_VALUE : haveIndexRoot)
-                        + " " + timeoutSeconds,
-                (int) Math.max(15_000L, timeoutSeconds * 1000L + 5_000L));
+                                        long timeoutSeconds, RegionStaging onStaged) {
+        String request = ControlProtocol.FETCH_REGION + " "
+                + ControlProtocol.PROTOCOL_VERSION
+                + " " + worldId + " " + dimension + " " + regionX + " " + regionZ
+                + " " + b64Path(destPath)
+                // The sentinel, not an empty token: the line is split on whitespace, so an
+                // empty argument silently shifts every later one along by a position.
+                + " " + (haveIndexRoot == null || haveIndexRoot.isBlank()
+                        ? ControlProtocol.NO_VALUE : haveIndexRoot)
+                + " " + timeoutSeconds;
+        int budget = (int) Math.max(15_000L, timeoutSeconds * 1000L + 5_000L);
+        String reply = onStaged == null
+                ? exchange(request, budget)
+                : exchangeWithProgress(request, budget, (verified, total, staged) -> {
+                    if (staged != null) {
+                        onStaged.staged(java.nio.file.Path.of(staged), verified, total);
+                    }
+                });
         if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
         return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
+    }
+
+    /** Where the worker has staged the columns of a region that have arrived so far. */
+    @FunctionalInterface
+    public interface RegionStaging {
+
+        /**
+         * @param partial  a file holding a {@code RegionSnapshot} of the columns verified so far.
+         * @param verified pieces verified.
+         * @param total    pieces in the region.
+         */
+        void staged(java.nio.file.Path partial, int verified, int total);
     }
 
     /**
@@ -533,6 +552,23 @@ public final class CompanionClient implements CompanionProbe {
      */
     private String exchangeWithProgress(String requestLine, int readTimeoutMs,
                                         ArchiveProgress progress) {
+        return exchangeWithProgress(requestLine, readTimeoutMs,
+                (verified, total, staged) -> progress.at(verified, total));
+    }
+
+    /**
+     * One decoded {@code NODERA-PROGRESS} line.
+     *
+     * @param staged the third token's decoded path, or {@code null} when the line carries only the
+     *               two counts (an archive fetch, or any worker predating network L-33).
+     */
+    @FunctionalInterface
+    private interface ProgressLine {
+        void at(int verified, int total, String staged);
+    }
+
+    private String exchangeWithProgress(String requestLine, int readTimeoutMs,
+                                        ProgressLine progress) {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), timeoutMs);
             socket.setSoTimeout(readTimeoutMs);
@@ -550,8 +586,12 @@ public final class CompanionClient implements CompanionProbe {
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 3) {
                         try {
-                            progress.at(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
-                        } catch (NumberFormatException malformed) {
+                            progress.at(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]),
+                                    parts.length >= 4
+                                            ? new String(java.util.Base64.getDecoder()
+                                                    .decode(parts[3]), StandardCharsets.UTF_8)
+                                            : null);
+                        } catch (IllegalArgumentException malformed) {
                             // A progress line we cannot read is still evidence the worker is alive,
                             // which is the half that matters here.
                         }

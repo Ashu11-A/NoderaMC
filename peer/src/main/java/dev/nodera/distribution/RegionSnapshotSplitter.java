@@ -143,6 +143,77 @@ public final class RegionSnapshotSplitter {
     }
 
     /**
+     * The columns one verified piece carries, decoded on its own — the render-on-arrival inversion.
+     *
+     * <h2>Why a piece can be read without the rest of the blob</h2>
+     *
+     * <p>{@link PieceSplitter} only ever cuts at declared record boundaries, and its own header says
+     * why: "a piece must be independently <i>usable</i>, not merely independently transferable …
+     * cutting mid-record would produce pieces that verify by hash yet decode to nothing on their
+     * own, which defeats render-on-arrival". This is the method that finally spends that property.
+     * A receiver holding piece {@code p} of a region it is still downloading can put the columns
+     * that piece carries into the world <b>now</b>, instead of waiting for the last piece and then
+     * writing the whole region at once.
+     *
+     * <p>The mapping is the manifest's, not a guess: {@code pieceOfChunk.get(i)} names the piece
+     * carrying the {@code i}-th column of the region's canonical chunk order, so both how many
+     * columns a piece holds and the order they sit in are stated by the seeder. Piece 0 additionally
+     * opens with the snapshot's frame header (record 0), which is read past here; a piece whose tail
+     * is the entity list is handled by reading exactly as many column records as the mapping claims
+     * and stopping.
+     *
+     * @param manifest   the manifest being fetched; must be v2 ({@link PieceManifest#hasChunkIndex}).
+     * @param pieceIndex the verified piece.
+     * @param payload    that piece's bytes, already hash-checked against the manifest.
+     * @return the columns, in blob order; empty when this piece carries none, when the manifest
+     *         cannot say (v1), when the payload is ciphertext, or when the bytes do not decode
+     *         standalone. Empty is always the safe answer: it renders nothing early, and the
+     *         completed fetch still writes the whole region.
+     * @Thread-context any thread; stateless.
+     */
+    public static List<ChunkColumnState> columnsIn(
+            PieceManifest manifest, int pieceIndex, Bytes payload) {
+        if (manifest == null || payload == null || !manifest.hasChunkIndex()
+                || manifest.encrypted()) {
+            return List.of();
+        }
+        int columns = 0;
+        for (int piece : manifest.pieceOfChunk()) {
+            if (piece == pieceIndex) {
+                columns++;
+            }
+        }
+        if (columns == 0) {
+            return List.of();
+        }
+        try {
+            dev.nodera.core.crypto.CanonicalReader r =
+                    new dev.nodera.core.crypto.CanonicalReader(payload);
+            if (pieceIndex == 0) {
+                // Record 0 is RegionSnapshot's frame header, and it is only ever in piece 0. Read it
+                // exactly as RegionSnapshot.decode does, so a change to that frozen encoding breaks
+                // here loudly rather than mis-slicing a column.
+                r.expectFrame(TypeTags.REGION_SNAPSHOT, "REGION_SNAPSHOT");
+                r.readU16();
+                dev.nodera.core.region.RegionId.decode(r);
+                dev.nodera.core.state.SnapshotVersion.decode(r);
+                r.readU64();
+                r.readU32();
+            }
+            java.util.List<ChunkColumnState> decoded = new java.util.ArrayList<>(columns);
+            for (int i = 0; i < columns; i++) {
+                decoded.add(ChunkColumnState.decode(r));
+            }
+            return List.copyOf(decoded);
+        } catch (RuntimeException notSelfContained) {
+            // A piece that will not decode alone is not an error here: the transfer is still correct
+            // and the assembled blob is still verified against the certified region root. All that is
+            // lost is showing this column early.
+            return List.of();
+        }
+    }
+
+    /**
      * Split {@code snapshot} one piece per chunk column ({@link #PIECE_PER_COLUMN}).
      *
      * @param snapshot the snapshot to split.

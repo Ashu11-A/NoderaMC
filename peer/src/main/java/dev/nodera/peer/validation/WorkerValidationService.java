@@ -225,6 +225,45 @@ public final class WorkerValidationService {
     private final CertificateStore certificates;
     private final MutableWorldView world;
     private final WorldMutationApplier applier;
+
+    /**
+     * The L-33 arrival guard (network limitations register, row L-33).
+     *
+     * <p>Every world write in the product goes through {@link WorldMutationApplier}, and the applier
+     * has carried a {@code ChunkEditability} seam — and an adapter onto the download lane's lock map
+     * — since the piece plane landed. Both production constructions installed
+     * {@code ChunkEditability.ALL_EDITABLE} instead, so the guard existed and never ran; the
+     * 2026-07-29 audit moved L-33 back to OPEN over exactly that.
+     *
+     * <p>It is a bound field rather than a constructor argument because what it consults is the
+     * download lane, which the node builds after the validation lane and which does not exist at all
+     * in the mod's two constructions. {@link #bindChunkLocks} is called once, at wiring time, by the
+     * process that owns both.
+     *
+     * <p><b>The default is ALL_EDITABLE and must stay that way.</b> Unbound means "nothing in this
+     * process can tell me what is arriving", and the only safe answer to that is "everything is
+     * editable": a wrong "locked" here does not slow a fetch down, it stops the game.
+     */
+    private volatile WorldMutationApplier.ChunkEditability chunkLocks =
+            WorldMutationApplier.ChunkEditability.ALL_EDITABLE;
+
+    /**
+     * Install the arrival guard: refuse a write into a column whose content is still in flight.
+     *
+     * @param locks the seam — {@code WorldArchiveService.chunkEditability()} in the worker.
+     *              {@code null} restores the fail-open default.
+     * @Thread-context any thread; takes effect on the next delta.
+     */
+    public void bindChunkLocks(WorldMutationApplier.ChunkEditability locks) {
+        this.chunkLocks = locks == null ? WorldMutationApplier.ChunkEditability.ALL_EDITABLE : locks;
+    }
+
+    /** The applier's view of {@link #chunkLocks}; see {@link #bindChunkLocks}. */
+    private boolean columnHasArrived(dev.nodera.core.region.RegionId region,
+                                     dev.nodera.core.state.NBlockPos pos) {
+        return chunkLocks.editable(region, pos);
+    }
+
     private final EntityTransferCoordinator.TransferJournal transferJournal;
     private final EntityTransferCoordinator transferCoordinator;
     private final ActionReservationPersistence actionPersistence;
@@ -375,7 +414,9 @@ public final class WorkerValidationService {
         this.hashes = hashes;
         this.certificates = certificates;
         this.world = world;
-        this.applier = new WorldMutationApplier(world);
+        // Read through the field on every mutation, not captured once: the guard is bound after
+        // construction (see #bindChunkLocks) and the applier is final.
+        this.applier = new WorldMutationApplier(world, this::columnHasArrived);
         this.transferJournal = transferJournal;
         this.actionPersistence = actionPersistence;
         this.worldExecutor = worldExecutor;
@@ -2196,7 +2237,10 @@ public final class WorkerValidationService {
             }
             InMemoryWorldView world = new InMemoryWorldView();
             world.load(base);
-            FallbackExecutor executor = new FallbackExecutor(engine, new WorldMutationApplier(world));
+            // Same guard as the committee lane: the server lane writes the same world and must not
+            // land an action in a column whose content is still arriving either.
+            FallbackExecutor executor = new FallbackExecutor(
+                    engine, new WorldMutationApplier(world, this::columnHasArrived));
             ActionBatch batch = new ActionBatch(env.region(), replicaEpochOrInitial(env.region()),
                     base.version(), env.targetTick(), env.targetTick(), List.of(env));
             FallbackExecutor.FallbackResult result =

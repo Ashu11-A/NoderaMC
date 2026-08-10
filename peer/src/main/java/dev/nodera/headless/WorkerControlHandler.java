@@ -945,10 +945,17 @@ public final class WorkerControlHandler implements ControlHandler {
      * <p>The worker does the piece work because the piece plane lives here; the caller writes it
      * into a level because the server thread lives there. Nothing new crosses a module boundary.
      *
+     * <p>Columns are staged as they arrive (L-33). The partial goes to a sibling of the destination
+     * — {@code <dest>.partial} — written whole and moved into place, so a reader sees either the
+     * previous complete staging or the new one and never a half-written file. The terminal answer is
+     * unchanged, and so is {@code dest}: a caller passing {@link RegionArrival#IGNORED} gets exactly
+     * the bytes it always got, and nothing is staged at all.
+     *
      * @return {@code "<byteCount> <regionRootHex>"}, or {@code null} when there is no archive lane.
      */
     public String fetchRegion(String worldId, String dimension, String regionX, String regionZ,
-                              String destPathB64, String haveRootHex, String timeoutSeconds) {
+                              String destPathB64, String haveRootHex, String timeoutSeconds,
+                              RegionArrival arrival) {
         if (archive == null) {
             return null;
         }
@@ -973,12 +980,18 @@ public final class WorkerControlHandler implements ControlHandler {
         java.time.Duration timeout = java.time.Duration.ofSeconds(
                 timeoutSeconds == null || timeoutSeconds.isBlank()
                         ? 60L : Long.parseLong(timeoutSeconds));
+        java.nio.file.Path destFile = controlPaths.resolve(dest, "region destination path");
+        java.nio.file.Path partialFile =
+                destFile.resolveSibling(destFile.getFileName() + ".partial");
         dev.nodera.core.state.RegionSnapshot snapshot =
-                archive.fetchRegion(worldId, region, wantRoot, timeout);
+                archive.fetchRegion(worldId, region, wantRoot, timeout,
+                        arrival == null || arrival == RegionArrival.IGNORED ? null
+                                : (partial, verified, total) ->
+                                        stagePartialRegion(partialFile, partial, verified, total,
+                                                arrival));
         dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
         snapshot.encode(w);
         byte[] encodedSnapshot = w.toByteArray();
-        java.nio.file.Path destFile = controlPaths.resolve(dest, "region destination path");
         try {
             java.nio.file.Path parent = destFile.getParent();
             if (parent != null) {
@@ -990,6 +1003,36 @@ public final class WorkerControlHandler implements ControlHandler {
         }
         return encodedSnapshot.length + " "
                 + new dev.nodera.core.crypto.HashService().sha256(encodedSnapshot).toHex();
+    }
+
+    /**
+     * Write one staging of the columns that have arrived, then tell the caller where it is.
+     *
+     * <p>Written to a temporary name and moved, because the reader is a different process polling
+     * for the file: a partially written snapshot would decode to garbage or throw, and the reader
+     * would have no way to tell that from a corrupt transfer. A failure to stage is logged and
+     * dropped — the transfer itself is unaffected and the whole region still lands in {@code dest}.
+     */
+    private void stagePartialRegion(java.nio.file.Path partialFile,
+                                    dev.nodera.core.state.RegionSnapshot partial,
+                                    int verified, int total, RegionArrival arrival) {
+        try {
+            dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
+            partial.encode(w);
+            java.nio.file.Path parent = partialFile.getParent();
+            if (parent != null) {
+                java.nio.file.Files.createDirectories(parent);
+            }
+            java.nio.file.Path staging = partialFile.resolveSibling(
+                    partialFile.getFileName() + ".tmp");
+            java.nio.file.Files.write(staging, w.toByteArray());
+            java.nio.file.Files.move(staging, partialFile,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            arrival.staged(partialFile.toString(), verified, total);
+        } catch (java.io.IOException | RuntimeException notStaged) {
+            LOG.debug("could not stage {} arrived column(s) of {}: {}",
+                    partial.chunks().size(), partial.region(), notStaged.toString());
+        }
     }
 
     @Override

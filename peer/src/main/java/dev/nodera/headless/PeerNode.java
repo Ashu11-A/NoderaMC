@@ -276,6 +276,13 @@ public final class PeerNode implements AutoCloseable {
                 dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
                 dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
                 2000L);
+        // L-33: the lock-until-arrived guard, on the one path every world write in this process
+        // takes. Without this line WorldMutationApplier is constructed with ALL_EDITABLE and a
+        // delta may land in a column whose content is still in flight — the edit is then computed
+        // against state that never existed and the arriving piece silently overwrites it. The seam
+        // fails OPEN when nothing is being fetched, which is what makes it safe to install here
+        // rather than only while a download runs.
+        validation.bindChunkLocks(archive.chunkEditability());
         // Committee peers come from membership now: bind the listener so every view change
         // republishes members' routes + keys into the validation lane. Bind BEFORE any join so a
         // view that lands during startup is not missed, and replay the current view once for the

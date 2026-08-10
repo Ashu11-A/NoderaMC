@@ -6,14 +6,14 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-08-10 · **1,197 Java test cases + 79 Rust
+**Category:** network · **Last run:** 2026-08-10 · **1,204 Java test cases + 79 Rust
 (`nodera-codec`) `#[test]` · 0 failing** — the Java figure sums the module table below
-(189 + 158 + 850), whose cells are README's, re-measured from the JUnit XML of the nine-module run
-recorded in commit `44069df`. Worker cases are also described under the worker category.
+(189 + 158 + 857), whose cells are README's, re-measured from the JUnit XML of the nine-module run.
+`peer` moved 850 → 857 on 2026-08-10 with the L-33 arrival lane (issue #158). Worker cases are also described under the worker category.
 
 > Re-measured on 2026-08-06 after the Plan 11 round 2 reduction (issue #210), which deleted the
 > archival audit triangle and the second discovery resolver from `:peer` along with their dedicated
-> suites. The whole Java tree comes to **2,271 tests / 0 failed / 0 skipped** as the sum of README's
+> suites. The whole Java tree comes to **2,282 tests / 0 failed / 0 skipped** as the sum of README's
 > nine measured module cells; to measure it rather than add it up, run `scripts/test-totals.sh
 > --java`. The **2,238** this file used to carry predates that re-measurement, as did `transport`
 > 186 and `peer` 835. The Rust count is unchanged by round 2, which touched no `nodera-codec` source.
@@ -32,7 +32,7 @@ recorded in commit `44069df`. Worker cases are also described under the worker c
 |---|---|---:|:---:|
 | `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard. Cross-language fixture coverage is **derived from `nodera-codec`'s own `SUPPORTED_MESSAGE_TAGS`** rather than a hand-written tag list | 189 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes including Android-denied store inspection | 158 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 850 | 🚧 |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol), and the L-33 arrival lane **on the production call path** (`ArchiveLaneTest.ProductionApplierIsLockAwareTest`, `ArchiveLaneTest.RegionRendersOnArrivalTest`) | 857 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 79 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything
@@ -78,6 +78,8 @@ cargo test -p nodera-codec
 | `EventSyncOverTransportIT` | A fresh peer replays a certified chain to the certified root; an uncertified tail never syncs |
 | `WorldContinuityIT` | Share → listed → P2P fetch byte-exact → host game closed → host worker killed → a second peer still reproduces the world, over the **real** tracker and rendezvous binaries |
 | `ResidentQuorumIT` | A committee holds full strength through a player's logout thanks to standing workers, with the no-resident counterfactual asserted |
+| `ArchiveLaneTest.ProductionApplierIsLockAwareTest` | The L-33 arrival guard **on the production call path**: a `WorkerValidationService` built the way `PeerNode` builds one refuses a block placement into a column whose piece has not arrived, and commits the identical placement when the lock map is not installed. A world with no fetch in flight is fully editable — the fail-open case, which is the one that would stop ordinary gameplay if it were ever got wrong |
+| `ArchiveLaneTest.RegionRendersOnArrivalTest` | A paced region fetch over the real content plane hands part of the region over **before its last piece verifies**, cumulatively, and the finished region still equals what was seeded |
 | `ByzantineMeshIT` | A genuinely adversarial peer on the mesh is outvoted, cannot forge a seat, and gains one seat rather than two when equivocating |
 | `SocketPeerTransportAuthTest` (5) | Key-proven NodeId attribution at accept; legacy, forged, and replayed hellos refused; a peer dying mid-handshake fails the sender in milliseconds rather than at the timeout |
 | `FsContentStoreRelocationTest` (5) | Blobs survive relocation and a **reopened** store finds them; an identical blob at the destination is merged, not refused |

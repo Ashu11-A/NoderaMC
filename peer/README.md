@@ -53,7 +53,10 @@ dev.nodera.peer               PeerRuntime: membership, gossip, heartbeats, Gatew
 └── control/                  ControlProtocol (the single source of truth) + ControlServer
 
 dev.nodera.distribution       the torrent plane: RegionSnapshotSplitter, PieceManifest,
-                              PieceSelector/Downloader/Reassembler, ChunkLockMap,
+                              PieceSelector/Downloader/Reassembler, ChunkLockMap +
+                              ChunkLockEditability (the L-33 arrival guard the validation
+                              lane installs) and RegionSnapshotSplitter.columnsIn (the
+                              piece → columns inversion render-on-arrival is built on),
                               ContentTransferService, WorldArchive, encryption
                               (Argon2id + EncryptedPiece/EncryptedRegion),
                               ActivePlayerStream, EmergencyFlush
@@ -66,7 +69,9 @@ dev.nodera.diagnostics        TelemetrySnapshot, TrafficMeter, RateWindow, Messa
 dev.nodera.headless           the always-on services (src/main), plus the entry point
 ├── WorkerControlHandler      loopback control verbs and NODERA-STATE
 ├── WorldHostingService       persisted host/seed claims and tracker/rendezvous announces
-├── WorldArchiveService       archive and committed-region piece seeding/fetch
+├── WorldArchiveService       archive and committed-region piece seeding/fetch; owns the
+│                             download lane's ChunkLockMap and reports columns as they
+│                             verify, so a region renders while it is still arriving
 ├── WorldRegistryStore        worlds.dat
 ├── WorldKeyStore             per-world administrator private keys
 ├── WorldTombstoneStore       durable owner-authorized deletion records

@@ -195,6 +195,27 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         return true;
     }
 
+    /**
+     * Write the columns of a region that have arrived, while the rest are still in flight (L-33).
+     *
+     * <p>The render half of the async chunk pipeline. Everything else about the transfer is
+     * unchanged — the pieces are hash-checked against the manifest before they count as arrived, and
+     * the finished region is still verified against the certified root and still applied whole — but
+     * a player no longer waits for the last piece before any of the terrain appears.
+     *
+     * @param arrived the columns verified so far.
+     * @return whether they were queued; {@code false} when no level is bound for the region.
+     * @Thread-context any thread.
+     */
+    public boolean applyArrivingColumns(RegionSnapshot arrived) {
+        ServerLevel level = boundLevels.get(arrived.region());
+        if (level == null) {
+            return false;
+        }
+        regionApplies.offerArriving(level, arrived);
+        return true;
+    }
+
     /** How often diverged regions are checked; a repair takes tens of seconds, so seconds will do. */
     private static final int REPAIR_INTERVAL_TICKS = 100;
 
@@ -222,7 +243,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             if (applyFetchedRegion(snapshot, () -> validation.repaired(region))) {
                 LOG.info("repairing diverged region {} from the network", region);
             }
-        });
+        }, this::applyArrivingColumns);
     }
 
     private long currentTick;

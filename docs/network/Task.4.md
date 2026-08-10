@@ -5,8 +5,9 @@
      breaks the property that makes the swarm verifiable without trusting any seeder. Always
      hash-validate a piece BEFORE accepting it. Keep this header's status accurate. -->
 
-**Status:** ✅ COMPLETED (renderer/applier lock-map consumers → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** L-33 · **Last audit:** 2026-07-28
+**Status:** 🚧 IN PROGRESS — acceptance #6 (render on arrival) is proven headlessly and awaits a live
+client run; everything else is complete
+**Category:** network · **Owns:** L-33 · **Last audit:** 2026-08-10
 **Depends on:** [network 1](Task.1.md), [network 3](Task.3.md), [engine 2](../engine/Task.2.md)
 **Consumed by:** [network 6](Task.6.md), [network 8](Task.8.md), [network 9](Task.9.md), [worker 3](../peer/Task.3.md)
 
@@ -29,10 +30,25 @@ The plane has a production consumer: the world-continuity lane files whole saves
 `WorldContinuityIT` proves a shared world survives its host's death over the real tracker and
 rendezvous binaries.
 
-The **edit** half of the lock guard is live: `WorldMutationApplier` consults a `ChunkEditability`
-seam in its verify pass, so a delta touching a piece-locked chunk aborts atomically *before any
-write*, with halo positions failing closed. The **render**-on-arrival half is the mod's GUI work
-(**L-33**).
+**The header used to say COMPLETED while acceptance #6 said ⏳, and the second one was right.**
+Fixed on 2026-08-10 along with the two things it was hiding.
+
+The **edit** half of the lock guard is now *installed*, not merely available. `WorldMutationApplier`
+has always consulted a `ChunkEditability` seam in its verify pass — but both production appliers were
+built with the one-argument constructor, i.e. `ALL_EDITABLE`, and the single production `download`
+call passed `null` for the lock map, so nothing anywhere called `track` and the guard described a
+state no map was ever in. `WorldArchiveService` now owns a `ChunkLockMap`, tracks a v2 manifest for
+exactly as long as its region is in flight, and exposes `chunkEditability()`; `PeerNode` installs it
+on the worker's validation lane. Absence fails **open** — an untracked region is fully editable,
+because this applier is the choke point every world write in the process passes through and a wrong
+"locked" would stop the game rather than a fetch.
+
+The **render** half is built and proven headlessly. `RegionSnapshotSplitter.columnsIn` decodes the
+columns a single verified piece carries — the property `PieceSplitter` has always cut for and nothing
+ever spent — and the region fetch reports a growing, always-cumulative snapshot of what has verified.
+`NODERA-FETCH-REGION` carries each of those to the game as a staged file named on an interim
+`NODERA-PROGRESS` line, and `RegionApplyQueue.offerArriving` writes only the columns that are not
+already on the ground. What is outstanding is the run in a real client (**L-33**).
 
 ## Dependencies
 
@@ -97,9 +113,14 @@ explicit `retryPending`.
    engine's root.
 2. ✅ A bad piece is rejected before acceptance and the downloader retries elsewhere.
 3. ✅ Selection is deterministic and order-independent.
-4. ✅ An un-arrived chunk is locked against edit, fail-closed.
+4. ✅ An un-arrived chunk is locked against edit, fail-closed — **through a production call path**
+   since 2026-08-10 (`ArchiveLaneTest.ProductionApplierIsLockAwareTest`, whose central test fails
+   when the applier is constructed without the lock map).
 5. ✅ Serving is bounded, with a measured overshoot bound.
-6. ⏳ Pieces **render** on arrival in a real client (**L-33**).
+6. ⏳ Pieces **render** on arrival in a real client (**L-33**). Headless proof landed 2026-08-10 —
+   `ArchiveLaneTest.RegionRendersOnArrivalTest` shows a paced region fetch handing over part of the
+   region before its last piece verifies, over the real content plane; `RegionRoundTripTest` shows
+   every piece decoding to its own columns alone. The outstanding half is a GUI run.
 
 ## Limitations
 

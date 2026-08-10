@@ -65,6 +65,20 @@ public final class RegionFetchSpool implements AutoCloseable {
          * @return {@code true} when the worker wrote the region to {@code dest}.
          */
         boolean fetch(String worldIdHex, RegionId region, Path dest, String haveIndexRootHex);
+
+        /**
+         * As above, told where the worker has staged the columns that have arrived so far (L-33).
+         *
+         * <p>Defaulted rather than added to the abstract method so an implementation that does not
+         * care — every existing one — is unchanged, and a worker that never stages simply never
+         * calls back.
+         *
+         * @param onPartial called with the staged file's path, on the fetch thread.
+         */
+        default boolean fetch(String worldIdHex, RegionId region, Path dest,
+                              String haveIndexRootHex, Consumer<Path> onPartial) {
+            return fetch(worldIdHex, region, dest, haveIndexRootHex);
+        }
     }
 
     /**
@@ -83,15 +97,26 @@ public final class RegionFetchSpool implements AutoCloseable {
         return new RegionFetchSpool(
                 () -> NoderaPeerService.get().currentWorldIdHex(),
                 RegionSeedSpool::defaultSpoolDir,
-                (world, region, dest, haveRoot) -> {
-                    // Null-checked rather than dereferenced, for the same reason the seed spool is:
-                    // a player can be validating regions before the companion gate has linked, and
-                    // an NPE swallowed here would read as "the worker declined it" all session.
-                    CompanionClient companion = CompanionLink.client();
-                    return companion != null && companion.fetchRegion(
-                            world, region.dimension().toString(),
-                            region.regionX(), region.regionZ(),
-                            dest, haveRoot, FETCH_TIMEOUT_SECONDS).isPresent();
+                new Fetcher() {
+                    @Override
+                    public boolean fetch(String world, RegionId region, Path dest, String haveRoot) {
+                        return fetch(world, region, dest, haveRoot, partial -> { });
+                    }
+
+                    @Override
+                    public boolean fetch(String world, RegionId region, Path dest, String haveRoot,
+                                         Consumer<Path> onPartial) {
+                        // Null-checked rather than dereferenced, for the same reason the seed spool
+                        // is: a player can be validating regions before the companion gate has
+                        // linked, and an NPE swallowed here would read as "the worker declined it"
+                        // all session.
+                        CompanionClient companion = CompanionLink.client();
+                        return companion != null && companion.fetchRegion(
+                                world, region.dimension().toString(),
+                                region.regionX(), region.regionZ(),
+                                dest, haveRoot, FETCH_TIMEOUT_SECONDS,
+                                (staged, verified, total) -> onPartial.accept(staged)).isPresent();
+                    }
                 });
     }
 
@@ -109,6 +134,24 @@ public final class RegionFetchSpool implements AutoCloseable {
      * @Thread-context any thread.
      */
     public boolean request(RegionId region, String haveIndexRoot, Consumer<RegionSnapshot> onFetched) {
+        return request(region, haveIndexRoot, onFetched, null);
+    }
+
+    /**
+     * As {@link #request(RegionId, String, Consumer)}, drawing the columns as they arrive (L-33).
+     *
+     * <p>{@code onArriving} is handed a snapshot of the columns verified <b>so far</b>, every time
+     * that set grows, before {@code onFetched} is handed the finished region. Each one is complete
+     * and cumulative, so a consumer may drop any of them and still be correct — which is why this is
+     * safe to point at a live level.
+     *
+     * @param onArriving called with each partial on the fetch thread; {@code null} for none.
+     * @return whether a fetch was started.
+     * @Thread-context any thread.
+     */
+    public boolean request(RegionId region, String haveIndexRoot,
+                           Consumer<RegionSnapshot> onFetched,
+                           Consumer<RegionSnapshot> onArriving) {
         Objects.requireNonNull(region, "region");
         String world = worldId.get();
         if (world == null || world.isBlank()) {
@@ -120,12 +163,12 @@ public final class RegionFetchSpool implements AutoCloseable {
             return false;
         }
         lastAttempt.put(region, now);
-        fetches.execute(() -> run(world, region, haveIndexRoot, onFetched));
+        fetches.execute(() -> run(world, region, haveIndexRoot, onFetched, onArriving));
         return true;
     }
 
     private void run(String world, RegionId region, String haveIndexRoot,
-                     Consumer<RegionSnapshot> onFetched) {
+                     Consumer<RegionSnapshot> onFetched, Consumer<RegionSnapshot> onArriving) {
         Path dest = null;
         try {
             Path dir = spoolDir.get();
@@ -135,7 +178,8 @@ public final class RegionFetchSpool implements AutoCloseable {
             dest = dir.resolve("fetch-" + region.regionX() + "_" + region.regionZ() + "-"
                     + (haveIndexRoot == null ? "any" : haveIndexRoot.substring(
                             0, Math.min(12, haveIndexRoot.length()))) + ".bin");
-            if (!fetcher.fetch(world, region, dest, haveIndexRoot)) {
+            if (!fetcher.fetch(world, region, dest, haveIndexRoot,
+                    partial -> deliverArriving(region, partial, onArriving))) {
                 LOG.debug("worker had nothing for region {}", region);
                 return;
             }
@@ -153,10 +197,35 @@ public final class RegionFetchSpool implements AutoCloseable {
             if (dest != null) {
                 try {
                     Files.deleteIfExists(dest);
+                    // The worker stages arriving columns beside the destination; the game owns the
+                    // spool directory, so the game cleans it up.
+                    Files.deleteIfExists(dest.resolveSibling(dest.getFileName() + ".partial"));
                 } catch (java.io.IOException leftover) {
                     LOG.debug("left {} behind: {}", dest, leftover.toString());
                 }
             }
+        }
+    }
+
+    /**
+     * Decode one staged partial and hand its columns on.
+     *
+     * <p>Never fatal, and deliberately quiet at debug: a staging read a moment after the worker
+     * replaced it, or one the worker could not write at all, costs this fetch nothing — the finished
+     * region is still on its way and still verified against the certified root.
+     */
+    private void deliverArriving(RegionId region, Path partial,
+                                 Consumer<RegionSnapshot> onArriving) {
+        if (onArriving == null || partial == null) {
+            return;
+        }
+        try {
+            RegionSnapshot arrived = RegionSnapshot.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(Files.readAllBytes(partial)));
+            LOG.debug("region {} — {} column(s) arrived so far", region, arrived.chunks().size());
+            onArriving.accept(arrived);
+        } catch (Exception notYet) {
+            LOG.debug("could not read the staged partial of {}: {}", region, notYet.toString());
         }
     }
 

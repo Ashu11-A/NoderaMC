@@ -965,4 +965,278 @@ final class ArchiveLaneTest {
                     .hasMessageContaining("seeder");
         }
     }
+
+    /**
+     * L-33's render half: a region shows up column by column instead of all at once at the end.
+     *
+     * <p>The row's title is "no asynchronous client chunk pipeline: a region renders only after its
+     * whole snapshot arrives", and until now that was literally true of the fetch lane — it blocked
+     * until the last piece verified, assembled the blob, decoded it and handed back one snapshot.
+     * Everything needed to do better was already in place and unspent: {@code PieceSplitter} cuts
+     * only at record boundaries precisely so a piece is independently <i>usable</i>, and
+     * {@code PieceManifest} v2 states which piece carries which column. What was missing was the
+     * inversion, and somebody to hand the result to.
+     *
+     * <p>The fetch here is paced deliberately — a download budget that takes several transfer windows
+     * — because the claim is about <b>when</b> columns are reported, and a transfer that finishes in
+     * one slice cannot demonstrate anything about the order of events.
+     *
+     * <p>Thread-context: one test thread; the arrival callback runs on it.
+     */
+    @Nested
+    final class RegionRendersOnArrivalTest {
+
+        private final ArchiveMesh mesh = ArchiveMesh.loopback(2);
+        private final dev.nodera.core.region.RegionId region =
+                new dev.nodera.core.region.RegionId(
+                        dev.nodera.core.region.DimensionKey.overworld(), 0, 0);
+
+        @AfterEach
+        void tearDown() {
+            mesh.close();
+        }
+
+        @Test
+        @DisplayName("columns are handed over before the last piece arrives, and cumulatively")
+        void columnsAreReportedBeforeTheLastPieceArrives() {
+            dev.nodera.core.state.RegionSnapshot seeded =
+                    dev.nodera.testkit.engine.EngineFixtures.variedSnapshot(
+                            region, dev.nodera.core.state.SnapshotVersion.INITIAL, 7L);
+            Bytes worldId = mesh.worldId("l33-render-world");
+            String worldIdHex = worldId.toHex();
+            PieceManifest manifest = mesh.node(1).service().seedRegion(worldIdHex, seeded);
+            assertThat(manifest.pieceCount())
+                    .as("a per-column cut, or there is nothing to render early")
+                    .isGreaterThan(4);
+
+            // An inbound answer is how this node learns both the manifest and the seeder's route.
+            mesh.node(0).service().onMessage(mesh.node(1).address(),
+                    ArchiveMesh.answerCarrying(worldId, manifest));
+            // Paced: the windows advance once a second, so this makes the transfer take a handful of
+            // them instead of finishing inside one poll slice.
+            mesh.node(0).service().content()
+                    .setDownloadBandwidthBudget(Math.max(1L, manifest.totalLength() / 4));
+
+            List<Integer> reported = new ArrayList<>();
+            List<Integer> verifiedAt = new ArrayList<>();
+            dev.nodera.core.state.RegionSnapshot fetched =
+                    mesh.node(0).service().fetchRegionFrom(worldIdHex, region, null,
+                            Set.of(mesh.node(1).nodeId()), Duration.ofSeconds(60),
+                            (partial, verified, total) -> {
+                                reported.add(partial.chunks().size());
+                                verifiedAt.add(verified);
+                            });
+
+            assertThat(fetched.chunks())
+                    .as("and the finished region is still exactly what was seeded — rendering early "
+                            + "changes nothing about what finally lands")
+                    .isEqualTo(seeded.chunks());
+            assertThat(reported)
+                    .as("at least one report while the transfer was still running")
+                    .isNotEmpty();
+            assertThat(reported.get(0))
+                    .as("the first report describes part of the region, not all of it: this is the "
+                            + "whole of 'a region renders only after its whole snapshot arrives'")
+                    .isLessThan(seeded.chunks().size());
+            assertThat(verifiedAt.get(0))
+                    .as("and it was made before the last piece verified")
+                    .isLessThan(manifest.pieceCount());
+            assertThat(reported)
+                    .as("every report carries everything verified so far, so a consumer may drop "
+                            + "any of them and still be correct")
+                    .isSorted();
+        }
+    }
+
+    /**
+     * L-33's edit half, on the path the product actually takes.
+     *
+     * <p>The register moved this row back to OPEN on 2026-07-29 for a reason worth restating: the
+     * {@code ChunkEditability} seam, the {@code ChunkLockMap} behind it and the
+     * {@code ChunkLockEditability} adapter between them were all implemented and all unit-tested, and
+     * <b>no production code constructed any of them</b>. Both appliers in
+     * {@code WorkerValidationService} used the one-argument constructor, which installs
+     * {@code ALL_EDITABLE}; the single production {@code download} call passed {@code null} for the
+     * lock map and nothing anywhere called {@code track}. So this nest asserts the two halves the
+     * unit tests could not: that a real {@link WorldArchiveService} <b>produces</b> a lock map while
+     * a region is in flight, and that a {@code WorkerValidationService} built the way
+     * {@link PeerNode} builds one <b>refuses a write into a column that has not arrived</b> — and
+     * commits the identical write once the guard is not installed.
+     *
+     * <p>The third test is the one that matters most in production and would never be missed by a
+     * suite written only around the lock: a node with no fetch in flight must be <b>fully
+     * editable</b>. {@code ChunkLockMap.isChunkEditable} answers {@code false} for a region it is not
+     * tracking — the right default for the map and a catastrophe for the applier, which is the choke
+     * point every world write passes through. Absence has to fail open.
+     *
+     * <p>Thread-context: the fetch runs on its own daemon thread so the lock window can be observed
+     * while it is open; every test joins it.
+     */
+    @Nested
+    final class ProductionApplierIsLockAwareTest {
+
+        private final ArchiveMesh mesh = ArchiveMesh.loopback(2);
+        private final dev.nodera.testkit.peer.PeerTestHarness harness =
+                dev.nodera.testkit.peer.PeerTestHarness.create();
+        private final dev.nodera.core.region.RegionId region =
+                new dev.nodera.core.region.RegionId(
+                        dev.nodera.core.region.DimensionKey.overworld(), 0, 0);
+        private final NodeIdentity actor = NodeIdentity.generate();
+
+        @AfterEach
+        void tearDown() {
+            harness.close();
+            mesh.close();
+        }
+
+        /** The archive service doing the downloading — node 0; node 1 seeds and then goes quiet. */
+        private WorldArchiveService joiner() {
+            return mesh.node(0).service();
+        }
+
+        private dev.nodera.core.state.RegionSnapshot base() {
+            return dev.nodera.testkit.peer.RegionFixtures.fullUniformSnapshot(region, 0);
+        }
+
+        private dev.nodera.testkit.peer.ValidationNode seatedWorker(
+                dev.nodera.core.state.RegionSnapshot base) {
+            dev.nodera.testkit.peer.ValidationNode node = harness.validationNode().build();
+            node.registerActor(actor);
+            node.service().activateRegion(base, new dev.nodera.core.region.RegionLease(
+                    region, dev.nodera.core.region.RegionEpoch.INITIAL, node.nodeId(),
+                    List.of(), 0, 200));
+            return node;
+        }
+
+        private void placeThroughTheServerLane(dev.nodera.testkit.peer.ValidationNode node,
+                                               dev.nodera.core.state.RegionSnapshot base, long seq) {
+            node.service().routeAndMaybeFallback(
+                    dev.nodera.testkit.peer.RegionFixtures.place(actor, region, seq, seq, 5, 70, 5, 1),
+                    dev.nodera.fallback.CrossRegionRouter.RegionStatus.COMMITTEE_COLLAPSED, base);
+        }
+
+        /**
+         * Start a real region fetch against a muted seeder and return once it has registered.
+         *
+         * <p>Muted rather than absent: the manifest has to be learned (which is also what teaches
+         * this node the seeder's route), and then nothing may answer, so the download stays open for
+         * as long as the assertions need it.
+         */
+        private Thread beginStalledFetch(dev.nodera.core.state.RegionSnapshot snapshot)
+                throws InterruptedException {
+            dev.nodera.distribution.RegionSnapshotSplitter.Layout layout =
+                    dev.nodera.distribution.RegionSnapshotSplitter.split(snapshot);
+            assertThat(layout.manifest().hasChunkIndex())
+                    .as("only a v2 manifest can say which piece carries which column")
+                    .isTrue();
+            Bytes worldId = mesh.worldId("l33-arrival-world");
+            String worldIdHex = worldId.toHex();
+            PeerAddress seeder = mesh.node(1).address();
+            mesh.node(1).mute();
+            joiner().onMessage(seeder, ArchiveMesh.answerCarrying(worldId, layout.manifest()));
+
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            Thread fetch = Thread.ofPlatform().daemon().name("l33-fetch").start(() -> {
+                try {
+                    joiner().fetchRegionFrom(worldIdHex, region, null,
+                            Set.of(mesh.node(1).nodeId()), Duration.ofSeconds(25));
+                } catch (Throwable expected) {
+                    failure.set(expected);
+                }
+            });
+            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+            while (!joiner().isTrackingArrival(region) && System.nanoTime() < deadline) {
+                if (failure.get() != null) {
+                    throw new AssertionError("the fetch failed before it started", failure.get());
+                }
+                Thread.sleep(5);
+            }
+            return fetch;
+        }
+
+        @Test
+        @DisplayName("a real fetch registers the lock map the download lane has never had")
+        void theDownloadTracksItsLockMap() throws Exception {
+            Thread fetch = beginStalledFetch(base());
+            try {
+                assertThat(joiner().isTrackingArrival(region))
+                        .as("the production download must hand ContentTransferService a lock map "
+                                + "and track the manifest in it; before this fix the one production "
+                                + "call site passed null and nothing ever called track()")
+                        .isTrue();
+            } finally {
+                fetch.interrupt();
+                fetch.join(Duration.ofSeconds(30));
+            }
+            assertThat(joiner().isTrackingArrival(region))
+                    .as("and a finished — or failed — fetch releases it, or the region would stay "
+                            + "locked against editing for the rest of the session")
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("the production applier refuses a write into a column still in flight")
+        void aColumnStillInFlightIsRefusedByTheProductionApplier() throws Exception {
+            dev.nodera.core.state.RegionSnapshot base = base();
+            Thread fetch = beginStalledFetch(base);
+            try {
+                assertThat(joiner().isTrackingArrival(region)).isTrue();
+
+                dev.nodera.testkit.peer.ValidationNode node = seatedWorker(base);
+                // THE production line, copied from PeerNode: without it the applier is built with
+                // ALL_EDITABLE and this test fails on the very next assertion.
+                node.service().bindChunkLocks(joiner().chunkEditability());
+
+                placeThroughTheServerLane(node, base, 1L);
+                assertThat(node.service().snapshot().fallbackCommits())
+                        .as("the column's piece has not arrived: the delta aborts before any write, "
+                                + "so nothing is computed against state that does not exist yet")
+                        .isZero();
+
+                // The inversion the register's exit clause asks for, in one process: the identical
+                // action, on the identical service, with the lock map NOT installed.
+                node.service().bindChunkLocks(null);
+                placeThroughTheServerLane(node, base, 2L);
+                assertThat(node.service().snapshot().fallbackCommits())
+                        .as("an applier constructed without the lock map commits it — which is what "
+                                + "the shipped product did, and the whole of L-33's edit half")
+                        .isEqualTo(1L);
+            } finally {
+                fetch.interrupt();
+                fetch.join(Duration.ofSeconds(30));
+            }
+        }
+
+        @Test
+        @DisplayName("a world with no fetch in flight is fully editable — absence fails OPEN")
+        void nothingArrivingMeansEverythingEditable() {
+            dev.nodera.core.state.RegionSnapshot base = base();
+            dev.nodera.testkit.peer.ValidationNode node = seatedWorker(base);
+            node.service().bindChunkLocks(joiner().chunkEditability());
+
+            assertThat(joiner().isTrackingArrival(region))
+                    .as("nothing is being downloaded")
+                    .isFalse();
+
+            placeThroughTheServerLane(node, base, 1L);
+            assertThat(node.service().snapshot().fallbackCommits())
+                    .as("the guard is installed on every world write in the process, so an untracked "
+                            + "region answering 'locked' would stop ordinary gameplay rather than "
+                            + "stop a fetch — the register names this exact regression as the reason "
+                            + "the wiring was never done")
+                    .isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("PeerNode installs the guard — the fault this row records was an absence")
+        void theWorkerWiresTheGuardAtStartup() throws java.io.IOException {
+            Path source = dev.nodera.testkit.harness.LayoutManifest.load()
+                    .module("peer")
+                    .resolve("src/main/java/dev/nodera/headless/PeerNode.java");
+            assertThat(java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8))
+                    .as("a seam with no call site is this repository's dominant defect shape, and it "
+                            + "is exactly what kept L-33 open; a unit test cannot see an absence")
+                    .contains("validation.bindChunkLocks(archive.chunkEditability())");
+        }
+    }
 }

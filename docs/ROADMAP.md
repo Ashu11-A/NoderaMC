@@ -47,7 +47,7 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | Category | Tasks | Done | In progress | Blocked | Charter |
 |---|---:|---:|---:|---:|---|
 | [Engine](engine/Task.0.md) | 12 | 7 | 5 | 0 | Deterministic simulation + committee validation |
-| [Network](network/Task.0.md) | 15 | 12 | 3 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry, measurement |
+| [Network](network/Task.0.md) | 15 | 11 | 4 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry, measurement |
 | [Tracker](tracker/Task.0.md) | 6 | 5 | 1 | 0 | Always-on discovery service |
 | [Rendezvous](rendezvous/Task.0.md) | 6 | 4 | 1 | 1 | NAT reach: punching + relay fallback |
 | [Minecraft](minecraft/Task.0.md) | 11 | 5 | 5 | 0 | The NeoForge mod — the playable product |
@@ -99,7 +99,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [1](network/Task.1.md) | Wire protocol, transport seam, chunked streams, handshake | ✅ | engine 1 |
 | [2](network/Task.2.md) | Peer runtime: membership, gateway election, migration | 🚧 | network 1, engine 5, rendezvous 3 |
 | [3](network/Task.3.md) | Event-sourced + durable storage | ✅ | network 1 |
-| [4](network/Task.4.md) | Torrent distribution data plane | ✅ | network 3, engine 2 |
+| [4](network/Task.4.md) | Torrent distribution data plane | 🚧 | network 3, engine 2 |
 | [5](network/Task.5.md) | Discovery, multi-bootstrap, persistent identity | ✅ | network 2 |
 | [6](network/Task.6.md) | Archive placement, replication, repair | ✅ | network 4, network 5 |
 | [7](network/Task.7.md) | Reliability, storage quotas, 24 h retention | ✅ | network 6 |
