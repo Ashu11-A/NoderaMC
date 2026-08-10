@@ -52,12 +52,18 @@ import java.util.stream.Stream;
  * <h2>Ports, on top of the topology's plan</h2>
  *
  * <pre>
- *   25599   the Bukkit server's game port (shared with the NeoForge dedicated-server scenarios;
- *           they never run at the same time — the live-suite lock sees to that)
- *   25575   RCON
- *   25613   the endpoint's control port  (worker control base + the worker count)
- *   25623   the endpoint's p2p port      (worker p2p base     + the worker count)
+ *   base +99    the Bukkit server's game port (shared with the NeoForge dedicated-server
+ *               scenarios; they never run at the same time — the live-suite lock sees to that)
+ *   base +75    RCON
+ *   base +113   the endpoint's control port  (worker control base + the worker count)
+ *   base +123   the endpoint's p2p port      (worker p2p base     + the worker count)
  * </pre>
+ *
+ * <p>Every number is an offset into the block {@link dev.nodera.testkit.harness.Topology} chose for
+ * the run and announced on its first line — 26500 by default, never the product's own 25500 block
+ * (issue #266). Written as offsets rather than literals because the literals were the bug: this
+ * javadoc said 25613/25623 while the code already read them off the topology, so a reader checking
+ * a port conflict against the comment was checking against the numbers that collided.
  *
  * <p>The endpoint's ports are slotted straight after the workers so raising the spare-peer count
  * never walks onto them.

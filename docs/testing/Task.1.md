@@ -9,7 +9,7 @@
      config file, environment variable or peer may enable it. Keep this header accurate. -->
 
 **Status:** ✅ DONE — twenty scenarios, one harness, one report, one command; the live matrix is
-carried over stage for stage and awaits its first full green nightly (row T-1)
+carried over stage for stage and awaits its first full green nightly (row T-1). Since 2026-08-10 the harness runs on its own port block (26500+) rather than the product's, so a developer with Nodera installed can run it at all ([#266](https://github.com/Ashu11-A/NoderaMC/issues/266))
 **Category:** testing · **Owns:** T-1, T-2, T-3, T-4, T-6, T-7 · **Last audit:** 2026-08-10
 **Depends on:** [worker 1](../peer/Task.1.md), [minecraft 5](../minecraft/Task.5.md),
 [server 1](../server/Task.1.md), [network 15](../network/Task.15.md)

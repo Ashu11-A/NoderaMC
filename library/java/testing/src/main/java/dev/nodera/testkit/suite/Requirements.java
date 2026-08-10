@@ -86,9 +86,9 @@ public record Requirements(boolean needsDisplay, boolean needsPaperJar, boolean 
                     + "debugging");
         }
         if (minimumFreeGb > 0) {
-            long freeGb = freeMemoryGb();
-            if (freeGb > 0 && freeGb < minimumFreeGb) {
-                circumstantial.add("only " + freeGb + " GiB of RAM free, this scenario needs "
+            long freeMib = freeMemoryMib();
+            if (freeMib > 0 && roundedToGib(freeMib) < minimumFreeGb) {
+                circumstantial.add("only " + freeMib + " MiB of RAM free, this scenario needs "
                         + minimumFreeGb + " GiB");
             }
         }
@@ -103,13 +103,27 @@ public record Requirements(boolean needsDisplay, boolean needsPaperJar, boolean 
         return Optional.empty();
     }
 
-    /** Free memory in GiB from {@code /proc/meminfo}, or 0 where that cannot be read. */
-    private static long freeMemoryGb() {
+    /**
+     * Free memory in GiB, rounded to nearest rather than truncated.
+     *
+     * <p>This used to divide by 1024 twice, which floors: 4.99 GiB free reported as 4, so a
+     * scenario asking for 5 skipped on a machine that had all but 10 MiB of what it wanted. On a
+     * box that hovers between 4 and 5 GiB during a busy session, that turned a floor of 5 into a
+     * floor of very nearly 6 — and every one of those skips is now red, so it turned them into
+     * failures. Rounding also fixes the message, which said "only 4 GiB free" about 4.99.
+     */
+    static long roundedToGib(long mib) {
+        return (mib + 512) / 1024;
+    }
+
+    /** Free memory in MiB from {@code /proc/meminfo}, or 0 where that cannot be read. */
+    static long freeMemoryMib() {
         try {
             for (String line : Files.readAllLines(java.nio.file.Path.of("/proc/meminfo"))) {
                 if (line.startsWith("MemAvailable:")) {
+                    // MemAvailable is reported in kB.
                     String[] parts = line.trim().split("\\s+");
-                    return Long.parseLong(parts[1]) / 1024 / 1024;
+                    return Long.parseLong(parts[1]) / 1024;
                 }
             }
         } catch (Exception notLinux) {

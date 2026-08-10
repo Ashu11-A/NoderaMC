@@ -5,6 +5,7 @@ import dev.nodera.testkit.harness.HarnessException;
 import dev.nodera.testkit.harness.LiveStack;
 import dev.nodera.testkit.harness.LogWatcher;
 import dev.nodera.testkit.harness.ManagedProcess;
+import dev.nodera.testkit.harness.Topology;
 import dev.nodera.testkit.suite.Requirements;
 import dev.nodera.testkit.suite.Scenario;
 import dev.nodera.testkit.suite.ScenarioContext;
@@ -51,9 +52,18 @@ import java.util.stream.Stream;
  */
 public final class TelemetryScenario implements Scenario {
 
-    private static final int INGEST_PORT = 25630;
-    private static final int CONTROL_PORT = 25640;
-    private static final int P2P_PORT = 25641;
+    /**
+     * This scenario's own three ports, as indices into the run's block.
+     *
+     * <p>They used to be the literals 25630 / 25640 / 25641, which are inside the <b>product's</b>
+     * block: a scenario binding them collided with a developer's own dev stack, and — because
+     * nothing in the topology knew about them — the startup probe could declare a block free while
+     * these three were already taken. {@link Topology#scenarioPort} puts them where the probe can
+     * see them (issue #266).
+     */
+    private static final int INGEST_INDEX = 0;
+    private static final int CONTROL_INDEX = 1;
+    private static final int P2P_INDEX = 2;
 
     /** A 64-bit rotating subject, as it appears on disk. */
     private static final Pattern SUBJECT = Pattern.compile("\"subject\":\"[0-9a-f]{16}\"");
@@ -90,18 +100,21 @@ public final class TelemetryScenario implements Scenario {
     @Override
     public void run(ScenarioContext ctx) throws Exception {
         LiveStack stack = ctx.stack();
+        int ingestPort = ctx.topology().scenarioPort(INGEST_INDEX);
+        int controlPort = ctx.topology().scenarioPort(CONTROL_INDEX);
+        int p2pPort = ctx.topology().scenarioPort(P2P_INDEX);
         Path ingestBinary = stack.paths().rustRelease().resolve("nodera-telemetry");
         Path workerBinary = stack.paths().workerDist();
         Path spool = stack.logDir().resolve("spool");
         Path workerState = stack.logDir().resolve("worker-state");
         Path results = stack.resultsDir();
-        ControlClient worker = new ControlClient(CONTROL_PORT);
+        ControlClient worker = new ControlClient(controlPort);
 
         List<ManagedProcess> mine = new ArrayList<>();
         ManagedProcess[] collector = new ManagedProcess[1];
         try {
             // --- T0: start the collector --------------------------------------------------------
-            ctx.stage("T0", "the collector is up on 127.0.0.1:" + INGEST_PORT, () -> {
+            ctx.stage("T0", "the collector is up on 127.0.0.1:" + ingestPort, () -> {
                 ctx.check(Files.isExecutable(ingestBinary), "T0: no collector binary at "
                         + ingestBinary + " (cargo build --release -p nodera-telemetry)");
                 ctx.check(Files.isExecutable(workerBinary), "T0: no worker launcher at "
@@ -124,7 +137,7 @@ public final class TelemetryScenario implements Scenario {
                         subject_rotation_days = 1
                         max_event_age_seconds = 604800
                         report_interval_seconds = 5
-                        """.formatted(INGEST_PORT, spool));
+                        """.formatted(ingestPort, spool));
 
                 // The ingest mints its pseudonymisation key in memory
                 // (docs/telemetry/LIMITATIONS.fixed.md L-72); there is no secret to pass it. It
@@ -137,7 +150,7 @@ public final class TelemetryScenario implements Scenario {
                 boolean healthy = false;
                 for (int waited = 0; waited < 30 && !healthy; waited++) {
                     healthy = ServerDedicatedDrive.run(List.of(ingestBinary.toString(),
-                            "--healthcheck", "127.0.0.1:" + INGEST_PORT)) == 0;
+                            "--healthcheck", "127.0.0.1:" + ingestPort)) == 0;
                     if (!healthy) {
                         ServerDedicatedDrive.sleep(Duration.ofSeconds(1));
                     }
@@ -150,12 +163,12 @@ public final class TelemetryScenario implements Scenario {
             ctx.stage("T1", "a worker nobody has asked reports 'unanswered' and writes no rows",
                     () -> {
                 Map<String, String> env = ManagedProcess.env(
-                        "NODERA_CONTROL_PORT", String.valueOf(CONTROL_PORT),
-                        "NODERA_P2P_PORT", String.valueOf(P2P_PORT),
+                        "NODERA_CONTROL_PORT", String.valueOf(controlPort),
+                        "NODERA_P2P_PORT", String.valueOf(p2pPort),
                         "NODERA_IDENTITY_FILE", workerState.resolve("worker-identity.bin").toString(),
                         "NODERA_ARCHIVE_DIR", workerState.resolve("archive").toString(),
                         "NODERA_TELEMETRY_DIR", workerState.toString(),
-                        "NODERA_TELEMETRY_ENDPOINT", "tcp://127.0.0.1:" + INGEST_PORT,
+                        "NODERA_TELEMETRY_ENDPOINT", "tcp://127.0.0.1:" + ingestPort,
                         "NODERA_TELEMETRY_INTERVAL_SECONDS", "10",
                         // Deliberately unreachable: this scenario is about the measurement plane,
                         // and a worker that found a real tracker would be doing other work too.
@@ -165,7 +178,7 @@ public final class TelemetryScenario implements Scenario {
                         stack.logDir().resolve("worker.log"), env,
                         List.of(workerBinary.toString())));
 
-                ctx.check(awaitPort(CONTROL_PORT, Duration.ofSeconds(90)),
+                ctx.check(awaitPort(controlPort, Duration.ofSeconds(90)),
                         "T1: the worker never opened its control endpoint (see "
                                 + stack.logDir().resolve("worker.log") + ")");
 
@@ -231,11 +244,11 @@ public final class TelemetryScenario implements Scenario {
 
             // --- T4: an undeclared event is refused ------------------------------------------------
             ctx.stage("T4", "the collector refuses what the registry does not declare", () -> {
-                String reply = ingestRequest(UNDECLARED);
+                String reply = ingestRequest(ingestPort, UNDECLARED);
                 write(results.resolve("t4-reply.json"), reply);
                 ctx.checkContains(reply, "\"unknown_event\"",
                         "T4: expected an unknown_event refusal");
-                ctx.checkContains(ingestRequest(NO_CONSENT), "\"no_consent\"",
+                ctx.checkContains(ingestRequest(ingestPort, NO_CONSENT), "\"no_consent\"",
                         "T4: expected a no_consent refusal");
             });
 
@@ -308,10 +321,10 @@ public final class TelemetryScenario implements Scenario {
      * One framed request against the ingest service: u32 big-endian length + body, the framing every
      * Nodera TCP leg speaks.
      */
-    private static String ingestRequest(String body) {
+    private static String ingestRequest(int ingestPort, String body) {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", INGEST_PORT), 5000);
+            socket.connect(new InetSocketAddress("127.0.0.1", ingestPort), 5000);
             socket.setSoTimeout(5000);
             OutputStream out = socket.getOutputStream();
             out.write(ByteBuffer.allocate(4).putInt(payload.length).array());

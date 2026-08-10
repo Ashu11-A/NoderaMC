@@ -122,6 +122,31 @@ Artefacts:
 
 ---
 
+## 0. The port-plan guard
+
+`HarnessPortPlanTest` (6) and `PortHolderTest` (4) exist because the harness spent a year binding the
+**product's** ports: tracker 25600, rendezvous 25601, worker control 25610+i, P2P 25620+i. A
+developer running the companion app — which binds 25610 — had every scenario refused at the
+preflight, and the live report of 2026-08-07 (0 passed / 17 failed, all `port 25600 is still held
+after 60s`) is that, not the stale test stack it was filed as
+([#266](https://github.com/Ashu11-A/NoderaMC/issues/266)).
+
+The harness now runs on its own block (26500 by default, probed and announced at startup — see
+[`Task.0.md`](Task.0.md) §3.1). A port change alone is a fix a later refactor silently undoes, so the
+guard asserts against **the product's own constants** — `PeerNode.DEFAULT_CONTROL_PORT`,
+`PeerNode.DEFAULT_P2P_PORT`, `DefaultServices.DEVELOPMENT_TRACKER/RENDEZVOUS` — rather than copies of
+them, and covers the whole block rather than the four ports somebody remembered. `PortHolderTest`
+pins the *classification* of a held port (installed Nodera / leftover from this checkout / unrelated)
+rather than its wording, because those imply three opposite actions and the old message offered one
+wrong hint for all three.
+
+```bash
+./gradlew :testing:test --tests '*HarnessPortPlanTest*' --tests '*PortHolderTest*'
+NODERA_E2E_PORT_BASE=25500 scripts/nodera-test.sh run telemetry   # reproduces the collision
+```
+
+---
+
 ## 1. The scenarios
 
 Each was a `scripts/e2e-<id>.sh`; the stage names (`S0`, `S1a`, `S2c`, …) are carried over, so a
