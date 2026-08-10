@@ -99,11 +99,6 @@ public final class NoderaFoliaRegionMap {
         return regionised;
     }
 
-    /** @return the platform's grid exponent, or 0 when it is not regionised. */
-    public int gridExponent() {
-        return gridExponent;
-    }
-
     /**
      * Whether {@code a} and {@code b} are written by one execution thread, and may therefore be
      * committed in one critical section.
@@ -131,7 +126,7 @@ public final class NoderaFoliaRegionMap {
     }
 
     /** Whether both regions nest in the one Folia section — the ALIGN-1 fast path. */
-    public boolean sameSection(RegionId a, RegionId b) {
+    private boolean sameSection(RegionId a, RegionId b) {
         return RegionAlignment.sectionOf(a.originChunkX(), gridExponent)
                 == RegionAlignment.sectionOf(b.originChunkX(), gridExponent)
                 && RegionAlignment.sectionOf(a.originChunkZ(), gridExponent)

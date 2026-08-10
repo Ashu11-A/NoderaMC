@@ -47,7 +47,11 @@ Three things landed in `dev.nodera.endpoint.paper.world`:
   shares; one Folia section ⇒ always shares, by ALIGN-1 arithmetic and **without a runtime call**;
   wider ⇒ the platform's own `isOwnedByCurrentRegion`, reached reflectively by `FoliaOwnershipProbe`
   so no Folia jar is needed to compile or to test; unanswerable ⇒ **does not share**, because a
-  refusal beats a degrade. Built at enable and logged.
+  refusal beats a degrade. Built at enable, logged, and **exercised** at enable — the live ALIGN-1
+  assertion task 3 asks for. Evidence, real Folia 1.21.4 boot: `ALIGN-1 live: the gate admits
+  Region[minecraft:overworld @ 0,0] + Region[minecraft:overworld @ 1,1] in one critical section, and
+  REFUSES Region[minecraft:overworld @ 2,0] — a span it cannot justify fails closed (L-64 stage 1)`,
+  with zero thread-context violations.
 - Stage 1 — `CrossRegionCommit.requireJointCriticalSection` throws `CrossRegionRefusedException`
   (`NODERA-XREGION-REFUSED`) naming both regions, the transfer, that nothing was written, and the
   resync fix. Evidence: `CrossRegionCommitTest` asserts the message positively and that the durable

@@ -41,9 +41,6 @@ final class CrossRegionCommitTest {
                 () -> commit.requireJointCriticalSection(4_242L, source, target));
 
         assertThat(refusal).isNotNull();
-        assertThat(refusal.transferId()).isEqualTo(4_242L);
-        assertThat(refusal.source()).isEqualTo(source);
-        assertThat(refusal.target()).isEqualTo(target);
         assertThat(refusal.getMessage())
                 .startsWith(CrossRegionRefusedException.CODE)
                 .contains("transfer 4242")

@@ -1,6 +1,9 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.core.region.DimensionKey;
+import dev.nodera.core.region.RegionId;
 import dev.nodera.endpoint.paper.world.CrossRegionCommit;
+import dev.nodera.endpoint.paper.world.CrossRegionRefusedException;
 import dev.nodera.endpoint.paper.world.FoliaOwnershipProbe;
 import dev.nodera.endpoint.paper.world.NoderaFoliaRegionMap;
 import dev.nodera.peer.control.CompanionClient;
@@ -38,8 +41,9 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
         getLogger().info("Nodera endpoint on " + platform.label() + " ("
                 + Bukkit.getVersion() + ")");
 
+        int exponent = platform.isRegionised()
+                ? gridExponent() : RegionAlignment.DEFAULT_GRID_EXPONENT;
         if (platform.isRegionised()) {
-            int exponent = gridExponent();
             String refusal = RegionAlignment.preflight(exponent);
             if (!refusal.isEmpty()) {
                 getLogger().severe(refusal);
@@ -62,6 +66,7 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
         // here, because nothing on this path delegates a region yet — server tasks 2 and 3.
         crossRegionCommit = CrossRegionCommit.refusing(regionMap);
         getLogger().info(regionMap.describe());
+        getLogger().info(gateSelfCheck(exponent));
 
         config = readConfig();
         var problems = config.problems();
@@ -148,14 +153,51 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
         return peerLink != null && peerLink.linked();
     }
 
-    /** @return which Nodera regions this platform writes on one thread (server task 3, L-64). */
-    public NoderaFoliaRegionMap regionMap() {
-        return regionMap;
-    }
-
     /** @return the gate every multi-region delta passes before a write (server task 4, L-64). */
     public CrossRegionCommit crossRegionCommit() {
         return crossRegionCommit;
+    }
+
+    /**
+     * ALIGN-1 asserted <b>live</b> rather than assumed (server task 3, L-64).
+     *
+     * <p>The preflight above is arithmetic on a number read out of a config file. This asks the
+     * gate itself, on the exponent this server is actually running, two questions whose answers the
+     * whole cross-region design rests on: are the Nodera regions that nest in one Folia section
+     * admitted, and is a span the platform cannot justify refused? An operator gets the answer at
+     * enable, in one line, instead of discovering it from a state-root divergence days later.
+     *
+     * <p><b>It reports; it never refuses to enable.</b> Ownership can only be answered from a
+     * region thread and plugin enable is not one, so on a regionised platform the second question
+     * is expected to refuse — that is the design, not a fault. Turning a diagnostic into a startup
+     * gate would let a future platform's answer stop a correctly configured server.
+     */
+    private String gateSelfCheck(int gridExponent) {
+        try {
+            DimensionKey dimension = DimensionKey.overworld();
+            // On a regionised platform the pair must be the corners of one section, because that is
+            // the ALIGN-1 claim. On one tick thread there are no sections, so any two distinct
+            // regions make the point that every pair is admitted.
+            int perAxis = regionMap.regionised()
+                    ? RegionAlignment.regionsPerSectionAxis(gridExponent) : 2;
+            RegionId anchor = new RegionId(dimension, 0, 0);
+            RegionId sameSection = new RegionId(dimension, perAxis - 1, perAxis - 1);
+            RegionId nextSection = new RegionId(dimension, perAxis, 0);
+
+            crossRegionCommit.requireJointCriticalSection(0L, anchor, sameSection);
+            String nested = "ALIGN-1 live: the gate admits " + anchor + " + " + sameSection
+                    + " in one critical section";
+            try {
+                crossRegionCommit.requireJointCriticalSection(0L, anchor, nextSection);
+                return nested + ", and admits " + nextSection + " too (one execution thread)";
+            } catch (CrossRegionRefusedException refused) {
+                return nested + ", and REFUSES " + nextSection
+                        + " — a span it cannot justify fails closed (L-64 stage 1)";
+            }
+        } catch (RuntimeException broken) {
+            return "ALIGN-1 live: the cross-region gate could not be exercised at enable ("
+                    + broken + "); every multi-region delta will be refused";
+        }
     }
 
     /**

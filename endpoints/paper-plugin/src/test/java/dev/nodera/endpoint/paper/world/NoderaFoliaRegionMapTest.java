@@ -36,7 +36,6 @@ final class NoderaFoliaRegionMapTest {
         NoderaFoliaRegionMap map = NoderaFoliaRegionMap.regionised(DEFAULT_EXPONENT, probe(false));
 
         // Origin chunks 0 and 8 both fall in section 0 at exponent 4 (16 chunks per section).
-        assertThat(map.sameSection(region(0, 0), region(1, 1))).isTrue();
         assertThat(map.shareExecutionThread(region(0, 0), region(1, 1))).isTrue();
         // ALIGN-1 is the whole answer here: a probe that says "no" must never be consulted, or the
         // common case would depend on a runtime call that can only be made from a region thread.
@@ -45,10 +44,10 @@ final class NoderaFoliaRegionMapTest {
 
     @Test
     void aWiderSpanIsThePlatformsAnswerAndAnUnaskableOneIsARefusal() {
+        // Origin chunks 0 and 16 fall in sections 0 and 1, so ALIGN-1 cannot answer and the
+        // platform is asked — which is what the probe counter below proves.
         RegionId source = region(0, 0);
         RegionId target = region(2, 0);
-        assertThat(NoderaFoliaRegionMap.regionised(DEFAULT_EXPONENT, probe(false))
-                .sameSection(source, target)).isFalse();
 
         assertThat(NoderaFoliaRegionMap.regionised(DEFAULT_EXPONENT, probe(true))
                 .shareExecutionThread(source, target)).isTrue();

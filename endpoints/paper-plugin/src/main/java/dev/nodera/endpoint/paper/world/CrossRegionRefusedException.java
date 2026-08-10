@@ -12,6 +12,11 @@ import dev.nodera.core.region.RegionId;
  * {@code catch}, and the message names the two regions, the transfer, the fact that nothing was
  * written, and what to do instead.
  *
+ * <p>It deliberately carries <b>no accessors for the two regions or the transfer id</b>. There is no
+ * caller yet that would read them — the gate is not on a delta path until server tasks 2 and 3
+ * deliver a delegated region — and "implemented, tested, never called" is this repository's dominant
+ * defect. They arrive with their first caller.
+ *
  * @Thread-context immutable, any thread.
  */
 public final class CrossRegionRefusedException extends IllegalStateException {
@@ -27,30 +32,8 @@ public final class CrossRegionRefusedException extends IllegalStateException {
      */
     public static final String CODE = "NODERA-XREGION-REFUSED";
 
-    private final transient RegionId source;
-    private final transient RegionId target;
-    private final long transferId;
-
     CrossRegionRefusedException(long transferId, RegionId source, RegionId target, String because) {
         super(message(transferId, source, target, because));
-        this.transferId = transferId;
-        this.source = source;
-        this.target = target;
-    }
-
-    /** @return the region the delta would have taken state out of. */
-    public RegionId source() {
-        return source;
-    }
-
-    /** @return the region the delta would have put state into. */
-    public RegionId target() {
-        return target;
-    }
-
-    /** @return the transfer id that was refused; nothing under it was journalled. */
-    public long transferId() {
-        return transferId;
     }
 
     private static String message(

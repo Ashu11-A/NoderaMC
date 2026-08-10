@@ -53,19 +53,22 @@ public final class FoliaOwnershipProbe implements NoderaFoliaRegionMap.Execution
         if (server == null || world == null) {
             return NoderaFoliaRegionMap.ExecutionOwnership.UNANSWERABLE;
         }
+        Method found = null;
         for (Method method : server.getClass().getMethods()) {
             if (!METHOD.equals(method.getName()) || method.getParameterCount() != 3
                     || method.getReturnType() != boolean.class) {
                 continue;
             }
             Class<?>[] parameters = method.getParameterTypes();
-            if (parameters[1] != int.class || parameters[2] != int.class
-                    || !parameters[0].isInstance(world)) {
-                continue;
+            if (parameters[1] == int.class && parameters[2] == int.class
+                    && parameters[0].isInstance(world)) {
+                found = method;
+                break;
             }
-            return new FoliaOwnershipProbe(server, world, method);
         }
-        return NoderaFoliaRegionMap.ExecutionOwnership.UNANSWERABLE;
+        return found == null
+                ? NoderaFoliaRegionMap.ExecutionOwnership.UNANSWERABLE
+                : new FoliaOwnershipProbe(server, world, found);
     }
 
     @Override

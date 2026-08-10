@@ -38,11 +38,6 @@ public final class TransferStoreJournal implements EntityTransferCoordinator.Tra
         this.store = store;
     }
 
-    /** @return the store this journal writes, for recovery and for assertions about stage counts. */
-    public TransferStore store() {
-        return store;
-    }
-
     @Override
     public void prepared(EntityTransferCoordinator.TransferPlan plan) {
         store.put(record(EntityTransferRecord.Stage.PREPARED, plan, null, ""));

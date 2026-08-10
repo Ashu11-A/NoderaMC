@@ -44,7 +44,11 @@ What landed (`endpoints/paper-plugin/.../endpoint/paper/world/`):
 - **Stage 1** — `CrossRegionCommit.requireJointCriticalSection` throws
   `CrossRegionRefusedException` (code `NODERA-XREGION-REFUSED`) naming both regions, the transfer,
   that nothing was written, and the resync fix. Wired into `NoderaEndpointPlugin.onEnable`, which
-  logs what it resolved (`e2e-folia` F1 asserts the line).
+  runs the **live ALIGN-1 gate self-check** [3](Task.3.md) asks for: it exercises the gate on the
+  regions that nest in one Folia section and on one a section away, and logs what the gate actually
+  did on the exponent this server is running. On a real Folia that second call **refuses**, which is
+  L-64 stage 1 firing against the real regioniser at startup rather than being asserted about.
+  `e2e-folia` F1 asserts all of it.
 - **Stage 2** — `CrossRegionCommit.joint` runs the real `EntityTransferCoordinator` over
   `WorldMutationApplier`, certified by `EntityTransferCertificate` and journalled to the durable
   `TransferStore` through `TransferStoreJournal`. Nothing here is a new engine: the primitives

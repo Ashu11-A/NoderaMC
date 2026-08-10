@@ -100,6 +100,15 @@ public final class FoliaScenario implements Scenario {
                                 + ServerEndpointSupport.FOLIA_GRID_EXPONENT),
                         "F1: the plugin did not report which Nodera regions share an execution "
                                 + "thread (server task 3 — L-64)");
+                // The gate exercised against the REAL regioniser, at enable: the regions that nest
+                // in one Folia section are admitted, and a span the platform cannot justify fails
+                // closed. A preflight that only ever passes has never been shown to be a check —
+                // the same argument F2 makes about ALIGN-1 itself.
+                ctx.check(log.contains("ALIGN-1 live: the gate admits"),
+                        "F1: the cross-region gate was never exercised at enable (L-64 stage 1)");
+                ctx.check(log.contains("a span it cannot justify fails closed"),
+                        "F1: the gate admitted a span across two Folia sections that the platform "
+                                + "could not justify — L-64's refusal did not fire");
 
                 ctx.stack().rcon().send("stop");
                 // Not fatal: the server may have exited before the plugin's disable line was
