@@ -268,9 +268,13 @@ final class CrossFoliaRegionCommitIT {
         assertThat(world.getEntity(targetRegion, sourceEntity.id())).isNull();
         assertThat(projected).isEmpty();
 
-        // The side that DID park must not be left parked, or that region never ticks again.
-        awaitResume(sourceRegion);
+        // BOTH sides are resumed, not just the one that parked. Resuming only the parked side would
+        // leave a region wedged whenever the failure is the park timeout rather than a refusal: the
+        // other region's park task can still be queued and would pause it a moment later.
+        awaitResume(sourceRegion, targetRegion);
+        assertThat(resumedOn).containsOnlyKeys(sourceRegion, targetRegion);
         assertThat(pipelines.get(sourceRegion).state()).isEqualTo(PipelineState.ACTIVE);
+        assertThat(pipelines.get(targetRegion).state()).isEqualTo(PipelineState.ACTIVE);
         assertThat(log).anyMatch(line -> line.contains("resumed untouched"));
     }
 

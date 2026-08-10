@@ -110,7 +110,9 @@ public final class CrossRegionCommit implements AutoCloseable {
          *                  the region resumes exactly where it parked. An implementation must put a
          *                  pipeline still {@code PAUSED_FOR_XR} back to {@code ACTIVE}
          *                  ({@link RegionPipeline#crossRegionAborted()}), because the coordinator
-         *                  leaves it paused on the paths it refuses.
+         *                  leaves it paused on the paths it refuses. It must also tolerate a region
+         *                  that never parked: an abandoned attempt resumes both sides rather than
+         *                  reasoning about which of them got that far.
          */
         void resume(RegionId region, RegionDelta certified);
     }
@@ -254,10 +256,15 @@ public final class CrossRegionCommit implements AutoCloseable {
 
         sourcePark.thenCombine(targetPark, Parked::new).whenCompleteAsync((parked, failure) -> {
             if (failure != null) {
-                // One side may have parked. Hand its authority back before giving up, or that
-                // region never ticks again.
-                releaseIfParked(source, sourcePark);
-                releaseIfParked(target, targetPark);
+                // Hand BOTH regions their authority back before giving up, unconditionally.
+                // Resuming only the side whose future completed is not enough: when the failure is
+                // the park TIMEOUT, the other region's park task may still be queued and will pause
+                // that region a moment from now, with nobody left to un-pause it. A region thread
+                // runs its tasks in submission order, so a resume queued here always lands after a
+                // park that is still pending — which is why `resume` must tolerate a region that
+                // never parked.
+                resume(source);
+                resume(target);
                 journal.aborted(transferId, "park failed: " + rootCause(failure));
                 log.accept(CrossRegionRefusedException.CODE + ": transfer " + transferId
                         + " never reached its park point (" + rootCause(failure)
@@ -327,13 +334,6 @@ public final class CrossRegionCommit implements AutoCloseable {
             }
         });
         return parked.orTimeout(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
-    }
-
-    /** Resume a region whose park succeeded even though the attempt as a whole did not. */
-    private void releaseIfParked(RegionId region, CompletableFuture<RegionPark> park) {
-        if (park.isDone() && !park.isCompletedExceptionally()) {
-            resume(region);
-        }
     }
 
     /** Hand a region's authority back with nothing to project. */
