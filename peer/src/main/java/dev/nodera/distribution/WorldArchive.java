@@ -150,7 +150,7 @@ public final class WorldArchive {
      * @throws UncheckedIOException on any read failure.
      * @Thread-context any thread; blocking I/O.
      */
-    public static SortedMap<String, byte[]> readDirectory(Path root, Predicate<String> filter) {
+    static SortedMap<String, byte[]> readDirectory(Path root, Predicate<String> filter) {
         TreeMap<String, byte[]> files = new TreeMap<>();
         try (var stream = Files.walk(root)) {
             for (Path p : (Iterable<Path>) stream::iterator) {

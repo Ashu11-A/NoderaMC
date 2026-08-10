@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -93,6 +94,12 @@ public final class PeerRuntime implements DiagnosticsSource {
     private final Map<NodeId, Long> lastSeenNanos = new HashMap<>();
     private final Map<NodeId, Long> keepAliveSeq = new HashMap<>();
     private final Set<NodeId> heard = new HashSet<>();
+    /**
+     * `(peer, kind)` pairs already reported by {@link #answerUndecodable} at WARN. Bounded by the
+     * number of peers times the number of wire kinds, and only ever added to for a frame this build
+     * refused, so an unbounded flood of junk from one peer costs one entry, not one per frame.
+     */
+    private final Set<String> warnedUndecodable = ConcurrentHashMap.newKeySet();
     private long epoch;
     private NodeId gatewayId;
     private long keepAliveSeqCounter;
@@ -518,11 +525,19 @@ public final class PeerRuntime implements DiagnosticsSource {
      * answers an unknown <i>kind</i> and explains why silence is the one answer a sender cannot act
      * on.
      *
-     * <p>A header that does not parse stays silent, and must: with no kind and no correlation id
-     * there is nothing to say, and answering unframeable bytes would let anyone make this node emit a
-     * frame per packet. The two bounds from {@link #answerUnsupported} apply unchanged — never answer
-     * something already flagged {@code RESPONSE}, and never send more than one small frame back on
-     * the connection the frame arrived on.
+     * <p>A header that does not parse stays silent. For a bad magic or a truncated header that is
+     * forced — there is no kind and no correlation id to answer with, and replying to unframeable
+     * bytes would let anyone make this node emit a frame per packet. It is <i>not</i> forced for an
+     * epoch mismatch, where the magic has already matched and both fields sit at fixed offsets;
+     * {@code RejectCode.UNSUPPORTED_EPOCH} exists for exactly that and answering it is a separate,
+     * reviewable change rather than an impossibility. The two bounds from {@link #answerUnsupported}
+     * apply unchanged — never answer something already flagged {@code RESPONSE}, and never send more
+     * than one small frame back on the connection the frame arrived on.
+     *
+     * <p>What the answer buys today is a wire-visible refusal and a log line on the receiving side.
+     * No peer yet <i>consumes</i> an inbound {@code Nack} — {@code dispatch} has no arm for it — so a
+     * rejected sender still fails by timeout until the correlation table lands. That makes this the
+     * receiver-side half of the fix, and the reason the log line matters as much as the frame.
      *
      * <p>{@code MALFORMED_BODY} rather than a version-specific code: "the body did not parse as the
      * kind claimed" is true of a rejected version, and appending to a frozen wire enum for a sharper
@@ -541,11 +556,23 @@ public final class PeerRuntime implements DiagnosticsSource {
                     frame.length, from, cause.getMessage());
             return;
         }
-        LOG.warn("Refusing kind {} from {}: this build cannot read its body ({})",
-                header.kind(), from, cause.getMessage());
         if (dev.nodera.protocol.wire.FrameFlags.has(
                 header.flags(), dev.nodera.protocol.wire.FrameFlags.RESPONSE)) {
+            LOG.debug("Dropping an unreadable {} response from {}: {}",
+                    header.kind(), from, cause.getMessage());
             return;
+        }
+        // WARN once per (peer, kind), DEBUG after. A rejected body version is not a one-off: a peer
+        // one release ahead emits it at commit cadence for as long as it stays connected, and a
+        // per-frame WARN would bury the faults an operator reads this log for under an expected
+        // condition. The gate is ordered after the RESPONSE check so a flood of response-flagged
+        // junk cannot fill the set either.
+        if (warnedUndecodable.add(from.toString() + '#' + header.kind())) {
+            LOG.warn("Refusing kind {} from {}: this build cannot read its body ({})",
+                    header.kind(), from, cause.getMessage());
+        } else {
+            LOG.debug("Refusing kind {} from {} again: {}",
+                    header.kind(), from, cause.getMessage());
         }
         try {
             transport.send(from, WireCodec.encode(

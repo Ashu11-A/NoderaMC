@@ -673,19 +673,37 @@ Three different headline results were in circulation — −0.85%, −5.46%, −
 a reviewer met was reproducible on the head they were reading. All three were true of something; none
 of them was true of the tree. So, once, against one endpoint, on today's bucket definitions:
 
-| bucket | `main` (`9959df1`) | head (`6ab62f1`) | delta |
+| bucket | `main` (`9959df1`) | head (round 4) | delta |
 |---|---:|---:|---:|
-| `java.main.code` | 60,815 | 56,456 | −4,359 |
-| `java.test.code` | 60,440 | 55,039 | −5,401 |
-| `rust.main.code` | 20,039 | 19,576 | −463 |
-| `rust.test.code` | 11,853 | 12,197 | **+344** |
+| `java.main.code` | 60,815 | 56,395 | −4,420 |
+| `java.test.code` | 60,440 | 55,131 | −5,309 |
+| `kotlin.main.code` | 3,999 | 4,012 | **+13** |
+| `kotlin.test.code` | 21 | 21 | 0 |
+| `rust.main.code` | 20,058 | 19,698 | −360 |
+| `rust.test.code` | 11,834 | 12,264 | **+430** |
 | `ts.main.code` | 12,743 | 12,588 | −155 |
 | `ts.test.code` | 3,204 | 3,544 | **+340** |
-| **total code** | **169,094** | **159,400** | **−9,694 (−5.73%)** |
-| total comment | 60,636 | 60,570 | −66 |
+| **total code** | **173,114** | **163,653** | **−9,461 (−5.47%)** |
+| total comment | 61,648 | 61,830 | **+182** |
 
-**−9,694 code lines, −5.73%, against a 30% target re-scoped to 10% and a measured ceiling of 14,800.**
-The two rises are round 3 buying correctness with tests, and they are the honest half of the number.
+**−9,461 code lines, −5.47%, against a 30% target re-scoped to 10% and a measured ceiling of 14,800.**
+The rises are the programme buying correctness with tests, and they are the honest half of the number.
+
+Two things about this table changed after round 4's review, and both are the reason it is stated with
+its endpoint named rather than as a bare percentage:
+
+* **Kotlin is in the gate now, and it was not when the earlier version of this table was written.** It
+  adds 4,033 lines to the head and 4,020 to `main`, so it moves both endpoints and is a re-bucketing,
+  not growth — but a reader comparing this total to any figure quoted before `c738443` is comparing two
+  different lexers. The earlier table read `169,094 → 159,400 = −9,694, −5.73%`; every one of those
+  four numbers was correct for the definitions it was measured under, and none of them is comparable to
+  a number from this one. Excluding Kotlin from both ends gives 169,094 → 159,620, which is the same
+  programme result seen through the older, narrower lens.
+* **The Rust split moved without the tree moving**, by +54/−54 between `rust.main` and `rust.test`:
+  `#[cfg(test)] mod test_support;` is an unbraced item, and the splitter used to run past it to the
+  next depth-0 brace, so the whole body of `async fn main()` in both the tracker and the rendezvous
+  was counted as test code. `scripts/lib/loc-baseline.json`'s `measured` field carries the full
+  decomposition.
 
 Reproduce the head column with `scripts/loc-metrics.py --json`. The `main` column needs one step of
 setup, because **`scripts/loc-metrics.py` does not exist on `main` — the whole measurement apparatus,
@@ -696,7 +714,8 @@ rather than from it:
 git archive main | tar -x -C /tmp/main-tree
 cd /tmp/main-tree && git init -q . && git add -A && git -c user.email=a@b -c user.name=a commit -qm x
 cp -r <this-branch>/scripts/loc-metrics.py <this-branch>/scripts/lib /tmp/main-tree/scripts/
-python3 scripts/loc-metrics.py --json          # 169,094 code, 60,636 comment
+python3 scripts/loc-metrics.py --check         # OK — 173114 code, 61648 comment
+python3 scripts/loc-metrics.py --json          # the same, per bucket; sum the sixteen for a total
 ```
 
 Untracked files are not counted, which is what makes copying the tool in safe: the number describes
@@ -744,19 +763,21 @@ is the row above it, because the programme started on `main`.
 
 ### Gate state on this head
 
-Measured, not remembered. `./gradlew check build` is green in run 31140767547 and every counter below
-comes from that run or from a file in this commit.
+Measured, not remembered. Every counter below comes from a local `./gradlew check` on this head or
+from a file in this commit, and each is reproducible by the command in its source column.
 
-| gate | value on `6ab62f1` | source |
+| gate | value on this head | source |
 |---|---|---|
-| Java tests | **2,272 passed / 0 failed / 0 skipped** | `java` job 92749994323; `Nothing skipped into green` printed `no Java test skipped` |
-| Java per module | `core` 314 · `endpoint` 114 · `engine` 446 · `neoforge-mod` 134 · `paper-plugin` 20 · `peer` 852 · `storage` 158 · `testing` 46 · `transport` 188 | `scripts/java-test-report.sh` in the same job |
-| `loc-metrics --check` | `OK — 159400 code, 60570 comment, within baseline` | zero headroom on all twelve buckets, by construction of `--baseline` |
+| Java tests | **2,271 passed / 0 failed / 0 skipped** | `scripts/test-totals.sh --java`; the `Nothing skipped into green` step fails on any skip at all |
+| Java per module | `core` 314 · `endpoint` 114 · `engine` 446 · `neoforge-mod` 134 · `paper-plugin` 20 · `peer` 850 · `storage` 158 · `testing` 46 · `transport` 189 | `scripts/test-counts.sh --check java`, which now holds these nine cells instead of leaving them typed |
+| `loc-metrics --check` | `OK — 163653 code, 61830 comment, within baseline` | zero headroom on all sixteen buckets, by construction of `--baseline` |
+| `loc-metrics --selftest` | 54 cases (22 lexer, 32 gate) | five of them are round 4's regression tests for the lexer bugs found in this tooling |
+| `reference-check --check` | 0 unreferenced, 18 allowlisted, 12 test-only, 153 exported-but-local | `fixtures/structure/reference-allow.json`; the walker now asks about `pub` items and fields, not only `pub fn` |
 | `dead_classes` | 0 | `fixtures/structure/budget.json` |
-| `test_only_classes` | 11 | same |
+| `test_only_classes` | 10 | same |
 | `never_referenced_methods` | 2 | same — no headroom; both are filed defects kept fixable-by-wiring |
-| `test_only_methods` | 312 | same |
-| `unreachable_methods` | 115 | same |
+| `test_only_methods` | 309 | same |
+| `unreachable_methods` | 112 | same |
 | `huge_methods` | 0 | same |
 | `severe_cost_findings` | 3 | same |
 | `fixtures/wire/` | every tracked byte identical to `main`; four `.bin` files **moved** out of `java-only/` | `git diff main --stat -- fixtures/` |
@@ -764,8 +785,10 @@ comes from that run or from a file in this commit.
 The test ladder, for the same reason the line ladder is written out: **2,423 / 12 skipped** on
 `61e0936` (run 31070756099, the last commit before round 2 executed) → **2,243 / 0** claimed at round
 2's merge, which no retained run covers → **2,267 / 0** on `44069df` just after the round-3 merge (run
-31137013033) → **2,272 / 0** on the head. The fall from 2,423 is 43 test files leaving with the design
-they tested; the rise across round 3 is the regression tests it added.
+31137013033) → **2,272 / 0** at the round-3 merge → **2,271 / 0** on this head. The fall from 2,423 is
+43 test files leaving with the design they tested; the rise across rounds 3 and 4 is the regression
+tests they added. The last step is a fall of one that is really −5/+4: `SaveRegionTest` left with
+`SaveRegion`, and the wire, harness and frame-refusal invariants round 4 pinned arrived.
 
 ### What this round is actually worth
 

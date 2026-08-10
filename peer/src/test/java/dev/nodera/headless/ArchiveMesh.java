@@ -138,8 +138,12 @@ final class ArchiveMesh implements AutoCloseable {
                 try {
                     node.service.onMessage(from, WireCodec.decode(frame));
                 } catch (RuntimeException undelivered) {
-                    if (tearingDown) {
-                        return; // the test is over; see the field's javadoc
+                    if (tearingDown || node.closed) {
+                        // The test is over, or this node was closed on purpose while its neighbours
+                        // were still live -- ArchiveLaneTest does exactly that in
+                        // theHeldCopySurvivesAnUnreachableNewerVersion. Either way the throw is the
+                        // close, not a delivery failure; see the field's javadoc.
+                        return;
                     }
                     undeliverable.add(node.identity.nodeId() + " could not take a "
                             + frame.length + "-byte frame from " + from + ": " + undelivered);
@@ -228,7 +232,8 @@ final class ArchiveMesh implements AutoCloseable {
      * <p>Order matters and was inconsistent across the copies: services close first, so a service
      * shutting down cannot be handed a frame by a transport that is still running.
      *
-     * <p>Recording stops before the first node is touched ({@link #tearingDown}), so what this
+     * <p>Recording stops before the first node is touched ({@link #tearingDown}) and for any node a
+     * test closed itself, so what this
      * asserts on is exactly the set of frames that went missing while the test was running. The
      * assertion itself stays: it is the only thing standing between a renumbered wire tag and a
      * 30–60 s fetch timeout with no stated cause.

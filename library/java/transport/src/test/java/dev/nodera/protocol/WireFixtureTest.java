@@ -540,8 +540,10 @@ class WireFixtureTest {
         for (NoderaMessage msg : corpus().values()) {
             covered.add(MessageCodec.typeTagOf(msg));
         }
-        // Present in the directory Rust lists, just not written by this test. The reverse sweep in
-        // checkCorpus is what keeps this from being an exemption nothing checks.
+        // Present in the directory Rust lists, just not written by this test. Two separate checks
+        // keep this from being an exemption nothing verifies: the loop below asserts each exempted
+        // file exists and really carries the kind it claims, and checkCorpus's reverse sweep fails on
+        // any .bin in either directory that neither corpus nor this map accounts for.
         covered.addAll(externallyOwnedShared().values());
 
         Set<String> declared = rustSupportedTagNames();

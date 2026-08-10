@@ -13,15 +13,15 @@
 > this register carries the same three cells rather than a second measurement. The run is dated
 > 2026-08-06, after the Plan 11 round 2 reduction (issue #210) deleted the shadow-validation and
 > central-coordinator clusters and 21 of their dedicated test files. The whole Java tree comes to
-> **2,267 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
+> **2,271 tests / 0 failed / 0 skipped** as the sum of README's nine measured module cells; to
 > measure it rather than add it up, run `scripts/test-totals.sh --java`. The **2,238** this file used
 > to carry predates that re-measurement and never agreed with README.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
 | `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 314 | ✅ |
-| `engine` | Deterministic engine + consensus/committee/fallback, and the surviving `shadow` delta applier | 444 | ✅ |
-| `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 44 | ✅ |
+| `engine` | Deterministic engine + consensus/committee/fallback, and the surviving `shadow` delta applier | 446 | ✅ |
+| `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 46 | ✅ |
 
 Run with:
 

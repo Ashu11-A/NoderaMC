@@ -10,9 +10,9 @@
 scenarios themselves run in the `e2e-live` workflow nightly, and `scripts/nodera-test.sh list` is
 the smoke test that all twenty resolve.
 
-Whole-tree Java total for that same run: **2,267 tests · 0 failed · 0 skipped**. That figure is the
-sum of the nine per-module counts README's module table carries — core 314, engine 444, transport
-188, storage 158, testing 44, peer 852, endpoint 114, neoforge-mod 133, paper-plugin 20 — which is
+Whole-tree Java total for that same run: **2,271 tests · 0 failed · 0 skipped**. That figure is the
+sum of the nine per-module counts README's module table carries — core 314, engine 446, transport
+189, storage 158, testing 46, peer 850, endpoint 114, neoforge-mod 134, paper-plugin 20 — which is
 where a reader should go for the per-module breakdown. To measure it rather than add it up, run
 `scripts/test-totals.sh --java`; that command reads JUnit XML rather than a job's exit code, so a
 suite that skipped into green cannot contribute to the number.
@@ -48,7 +48,10 @@ scripts/loc-metrics.py                         # per-language table
 scripts/loc-metrics.py --by-module             # per module, crate and package
 scripts/loc-metrics.py --check                 # fail if the tree grew past scripts/lib/loc-baseline.json
 scripts/loc-metrics.py --baseline              # re-stamp, when a growth is deliberate
-scripts/loc-metrics.py --selftest              # 18 lexer fixtures — runs before --check in the gate
+scripts/loc-metrics.py --selftest              # 49 cases (22 lexer, 27 gate) — runs before --check
+scripts/loc-metrics.py --json                  # per-bucket counts; sum them for a total
+scripts/reference-check.py --check              # every exported symbol has a call site elsewhere
+scripts/test-counts.sh --check [java|<pkg>]    # README's per-module and per-crate counts are measured
 ```
 
 `--selftest` runs first everywhere `--check` does. The ratchet is worth exactly as much as the lexer

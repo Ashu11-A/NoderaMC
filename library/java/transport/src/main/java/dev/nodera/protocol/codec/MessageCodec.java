@@ -29,9 +29,9 @@ import java.util.List;
  *
  * <p>Every frame begins with a {@code u16 typeTag} (see the constants below) followed by a
  * {@code u16 version}. Most tags use {@value #ENCODING_VERSION}. Five carry a per-message body
- * version because a field was appended to them after they shipped, and tag 23
- * ({@link SessionKeepAlive}) is emitted and accepted at
- * {@value #SESSION_KEEP_ALIVE_ENCODING_VERSION} only. The body that follows is message-specific;
+ * version because a field was appended to them after they shipped — tags 5, 11, 23, 32 and 56 — and
+ * one <i>of those five</i>, tag 23 ({@link SessionKeepAlive}), is emitted and accepted at
+ * {@value #SESSION_KEEP_ALIVE_ENCODING_VERSION} only, its version 1 having been retired in 0.2.0. The body that follows is message-specific;
  * it composes core's big-endian fixed-width primitives (no varints, no floats in hashed state).
  * Nested {@code Encodable} values (e.g. {@code NodeId}, {@code RegionId}, {@code StateRoot},
  * {@code SignedVote}, {@code ActionBatch}) are written via their own {@code encode} so their bytes

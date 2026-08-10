@@ -31,10 +31,13 @@ size bound tested being the most dangerous.
 
 ## Architecture
 
-Thirteen modules, in two groups. The first five are what makes a process a **service in the
-network** — it has an identity, it announces itself, it drains, it updates — and only the tracker and
-the rendezvous take them. The rest is **plumbing every one of the three binaries needs** and none of
-it carries authority, which is what lets telemetry depend on this crate without becoming a peer.
+Thirteen modules, in two groups. The first five, **plus `admission`**, are what makes a process a
+**service in the network** — it has an identity, it announces itself, it binds who may claim it, it
+drains, it updates — and only the tracker and the rendezvous take them. The remaining **seven** are
+**plumbing all three binaries share** and none of it carries authority, which is what lets telemetry
+depend on this crate without becoming a peer. That 6/7 split is the same partition
+`telemetry/Cargo.toml` states from the other side: seven modules used, six — including `admission` —
+deliberately not.
 
 | Module | What it owns |
 |---|---|

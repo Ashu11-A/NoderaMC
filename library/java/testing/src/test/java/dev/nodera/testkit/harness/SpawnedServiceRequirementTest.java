@@ -1,6 +1,7 @@
 package dev.nodera.testkit.harness;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -29,9 +30,28 @@ final class SpawnedServiceRequirementTest {
     /** A name no profile of any build ever writes, so "absent" is a property of the test. */
     private static final String NEVER_BUILT = "nodera-binary-that-does-not-exist";
 
+    /**
+     * What the property was when this class started. Saved and restored rather than cleared, because
+     * CI sets it globally — `./gradlew check build -Dnodera.test.requireServiceBinaries=true` — and a
+     * bare `clearProperty` in `@AfterEach` would switch the promise off for the rest of this JVM.
+     * Nothing else in this fork consumes it today, so that would cost nothing today, and would
+     * silently downgrade the next `SpawnedService` test ordered after this class from "fails when a
+     * binary is missing" to "skips".
+     */
+    private String inherited;
+
+    @BeforeEach
+    void rememberFlag() {
+        inherited = System.getProperty(SpawnedService.REQUIRE_PROPERTY);
+    }
+
     @AfterEach
-    void clearFlag() {
-        System.clearProperty(SpawnedService.REQUIRE_PROPERTY);
+    void restoreFlag() {
+        if (inherited == null) {
+            System.clearProperty(SpawnedService.REQUIRE_PROPERTY);
+        } else {
+            System.setProperty(SpawnedService.REQUIRE_PROPERTY, inherited);
+        }
     }
 
     @Test

@@ -302,6 +302,14 @@ def declarations(files: list[pathlib.Path]) -> tuple[list[dict], dict[str, int]]
                     continue
                 match = RUST_PUB_ITEM.match(line) or RUST_PUB_FIELD.match(line)
                 if match is None:
+                    # The latch has to be released by the item it applies to, not by the next item
+                    # that happens to be `pub`. `#[no_mangle]` above a non-`pub` `extern "C" fn` used
+                    # to survive to the following declaration and exempt it silently — the same
+                    # shape as the `#[cfg(test)]` latch this file was rewritten to remove. Anything
+                    # that is not blank, a comment, or another attribute is the attributed item.
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith(("//", "/*", "*", "#[", "#!")):
+                        abi = False
                     continue
                 if abi:
                     not_asked["abi"] += 1

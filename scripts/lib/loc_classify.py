@@ -260,8 +260,16 @@ def _terminates_unbraced(line: str) -> bool:
     module's end, and lines that are nothing but an attribute, because ``#[cfg(test)]`` on its own
     terminates nothing. An attribute *followed by* the item — ``#[cfg(test)] mod test_support;`` on
     one line — is not skipped, which is the whole case this exists for.
+
+    The attribute test looks at the last ``]``, not at the end of the line, because
+    ``reference-check.py`` calls this splitter on text whose lines it has tagged with a trailing
+    ``\\0<line number>`` so it can recover positions. A tagged attribute line ends in a digit, and an
+    ``endswith("]")`` test would have failed on it, letting a ``#[doc = "…foo();…"]`` above a test
+    module hand that module's whole body back as production code — and then accuse every ``pub``
+    item inside it of having no call site. A caller-supplied tag must not be able to change what a
+    line *is*.
     """
-    stripped = line.strip()
+    stripped = line.strip().rstrip("0123456789").rstrip("\0")
     if stripped.startswith(("//", "/*", "*")):
         return False
     if stripped.startswith(("#[", "#!")) and stripped.endswith("]"):
@@ -338,7 +346,7 @@ def _scan_line(
 
         if state == "text":
             saw_code = True
-            found = _find_unescaped(line, index, '"""')
+            found = _find_triple_quote(line, index, lang)
             if found < 0:
                 break
             index = found + 3
@@ -399,11 +407,13 @@ def _scan_line(
         if char == '"':
             saw_code = True
             if lang in _TEXT_BLOCK_LANGUAGES and line.startswith('"""', index):
-                found = _find_unescaped(line, index + 3, '"""')
+                found = _find_triple_quote(line, index + 3, lang)
                 if found < 0:
                     state = "text"
                     break
                 index = found + 3
+            elif lang == "kotlin":
+                index = _skip_kotlin_string(line, index)
             else:
                 index = _skip_quoted(line, index, '"')
             last_significant = '"'
@@ -456,6 +466,64 @@ def _resume_block(line: str, index: int, lang: str, depth: int) -> tuple[int, st
             continue
         index += 1
     return index, "block", depth
+
+
+def _find_triple_quote(line: str, index: int, lang: str) -> int:
+    """The end of a triple-quoted literal, under the escaping rules of the language that opened it.
+
+    A Java text block processes a backslash, so an escaped quote does not close it. A Kotlin raw
+    string processes nothing at all: a trailing backslash before the closing delimiter is content,
+    and the literal ends there. Searching a Kotlin raw string with Java's rule stepped over the
+    closing delimiter and read the rest of the line — comments included — as string content.
+    """
+    if lang == "kotlin":
+        return line.find('"""', index)
+    return _find_unescaped(line, index, '"""')
+
+
+def _skip_kotlin_string(line: str, index: int) -> int:
+    """Consume a Kotlin `"` literal, stepping over `${…}` templates rather than into them.
+
+    A template can hold arbitrary code, including further string literals:
+    `"${store.optString("name")}"` is one literal, not two. Treating the inner `"` as the closing
+    quote put the scanner back in code position *inside* the template, where a `/*` in a key —
+    `"${a["/*"]}"` — opened a block comment that ran to the end of the file. That is the same class
+    of failure this module already guards against for TypeScript regex literals, and this tree writes
+    nested templates constantly.
+    """
+    index += 1
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "$" and line.startswith("${", index):
+            index = _skip_template_expression(line, index + 2)
+            continue
+        if char == '"':
+            return index + 1
+        index += 1
+    return length
+
+
+def _skip_template_expression(line: str, index: int) -> int:
+    """Consume a `${…}` body, honouring brace depth and any string literals inside it."""
+    depth = 1
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        elif char in '"\'':
+            index = _skip_quoted(line, index, char)
+            continue
+        index += 1
+    return length
 
 
 def _skip_quoted(line: str, index: int, quote: str) -> int:

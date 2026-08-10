@@ -15,7 +15,8 @@ reproducible on a clean clone, and it excludes `target/`, `build/`, `node_module
 artifact without needing a list of them.
 
 What is NOT counted, stated so the headline has a denominator: the programme's own tooling, 11 `.py`
-files (2,999 code lines) and 25 `.sh` files (3,759), 6,758 code lines in all — 4.1% of the tree.
+files (3,434 code lines) and 25 `.sh` files (3,821), 7,255 code lines in all — 4.4% of the
+tree, and rising, because this tooling is inside its own blind spot.
 Counting them needs a `#`-comment lexer for two more languages, with shell here-documents and
 Python docstrings to get right, and a lexer nobody can check against `cloc` is a worse foundation
 for a gate than an exclusion somebody wrote down. Moving logic into `scripts/*.py` therefore still
@@ -93,8 +94,8 @@ _RATCHET_NOTE = (
     "size gate. The `*.comment` numbers are measured and diffed but NOT gated: a gate that makes "
     "deleting documentation the cheapest way to go green is pointed at the wrong thing. What these "
     "limits do NOT cover, stated so the total has a denominator: the programme's own tooling, 11 "
-    "`.py` files (2,999 code lines) and 25 `.sh` files (3,759), 6,758 code lines in all -- "
-    "roughly 4% of the tree. Counting them needs a `#`-comment lexer for two more languages, "
+    "`.py` files (3,434 code lines) and 25 `.sh` files (3,821), 7,255 code lines in all -- "
+    "roughly 4.4% of the tree, and rising, because this tooling is inside its own blind spot. Counting them needs a `#`-comment lexer for two more languages, "
     "here-documents and docstrings included, and until that exists moving logic into a script "
     "still reads as reduction."
 )
@@ -640,6 +641,18 @@ _RUST_UNBRACED_ONE_LINE = "#[cfg(test)] mod test_support;\npub fn main() {\n    
 _RUST_UNBRACED_GROUPED = (
     "#[cfg(test)]\npub use crate::support::{\n    Alpha,\n    Beta,\n};\npub fn a() {}\n"
 )
+# A `;` in the doc comment above a braced test module is not that module's end. Without the
+# comment-line skip in `_terminates_unbraced` this splits after the comment and hands the module's
+# body back as production.
+_RUST_UNBRACED_COMMENT = (
+    "#[cfg(test)]\n// setup; then teardown\nmod tests {\n    fn t() {}\n}\npub fn a() {}\n"
+)
+# Same shape with an attribute instead of a comment. This one is why the bare-attribute test looks
+# past a caller-supplied position tag: `reference-check.py` appends one to every line, so an
+# `endswith("]")` test failed here and accused every `pub` item in the module of having no caller.
+_RUST_UNBRACED_ATTRIBUTE = (
+    '#[cfg(test)]\n#[doc = "calls foo(); first"]\nmod tests {\n    fn t() {}\n}\npub fn a() {}\n'
+)
 
 
 def _generated_markers() -> tuple[bool, bool, bool, bool]:
@@ -780,6 +793,45 @@ def _structural_cases() -> list[tuple[str, object, object]]:
             "an unbraced item containing braces ends at its own semicolon",
             loc_classify.split_test_blocks(_RUST_UNBRACED_GROUPED, "rust"),
             ("pub fn a() {}", "#[cfg(test)]\npub use crate::support::{\n    Alpha,\n    Beta,\n};"),
+        ),
+        (
+            "a semicolon in the comment above a braced test module is not the module's end",
+            loc_classify.split_test_blocks(_RUST_UNBRACED_COMMENT, "rust"),
+            (
+                "pub fn a() {}",
+                "#[cfg(test)]\n// setup; then teardown\nmod tests {\n    fn t() {}\n}",
+            ),
+        ),
+        (
+            "a semicolon in an attribute above a braced test module is not the module's end",
+            loc_classify.split_test_blocks(_RUST_UNBRACED_ATTRIBUTE, "rust"),
+            (
+                "pub fn a() {}",
+                '#[cfg(test)]\n#[doc = "calls foo(); first"]\nmod tests {\n    fn t() {}\n}',
+            ),
+        ),
+        (
+            # The tag `reference-check.py` appends to recover line numbers must not change what a
+            # line is. Tagged, the attribute line ends in a digit rather than in `]`.
+            "a position-tagged attribute line is still an attribute line",
+            loc_classify.split_test_blocks(
+                "\n".join(
+                    f"{line}\x00{number}"
+                    for number, line in enumerate(_RUST_UNBRACED_ATTRIBUTE.splitlines(), start=1)
+                ),
+                "rust",
+            )[0].splitlines()[0],
+            "pub fn a() {}\x006",
+        ),
+        (
+            "a Kotlin template holding a quoted key does not end the string",
+            loc_classify.classify_text('val s = "${a["/*"]}"\n// c\nval y = 1\n', "kotlin"),
+            loc_classify.Counts(code=2, comment=1, blank=0),
+        ),
+        (
+            "a Kotlin raw string processes no escapes, so a trailing backslash still closes it",
+            loc_classify.classify_text('val s = """C:\\"""\n// c\nval y = 1\n', "kotlin"),
+            loc_classify.Counts(code=2, comment=1, blank=0),
         ),
         (
             # Returned verbatim, trailing newline included: only Rust is rejoined line by line.

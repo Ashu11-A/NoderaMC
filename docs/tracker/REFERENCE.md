@@ -172,10 +172,20 @@ says so, so peers migrate before its circuits break.
   evidence, and therefore how many identities an attacker needs before the median moves.
 * Score reports carry their own per-IP quota, `per_ip_report_quota`, separate from announces.
 
-A `ServiceAnnounce` is admitted on the same rules as a peer announce — quota, signature over the
-bytes as they arrived, freshness, trust-on-first-use identity binding, then the directory ceiling —
-but the codes it answers with are its own, and they are stable and machine-readable rather than
-prose:
+A `ServiceAnnounce` is admitted on rules close to a peer announce's, but **not in the same order**,
+and the order is part of the contract: shape (`malformed-record`), then freshness (`stale-record`),
+then the signature over the bytes as they arrived (`bad-signature`), then trust-on-first-use identity
+binding (`identity-mismatch`), then the directory ceiling (`directory-full`). The per-IP announce
+quota (`quota`) is charged before any of it. Note the consequence, because it differs from the peer
+path, which verifies the signature first: a service record is answered `malformed-record` or
+`stale-record` **before** its signature is checked, so an unauthenticated sender can probe
+`announce_clock_skew_seconds` with junk in the signature field. That is a deliberate
+cheapest-check-first ordering, not an oversight, and it is stated here so it cannot be changed by
+accident.
+
+Three of these codes also answer a `ServiceScoreReport` (tag 71) rather than an announce: `quota`
+against `per_ip_report_quota`, plus `stale-record` and `bad-signature`. The codes are stable and
+machine-readable rather than prose:
 
 | Ack code | `accepted` | Meaning |
 |---|---|---|

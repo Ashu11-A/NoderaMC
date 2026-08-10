@@ -575,10 +575,11 @@ public final class PeerTestHarness implements AutoCloseable {
             if (configSeams) {
                 Objects.requireNonNull(contentStore, "withConfigSeams() needs archive(...) or "
                         + "inMemoryArchive(): the content lane is one of the seams it re-bounds");
-                if (!replicate) {
-                    throw new IllegalStateException("withConfigSeams() needs withReplication(): "
-                            + "without it every replication key answers rejected, not applied");
-                }
+                // No check on withReplication(). A null replication seam is not a broken worker: the
+                // ConfigSeams contract is that a seam left null makes every key depending on it
+                // answer `rejected` with a reason, never silently applied, and that honest decline is
+                // a product property something ought to be able to test. Refusing to build the shape
+                // would make the only worker fixture in the tree unable to reach it.
             }
         }
 
