@@ -4,7 +4,8 @@
 //! some of them?" — a question about countries and networks, not about people. So the source
 //! address is used for exactly two things, both inside this process, and then it is gone:
 //!
-//! * the per-source quota ([`crate::limits`]), which needs the full address to be effective;
+//! * the per-source quota ([`nodera_service::limits`]), which needs the full address to be
+//!   effective;
 //! * this lookup, which turns it into a **country code and an autonomous-system number**.
 //!
 //! Neither the address nor any truncation of it is written to the sink. There is no column for it,

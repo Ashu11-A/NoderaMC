@@ -414,7 +414,8 @@ public final class PeerRuntime implements DiagnosticsSource {
                 // became indistinguishable from corruption and was dropped in silence.
                 decoded = WireCodec.decodeFrame(frame);
             } catch (RuntimeException e) {
-                return; // genuinely malformed: we cannot even find the end of the body to answer
+                answerUndecodable(from, frame, e);
+                return;
             }
             if (decoded.unknownKind()) {
                 answerUnsupported(from, decoded);
@@ -500,6 +501,61 @@ public final class PeerRuntime implements DiagnosticsSource {
                     dev.nodera.protocol.wire.FrameFlags.RESPONSE, decoded.correlationId()));
         } catch (RuntimeException unreachable) {
             // Telling a peer we did not understand it is best-effort by definition.
+        }
+    }
+
+    /**
+     * Answer a frame whose header parsed but whose body this build could not read.
+     *
+     * <p>The same argument as {@link #answerUnsupported}, one step further in. This catch used to be
+     * a bare {@code return} under a comment saying we cannot even find the end of the body — which is
+     * true only when the <b>header</b> is what failed. Once the header parses, the body length, the
+     * kind and the correlation id are all in hand, and the commonest way to land here is not
+     * corruption at all: it is {@code CodecRegistry.Entry.requireVersion} refusing a body version
+     * above this build's ceiling, which is precisely the cross-version case NDR2 exists to survive. A
+     * future release emitting {@code RegionProposal} v5 against {@code PROPOSAL_ENCODING_VERSION = 4}
+     * was dropped with no reply and no log line at any level — three lines below the branch that
+     * answers an unknown <i>kind</i> and explains why silence is the one answer a sender cannot act
+     * on.
+     *
+     * <p>A header that does not parse stays silent, and must: with no kind and no correlation id
+     * there is nothing to say, and answering unframeable bytes would let anyone make this node emit a
+     * frame per packet. The two bounds from {@link #answerUnsupported} apply unchanged — never answer
+     * something already flagged {@code RESPONSE}, and never send more than one small frame back on
+     * the connection the frame arrived on.
+     *
+     * <p>{@code MALFORMED_BODY} rather than a version-specific code: "the body did not parse as the
+     * kind claimed" is true of a rejected version, and appending to a frozen wire enum for a sharper
+     * word is a separate, reviewable change.
+     *
+     * @param from   the peer the frame arrived from.
+     * @param frame  the frame as received.
+     * @param cause  what {@code decodeFrame} threw; its message names the version or the field.
+     */
+    private void answerUndecodable(PeerAddress from, byte[] frame, RuntimeException cause) {
+        final dev.nodera.protocol.wire.NoderaFrame header;
+        try {
+            header = dev.nodera.protocol.wire.NoderaFrame.decode(frame);
+        } catch (RuntimeException unframeable) {
+            LOG.debug("Dropping an unframeable {}-byte frame from {}: {}",
+                    frame.length, from, cause.getMessage());
+            return;
+        }
+        LOG.warn("Refusing kind {} from {}: this build cannot read its body ({})",
+                header.kind(), from, cause.getMessage());
+        if (dev.nodera.protocol.wire.FrameFlags.has(
+                header.flags(), dev.nodera.protocol.wire.FrameFlags.RESPONSE)) {
+            return;
+        }
+        try {
+            transport.send(from, WireCodec.encode(
+                    new dev.nodera.protocol.session.Nack(header.kind(),
+                            dev.nodera.protocol.session.RejectCode.MALFORMED_BODY,
+                            header.correlationId(),
+                            "this build cannot read the body of kind " + header.kind()),
+                    dev.nodera.protocol.wire.FrameFlags.RESPONSE, header.correlationId()));
+        } catch (RuntimeException unreachable) {
+            // Telling a peer we could not read it is best-effort by definition.
         }
     }
 

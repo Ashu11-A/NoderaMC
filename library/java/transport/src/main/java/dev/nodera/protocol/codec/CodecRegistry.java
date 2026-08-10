@@ -156,10 +156,13 @@ import static dev.nodera.protocol.codec.MessageCodec.SESSION_KEEP_ALIVE_ENCODING
  *
  * <h2>Body versions</h2>
  *
- * <p>Most tags are on the global {@link MessageCodec#ENCODING_VERSION}. Four carry a per-message
- * body version because a field was appended to them after they shipped, and one — tag 23 — now
- * accepts <em>only</em> version 2 (see {@link SessionKeepAlive}). Each row states the closed range
- * it accepts, which is why {@link MessageCodec#decode} no longer needs a hand-written chain of
+ * <p>Most tags are on the global {@link MessageCodec#ENCODING_VERSION}. <b>Five</b> carry a
+ * per-message body version because a field was appended to them after they shipped — tags 5, 11, 23,
+ * 32 and 56, one {@code versioned(…)} row each — and one <em>of those five</em>, tag 23, no longer
+ * accepts its own version 1 (see {@link SessionKeepAlive}: v1 ended after {@code seq}, and v2
+ * appended {@code regionProgress}). This paragraph used to say "four … and one — tag 23", which read
+ * as six and put tag 23 outside the appended-field set it belongs to. Each row states the closed
+ * range it accepts, which is why {@link MessageCodec#decode} no longer needs a hand-written chain of
  * per-tag version checks.
  *
  * <p>Thread-context: immutable static state, built once at class initialisation; any thread.

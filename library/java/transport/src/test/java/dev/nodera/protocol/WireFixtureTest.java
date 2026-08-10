@@ -344,13 +344,50 @@ class WireFixtureTest {
     }
 
     /**
-     * Compare one corpus against its committed files.
+     * Shared fixtures another suite owns and byte-pins.
+     *
+     * <p>{@code fixtures/wire/} is not this test's private directory. {@code WorldLifecycleTest}
+     * writes the deletion and revival frames there, and has to: Rust's {@code tombstone.rs},
+     * {@code tracker/src/deletion.rs} and {@code tests/fixtures.rs} all call {@code verified()} on
+     * them, so those two files must hold <b>real owner-signed records</b>, which the fixed filler
+     * signatures in {@link MessageSamples} cannot be. That is also why the same two kinds have a
+     * second, synthetic sample of their own under {@code java-only/} — same file name, different
+     * bytes, different owner.
+     *
+     * <p>Naming them here is what lets two checks see them. The sweep in
+     * {@link #checkCorpus(Path, Map, Set)} would otherwise report them as strays, and
+     * {@link #crossLanguageCorpusCoversEveryTagRustDeclaresItSupports()} would otherwise report
+     * their golden bytes as missing from a directory they have been committed in all along.
+     *
+     * @return shared file name → the registry tag that file carries.
+     */
+    private static Map<String, Integer> externallyOwnedShared() {
+        Map<String, Integer> owned = new LinkedHashMap<>();
+        owned.put("world-deletion-gossip.bin", MessageCodec.TAG_WORLD_DELETION_GOSSIP);
+        owned.put("world-revival-gossip.bin", MessageCodec.TAG_WORLD_REVIVAL_GOSSIP);
+        return owned;
+    }
+
+    /**
+     * Compare one corpus against its committed files, in both directions.
      *
      * <p>A missing fixture <b>fails</b>. It used to be written silently, which meant a new message
      * could reach production with a fixture nobody had ever reviewed — the file appeared in the
      * working tree as a side effect of a green test run, and a side effect is not a decision.
+     *
+     * <p>And an <b>unaccounted</b> fixture fails too. This method used to walk the corpus map only,
+     * so a {@code .bin} the map no longer names — a renamed message, a sample moved between the two
+     * directories, a file committed by hand — was asserted by nothing at all while still being read
+     * by Rust's {@code fixture_files()}, which lists the directory rather than a map. The sweep is
+     * non-recursive for the same reason Rust's is: {@code java-only/} and {@code v1-rejected/} are
+     * separate corpora with their own checks.
+     *
+     * @param dir the directory to compare
+     * @param corpus file name → message, the fixtures this test owns in {@code dir}
+     * @param alsoAllowed file names in {@code dir} that another suite owns and pins
      */
-    private static void checkCorpus(Path dir, Map<String, NoderaMessage> corpus) throws IOException {
+    private static void checkCorpus(Path dir, Map<String, NoderaMessage> corpus,
+            Set<String> alsoAllowed) throws IOException {
         boolean regenerate = Boolean.getBoolean(REGENERATE_PROPERTY);
         if (regenerate) {
             Files.createDirectories(dir);
@@ -376,17 +413,50 @@ class WireFixtureTest {
                             + "wire-contract change — review it, then re-run with -D"
                             + REGENERATE_PROPERTY + "=true to accept.");
         }
+
+        Set<String> accounted = new java.util.TreeSet<>(corpus.keySet());
+        accounted.addAll(alsoAllowed);
+        List<String> unaccounted = new java.util.ArrayList<>();
+        try (var files = Files.list(dir)) {
+            for (Path file : files.sorted().toList()) {
+                String name = file.getFileName().toString();
+                if (!Files.isRegularFile(file) || !name.endsWith(".bin")) {
+                    continue;
+                }
+                if (!accounted.contains(name)) {
+                    unaccounted.add(name);
+                }
+            }
+        }
+        assertTrue(unaccounted.isEmpty(),
+                dir + " holds golden frames nothing accounts for: " + unaccounted + ". Rust reads "
+                        + "this directory by listing it, so a file no corpus names is still being "
+                        + "decoded while nothing asserts its bytes. Either add it to the corpus, "
+                        + "name its owning suite in externallyOwnedShared(), or delete it.");
     }
 
     @Test
     void goldenFixturesMatchTheCommittedBytes() throws IOException {
-        checkCorpus(repoRoot().resolve("fixtures").resolve("wire"), corpus());
+        Path dir = repoRoot().resolve("fixtures").resolve("wire");
+        checkCorpus(dir, corpus(), externallyOwnedShared().keySet());
+
+        // The exemption has to name files that are really there and really carry the kind claimed,
+        // or it quietly becomes a licence to omit a fixture: the sweep stops reporting the name and
+        // the cross-language coverage check counts the tag as present on the strength of the map.
+        for (Map.Entry<String, Integer> owned : externallyOwnedShared().entrySet()) {
+            Path file = dir.resolve(owned.getKey());
+            assertTrue(Files.exists(file), owned.getKey() + " is exempted from this corpus as "
+                    + "externally owned, but no such file is committed: " + file);
+            assertEquals(owned.getValue().intValue(),
+                    WireCodec.decodeFrame(Files.readAllBytes(file)).kind(),
+                    owned.getKey() + " does not carry the kind externallyOwnedShared() claims");
+        }
     }
 
     @Test
     void javaOnlyGoldenFixturesMatchTheCommittedBytes() throws IOException {
         checkCorpus(repoRoot().resolve("fixtures").resolve("wire").resolve("java-only"),
-                javaOnlyCorpus());
+                javaOnlyCorpus(), Set.of());
     }
 
     @Test
@@ -456,6 +526,13 @@ class WireFixtureTest {
      * to the Java bytes and nothing anywhere said so: {@code tag_mirror.rs} only asserts a
      * supported tag is not above the highest assigned one. The list is now <b>derived from Rust's
      * own declaration</b>, so the next tag added there fails here until its fixture moves across.
+     *
+     * <p>Deriving the list is only half of it — the declaration itself has to be complete. It was
+     * missing kinds 66 and 76, which {@code tracker/src/service.rs} dispatches and
+     * {@code tracker/src/deletion.rs} verifies owner signatures on, so this check could not see the
+     * two kinds where a Rust/Java disagreement decides whether a world stays deleted. Their golden
+     * bytes have always been in the shared directory, written by another suite; see
+     * {@link #externallyOwnedShared()}.
      */
     @Test
     void crossLanguageCorpusCoversEveryTagRustDeclaresItSupports() throws IOException {
@@ -463,6 +540,9 @@ class WireFixtureTest {
         for (NoderaMessage msg : corpus().values()) {
             covered.add(MessageCodec.typeTagOf(msg));
         }
+        // Present in the directory Rust lists, just not written by this test. The reverse sweep in
+        // checkCorpus is what keeps this from being an exemption nothing checks.
+        covered.addAll(externallyOwnedShared().values());
 
         Set<String> declared = rustSupportedTagNames();
         // Cardinality first: a parse that silently matched nothing would make every check below
