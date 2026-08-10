@@ -69,9 +69,12 @@ the decisive assertion reports the slow step running on `"Test worker"`, the cal
 `ContinuityScenario` gained stage **S2d**, which bounds player B's client thread at one tick from the
 line the mod now prints.
 
-**What the row still needs.** S2d has not been run — this machine answered
-`only 1 GiB of RAM free, this scenario needs 6 GiB` — and, more importantly, it does not yet
-reproduce the exit test's own relay set. Black-holing the joiner's `nodera-client.toml` proves
+**What the row still needs.** S2d has not been run, and this box is blocked twice over. It answered
+`SKIPPED  continuity  only 5 GiB of RAM free, this scenario needs 6 GiB`, and even with the memory it
+could not have run: [#266](https://github.com/Ashu11-A/NoderaMC/issues/266) has the harness binding
+the product's own default control port while the machine's installed Nodera worker holds it. More
+importantly, S2d does not yet reproduce the exit test's own relay set. Black-holing the joiner's
+`nodera-client.toml` proves
 nothing on its own, because the mod follows the **worker's** live rendezvous selection whenever it
 has one (`NoderaPeerService.selectedRendezvousRoutes`); the joiner's worker has to be started with an
 unroutable `NODERA_RENDEZVOUS_ENDPOINTS` too, and `LiveStack.startWorkers` hands every worker the

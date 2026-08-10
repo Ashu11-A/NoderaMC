@@ -162,7 +162,7 @@ rather than a change of which mob kills the region first. The defaults themselve
 | A headless `MultiplayerWorldFeed` test over crafted STATE JSON | deliverables 1–3 |
 | `ClientBringUpIsOffTheRenderThreadTest` (3, green) | deliverable 4: the hand-off returns while the bring-up is still inside its slow step, on `nodera-client-bringup` and not on the caller |
 | `NoderaPeerServiceBringUpCancellationTest` (2, green) | deliverable 4: a `stopClient` mid-bring-up leaves no runtime, transport, identity or delegation behind, and does not wedge the next join |
-| `ContinuityScenario` S2d (live; **not yet run** — the box could not host it) | deliverable 4: player B's client thread is held for less than one tick by the session hand-off |
+| `ContinuityScenario` S2d (live; **not yet run** — 2026-08-10 the box had 5 GiB free of the 6 GiB the scenario needs, and live runs are blocked here by [#266](https://github.com/Ashu11-A/NoderaMC/issues/266)) | deliverable 4: player B's client thread is held for less than one tick by the session hand-off |
 | A live run with the lane on and a cow in the region | deliverable 7 |
 | `MobsScenario` G2b (rewritten 2026-08-06, **not yet run live**) | deliverable 7's refusal half: an unmodelled species is left to vanilla and the region keeps validating |
 | `ClientJoinPasswordsGateMarkerTest` (3, green) | deliverable 6 — a refused join is distinguishable from a lost host, including when the password was merely wrong |
