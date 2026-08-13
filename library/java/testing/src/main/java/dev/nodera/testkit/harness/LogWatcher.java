@@ -60,13 +60,24 @@ public final class LogWatcher {
             Pattern.compile("screen: (AccessibilityOnboardingScreen|TitleScreen|BanNotice)[A-Za-z]*");
 
     /**
-     * Benign lines an abrupt client kill always produces.
+     * Benign lines an abrupt client kill — or a machine with no sound card — always produces.
      *
      * <p>Anything else at {@code ERROR}/{@code FATAL} fails an audit. Mirrors
      * {@code NODERA_BENIGN_ERRORS} in {@code scripts/lib/e2e-main.sh}.
+     *
+     * <p>The last two describe the MACHINE, not the product. Every real Minecraft client on a
+     * headless runner logs {@code Error while loading the narrator} and {@code Error starting
+     * SoundSystem} at {@code ERROR} within seconds of its window opening, because Xvfb provides no
+     * speech dispatcher and the container no audio device; vanilla then carries on without them.
+     * They were not here before 2026-08-13 for a simple reason — the one scenario that audits a
+     * CLIENT log rather than a server log (`churn`, whose host IS a client) had never been
+     * dispatched by any nightly, so no audit had ever read a client's first ten seconds on a
+     * headless box. `churn` failed run 31401507964 on exactly these two lines after all five of its
+     * join/leave cycles had passed.
      */
     public static final Pattern BENIGN_ERRORS = Pattern.compile(
-            "Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException");
+            "Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException"
+                    + "|Error while loading the narrator|Error starting SoundSystem");
 
     /**
      * Connection causes this harness caused itself, for the netty header's follow-up line.

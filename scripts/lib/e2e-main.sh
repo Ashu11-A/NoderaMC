@@ -163,9 +163,11 @@ nodera_tuning() {
     NODERA_E2E_TIMEOUT_MULT="${NODERA_E2E_TIMEOUT_MULT:-1}"
     NODERA_MIN_FREE_GB="${NODERA_MIN_FREE_GB:-5}"
     NODERA_WORKER_SETTLE="${NODERA_WORKER_SETTLE:-3}"
-    # Benign lines an abrupt client kill always produces; anything else at
-    # ERROR/FATAL fails an audit.
-    NODERA_BENIGN_ERRORS="${NODERA_BENIGN_ERRORS:-Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException}"
+    # Benign lines an abrupt client kill — or a machine with no sound card — always
+    # produces; anything else at ERROR/FATAL fails an audit. The last two describe the
+    # MACHINE: a headless runner has no speech dispatcher and no audio device, so every
+    # real client logs them at ERROR and carries on. Mirrors LogWatcher.BENIGN_ERRORS.
+    NODERA_BENIGN_ERRORS="${NODERA_BENIGN_ERRORS:-Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException|Error while loading the narrator|Error starting SoundSystem}"
     NODERA_BENIGN_NETTY="${NODERA_BENIGN_NETTY:-Connection reset|ClosedChannelException|closed by remote}"
 }
 
