@@ -41,6 +41,25 @@ done
 
 cd "$NODERA_ROOT"
 
+# The `generate` step below asks the GitHub releases API which assets `latest` carries. Anonymous
+# calls share sixty requests an hour per source address, which a shared CI runner exhausts without
+# any help from us — so on a runner, an unset token is not a preference, it is a build that will fail
+# at some unpredictable point for a reason unrelated to the change being built.
+#
+# Checked HERE, at the top, rather than left to the API to discover several minutes in: the caller
+# that forgets the token is a workflow edit, and the point of the message is to name the workflow
+# step rather than to describe a rate limit. Locally the token is genuinely optional — one developer
+# on one address does not exhaust sixty requests an hour — so this is a CI-only rule.
+if [[ -n "${CI:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+	echo "build-site: GITHUB_TOKEN is unset and this is CI." >&2
+	echo "  The site build reads the releases API, and an anonymous runner shares sixty requests" >&2
+	echo "  an hour with every other job leaving that address. Give the step:" >&2
+	echo "      env:" >&2
+	echo "        GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}" >&2
+	echo "  docker/web/Dockerfile takes the same value as a build secret." >&2
+	exit 1
+fi
+
 if [[ $INSTALL -eq 1 ]]; then
 	nodera_bun_install "$SITE"
 fi
