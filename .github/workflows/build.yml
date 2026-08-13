@@ -247,6 +247,20 @@ jobs:
       # no-Tauri-in-the-browser-bundle check all run.
       - name: Build the website
         run: scripts/build-site.sh
+        # `web/scripts/fetch-release.mjs` asks the releases API which assets `latest` carries. With
+        # no token that call is anonymous, and anonymous GitHub API calls share sixty requests an
+        # hour *per source address* — a budget a shared Actions runner exhausts without any help
+        # from us. The script then fails closed and says so, which is correct behaviour and a
+        # terrible check: `companion` is required on every pull request, so it went red for a reason
+        # that had nothing to do with the diff, did not reproduce, and depended on how many
+        # anonymous calls other jobs on that runner had already made.
+        #
+        # `docker/web/Dockerfile` has taken the token as a build secret since the same failure hit
+        # the container build; this is the one remaining caller that did not pass it. The default
+        # read scope is enough — the script only reads public releases, and the token is here to
+        # raise the rate limit, not to grant access.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # 209 frontend tests, counted by nothing until now. Both build scripts above run their
       # package's `node --test` through `tee`, hold the result to README's stamped count, and leave
       # the totals here; this uploads them so the badge stops understating the tree by two whole
