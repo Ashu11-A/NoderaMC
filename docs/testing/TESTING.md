@@ -238,10 +238,62 @@ standing in for configuration. On a developer box the same fallback does not fai
 user's INSTALLED companion app — so it would have linked the world under test to a daemon the
 harness does not control and called the run green.
 
-**What this run does not tell us.** No leg past its first stage was exercised, so nothing here is
-evidence about hosting, joining, lanes, continuity or commands. In particular the `commands` stale
-assertions (below) and T-6's capacity question were never reached. A second dispatch with these
-fixes is [31398659824](https://github.com/Ashu11-A/NoderaMC/actions/runs/31398659824).
+**What run 1 does not tell us.** No leg past its first stage was exercised, so nothing in it is
+evidence about hosting, joining, lanes, continuity or commands.
+
+### 1.2 The second and third dispatches — the failure moved twice
+
+Each dispatch bought one layer deeper, and each layer was a stale address rather than a product
+defect. This is the pattern worth carrying: **a live suite that has not run for a while fails in
+sequence, not all at once**, and every fix costs a full run to find the next one.
+
+| Run | Result | Where the client-bearing legs died | Cause |
+|---|---|---|---|
+| [31396175753](https://github.com/Ashu11-A/NoderaMC/actions/runs/31396175753) | 3 passed / 16 failed | server startup | no `[companion]` block → crash in `ServerStartedEvent` |
+| [31398659824](https://github.com/Ashu11-A/NoderaMC/actions/runs/31398659824) | 4 passed / 14 failed | the join, 900 s | every scripted joiner dialled `127.0.0.1:25599` — the **product's** game port — while the harness's server listened on 26599 |
+| [31401507964](https://github.com/Ashu11-A/NoderaMC/actions/runs/31401507964) | dispatched with both fixes | — | — |
+
+Run 2 is what proved the first fix: `telemetry` went green, and the thirteen legs advanced from
+"the server never answered RCON" to `player B never joined — waited 900s`. The joiner's own log is
+unambiguous about why:
+
+```
+Couldn't connect to server
+io.netty…AnnotatedConnectException: finishConnect(..) failed:
+  Connection refused: localhost/127.0.0.1:25599
+Nodera: client STILL not in a world after 850s — screen: DisconnectedScreen
+```
+
+Four `runs.register` blocks in `nodera.neoforge-mod.gradle.kts` carried that address as a literal.
+It was correct for the interactive developer and for the harness at the same time for exactly as
+long as the harness bound the product's ports; #266 moved the harness and the literal stayed. The
+address is now `NODERA_E2E_GAME_ADDRESS`, defaulted to the old literal so `dev.sh --play` is
+unchanged, and set by `LiveStack.startGradle` from `topology.gamePort()`.
+
+**Verified locally, not only in CI.** With both fixes, `scripts/nodera-test.sh run commands` reaches
+`PASS K0`, `PASS K1`, `PASS K2.JoinerDev`, `PASS K2.JoinerTwo` — K1 is the join that run 2 could not
+make, and K2 is the sweep carrying the corrected HUD needles, so both fixes are proved by the same
+run.
+
+### 1.3 The next layer: `commands` K2b
+
+That local run then failed at a stage nothing had ever reached:
+
+```
+FAIL K2b: expected exactly 4 newly excluded blocks,
+          the extraction moved by 93 (1204969 -> 1205062)
+```
+
+K2b places four diamond blocks and asserts the palette-exclusion counter moves by exactly four. Its
+comment reasons about a *section* — "y=200 is above any terrain, so the target section is uniform
+air" — but the number it reads is **region-wide**, with a baseline of 1,204,969, measured over a
+world with two live players in it. Two readings fit: a fragile assertion that only ever held on a
+quiescent world, or genuine non-determinism in the extractor. **They have not been separated**, and
+the experiment that separates them is one live run with no blocks placed: if the counter still
+moves, the assertion is the bug.
+
+It is deliberately left open rather than guessed at. It is the first stage past the join that any
+dispatch has reached, and it is not evidence for or against the extractor until that run happens.
 
 **Stale assertions found by reading, not by running.** `CommandsScenario` asserted four HUD replies
 the product stopped giving when #113 moved the command surface to `Component.translatable`: the
