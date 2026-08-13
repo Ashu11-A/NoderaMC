@@ -192,7 +192,7 @@ public final class LiveStack implements AutoCloseable {
                     ManagedProcess.env("NODERA_TRACKER_BIND_ADDR", bind + ":" + port,
                             "RUST_LOG", "info"),
                     List.of(paths.trackerBinary().toString(), "--bind", bind + ":" + port)));
-            awaitListening("tracker-" + i, port);
+            awaitListening("tracker-" + i, port, Duration.ofSeconds(20));
         }
     }
 
@@ -216,9 +216,14 @@ public final class LiveStack implements AutoCloseable {
      *
      * <p>The failure message carries the process's log tail, because "tracker-0 never answered" on
      * its own sends the reader to the wrong layer — which is exactly what happened here.
+     *
+     * <p>The deadline is a parameter because the processes differ by two orders of magnitude. Twenty
+     * seconds is right for a Rust binary that binds a socket and prints a line; it is wrong for a
+     * Minecraft server behind a Gradle build, which compiles, resolves NeoForge, generates a world
+     * and only then listens.
      */
-    private void awaitListening(String name, int port) {
-        Duration timeout = topology.scaled(Duration.ofSeconds(20));
+    private void awaitListening(String name, int port, Duration base) {
+        Duration timeout = topology.scaled(base);
         // The address everybody ELSE was told to use, not loopback. On a loopback run the two are
         // the same. On a LAN run they are not, and a service bound to 0.0.0.0 answers on loopback
         // whether or not the address in every peer's tracker list is right — so probing loopback
@@ -226,11 +231,7 @@ public final class LiveStack implements AutoCloseable {
         String host = probeHost();
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {
-            ManagedProcess process = processNamed(name);
-            if (process != null && !process.isAlive()) {
-                throw new HarnessException(name + " exited during startup (port " + port + ")"
-                        + logTail(name));
-            }
+            requireStillStarting(name, "port " + port);
             try (java.net.Socket probe = new java.net.Socket()) {
                 probe.connect(new java.net.InetSocketAddress(host, port), 500);
                 return;
@@ -240,6 +241,27 @@ public final class LiveStack implements AutoCloseable {
         }
         throw new HarnessException(name + " never accepted a connection on " + host + ":" + port
                 + " within " + timeout.toSeconds() + "s" + logTail(name));
+    }
+
+    /**
+     * Fail now if the process this stack is waiting on has already exited.
+     *
+     * <p>Half of these processes are Gradle wrappers, and a failed Gradle build exits at once with a
+     * non-zero status. Burning a ten-minute readiness budget on a build that stopped compiling in
+     * the first thirty seconds produces the worst possible message — a timeout — for the most
+     * mechanical possible cause, so the exit STATUS is reported as soon as it exists.
+     */
+    private void requireStillStarting(String name, String what) {
+        ManagedProcess process = processNamed(name);
+        if (process == null || process.isAlive()) {
+            return;
+        }
+        int exit = process.exitValueOrUnknown();
+        throw new HarnessException(name + (exit == 0
+                ? " exited during startup (" + what + ")"
+                : " exited " + exit + " during startup (" + what
+                        + ") — the launcher failed rather than the process it starts")
+                + logTail(name));
     }
 
     /**
@@ -264,7 +286,11 @@ public final class LiveStack implements AutoCloseable {
 
     /** The last few lines of a managed process's log, for a failure message that names the cause. */
     private String logTail(String name) {
-        Path log = logDir.resolve(name + ".log");
+        ManagedProcess process = processNamed(name);
+        // The process's OWN log file, not a file named after it: a client is called
+        // `client-runClientHost` and writes `client-host.log`, so deriving the path from the name
+        // would have sent every client failure to a file that does not exist.
+        Path log = process == null ? logDir.resolve(name + ".log") : process.logFile();
         if (!Files.isReadable(log)) {
             return " — no log at " + log;
         }
@@ -288,7 +314,7 @@ public final class LiveStack implements AutoCloseable {
                     ManagedProcess.env("NODERA_RENDEZVOUS_BIND_ADDR", bind + ":" + port,
                             "RUST_LOG", "info"),
                     List.of(paths.rendezvousBinary().toString(), "--bind", bind + ":" + port)));
-            awaitListening("rendezvous-" + i, port);
+            awaitListening("rendezvous-" + i, port, Duration.ofSeconds(20));
         }
     }
 
@@ -352,6 +378,11 @@ public final class LiveStack implements AutoCloseable {
      * without its worker is a client running a different product than the one under test.
      */
     public void writeClientConfig(String gameDirectory, PlayerRole role, String joinPassword) {
+        // Both halves of "stage this client", in one call. They used to be two, with the second one
+        // in a scenario support class — so every scenario that called this method DIRECTLY (the
+        // password and re-key lanes do) staged a game directory with no options.txt and, on a fresh
+        // checkout, parked its client on the accessibility onboarding screen forever.
+        stageClientOptions(gameDirectory);
         Path configDir = paths.gameDir(gameDirectory).resolve("config");
         try {
             Files.createDirectories(configDir);
@@ -380,6 +411,100 @@ public final class LiveStack implements AutoCloseable {
                     tomlArray(topology.rendezvousEndpoints())));
         } catch (IOException e) {
             throw new HarnessException("cannot write the client config for " + gameDirectory, e);
+        }
+    }
+
+    /**
+     * First-run vanilla options for a client game directory.
+     *
+     * <p>Written ONLY when the directory has no {@code options.txt} yet — a real one is the player's
+     * (and Minecraft rewrites it on exit), so this seeds a first launch and never overwrites tuned
+     * settings.
+     *
+     * <p>Why this exists: on a game directory with no {@code options.txt},
+     * {@code Options.onboardAccessibility} defaults to TRUE and {@code Minecraft.addInitialScreens}
+     * puts {@code AccessibilityOnboardingScreen} IN FRONT of quick play — quick play is the
+     * onboarding screen's continue callback, so it simply never runs. Every scripted client boots
+     * fine, ticks its loop, and sits on that screen forever. Invisible on a developer machine (whose
+     * run directories kept an {@code options.txt} from the first manual launch) and fatal in CI on a
+     * fresh checkout: it is exactly why the three live jobs each burned thirty minutes and reported
+     * "never joined".
+     */
+    public void stageClientOptions(String gameDirectory) {
+        Path directory = paths.gameDir(gameDirectory);
+        try {
+            Files.createDirectories(directory);
+            Path options = directory.resolve("options.txt");
+            if (Files.isRegularFile(options)) {
+                return;
+            }
+            // onboardAccessibility  — the blocker above; must be false before the first frame.
+            // skipMultiplayerWarning — the third-party-server notice sits in front of the
+            //                          multiplayer screen for any scenario that drives the GUI.
+            // pauseOnLostFocus      — under Xvfb there is no window manager, so a client may never
+            //                          be "active"; a paused singleplayer client stops ticking and
+            //                          would never share its world.
+            Files.writeString(options, """
+                    onboardAccessibility:false
+                    skipMultiplayerWarning:true
+                    pauseOnLostFocus:false
+                    """);
+        } catch (IOException e) {
+            throw new HarnessException("cannot stage options.txt for " + gameDirectory, e);
+        }
+    }
+
+    /**
+     * Set a key in a world's {@code nodera-server.toml}.
+     *
+     * <p>The counterpart of {@link #stageDedicatedServer}, which writes a FRESH file for the
+     * dedicated server's world. Every host-client scenario instead tunes the STAGED world's own
+     * copy, which already exists and must keep everything else in it — so the two are different
+     * operations and both belong here.
+     *
+     * <p>A missing key is inserted directly BELOW its section header, never appended at EOF: TOML
+     * section membership is positional, so an appended key silently joins whichever section happens
+     * to be last. That is how {@code mobCaptureDimensions} ends up under {@code [debug]}, the entity
+     * lane never captures, and every region revokes mid-drive for no stated reason.
+     *
+     * @param config  the file to edit.
+     * @param section the TOML section the key belongs to.
+     * @param key     the key.
+     * @param value   the value, already in TOML form (quoted strings, bare numbers, arrays).
+     */
+    public static void setHostConfig(Path config, String section, String key, String value) {
+        List<String> lines = new ArrayList<>(readLines(config));
+        java.util.regex.Pattern existing =
+                java.util.regex.Pattern.compile("^([ \\t]*)" + java.util.regex.Pattern.quote(key) + " = ");
+        for (int i = 0; i < lines.size(); i++) {
+            java.util.regex.Matcher matcher = existing.matcher(lines.get(i));
+            if (matcher.find()) {
+                lines.set(i, matcher.group(1) + key + " = " + value);
+                write(config, String.join("\n", lines) + "\n");
+                return;
+            }
+        }
+        String header = "[" + section + "]";
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).strip().equals(header)) {
+                lines.add(i + 1, "\t" + key + " = " + value);
+                write(config, String.join("\n", lines) + "\n");
+                return;
+            }
+        }
+        lines.add(header);
+        lines.add("\t" + key + " = " + value);
+        write(config, String.join("\n", lines) + "\n");
+    }
+
+    private static List<String> readLines(Path file) {
+        if (!Files.isReadable(file)) {
+            return List.of();
+        }
+        try {
+            return Files.readAllLines(file);
+        } catch (IOException unreadable) {
+            return List.of();
         }
     }
 
@@ -433,6 +558,37 @@ public final class LiveStack implements AutoCloseable {
                     // turning the repack off had opened. Whatever the product decides is what the
                     // suites should measure.
                     hostConfigOverrides.getOrDefault("streamIntervalTicks", "12000")));
+            // The dedicated server needs the SAME companion pointer a client gets, and for a long
+            // time it got one only by accident. `companion.controlEndpoint` defaults to
+            // 127.0.0.1:25610 (NoderaConfig), and the harness used to put its own first worker on
+            // exactly 25610 — so `ServerBootstrap.linkServerWorker` found the harness's worker
+            // without anyone writing it down. Moving the harness to its own 26500 block (#266), so
+            // that a developer running the real companion app could run a suite at all, broke that
+            // coincidence and nothing replaced it: the staged server went on dialling 25610, which
+            // in CI is nothing at all.
+            //
+            // The consequence is not a skip. `companion.required` defaults to TRUE, so
+            // `CompanionGate.requireRunning` throws `CompanionUnavailableException` out of
+            // `ServerStartedEvent` — and NeoForge's EventBus does not isolate listener exceptions,
+            // so the SERVER CRASHES during startup. The first full-matrix dispatch
+            // (run 31396175753) failed churn/crash/mesh-soak at their first stage with "the server
+            // never answered RCON ... the game port was open, so the server bound and then did not
+            // answer": the game port was NeoForge's, and the server was already dying behind it.
+            //
+            // Writing the pointer explicitly is also the only version of this that is HONEST on a
+            // developer box. On this machine 25610 is the user's own installed companion app, so
+            // the fallback does not fail there — it silently links the world under test to the
+            // developer's personal daemon and calls the run green. A suite must talk to the worker
+            // its own harness started, and now it says so.
+            //
+            // Worker 0 is the one the old default resolved to (control ports are allocated in start
+            // order from the block's base), so this preserves the topology every dedicated-server
+            // scenario was written against rather than inventing a new one. Taken from the
+            // TOPOLOGY rather than from the started worker so that the staged file is a pure
+            // function of the plan — which is what lets a unit test read it without binding a
+            // socket or launching a peer.
+            toml.append("[companion]\n\tcontrolEndpoint = \"127.0.0.1:")
+                    .append(topology.workerControlPort(0)).append("\"\n\trequired = true\n");
             toml.append("[tracker]\n\tendpoints = ")
                     .append(tomlArray(topology.trackerEndpoints())).append('\n');
             toml.append("[rendezvous]\n\tendpoints = ")
@@ -443,11 +599,46 @@ public final class LiveStack implements AutoCloseable {
         }
     }
 
-    /** Start {@code :neoforge-mod:runServer} and return its process. */
+    /**
+     * Start {@code :neoforge-mod:runServer} and return its process, once it is answering.
+     *
+     * <p>Answering, not started. This method used to hand back a Gradle wrapper and let the calling
+     * scenario decide what "ready" meant by watching a log line — which is the same shape of defect
+     * the trackers and the rendezvous had, one process type over: a build that failed, or a server
+     * that bound its port and never took a command, left a stack that looked launched and every
+     * symptom appeared in whichever stage happened to assert first.
+     *
+     * <p>Two probes, because they answer different questions. The game port says the server socket
+     * exists; an RCON round trip says the SERVER THREAD is running, and a Minecraft server that
+     * binds but does not answer RCON is not ready — every scenario that drives one drives it through
+     * exactly that channel.
+     */
     public ManagedProcess startDedicatedServer(String logName) {
         dedicatedServer = startGradle("server", ":neoforge-mod:runServer", logName);
+        awaitListening("server", topology.gamePort(), SERVER_BOOT);
+        try {
+            rcon().awaitUp(SERVER_RCON);
+        } catch (HarnessException notAnswering) {
+            throw new HarnessException(notAnswering.getMessage()
+                    + " — the game port was open, so the server bound and then did not answer"
+                    + logTail("server"), notAnswering);
+        }
         return dedicatedServer;
     }
+
+    /**
+     * How long a dedicated server gets to compile, resolve NeoForge, generate a world and listen.
+     *
+     * <p>The scenarios' own "sharing world" waits are 420 s, and this has to be the outer bound of
+     * the same sequence rather than a second, tighter opinion about it.
+     */
+    private static final Duration SERVER_BOOT = Duration.ofSeconds(600);
+
+    /** How long the server thread gets to answer RCON once its game port is open. */
+    private static final Duration SERVER_RCON = Duration.ofSeconds(180);
+
+    /** How long a dev client gets to build and fork its game JVM. */
+    private static final Duration CLIENT_BOOT = Duration.ofSeconds(600);
 
     /** The dedicated server, if this run started one. */
     public ManagedProcess dedicatedServer() {
@@ -458,13 +649,67 @@ public final class LiveStack implements AutoCloseable {
     }
 
     /**
-     * Start a NeoForge dev client through Gradle.
+     * Start a NeoForge dev client through Gradle, and return once its game JVM exists.
+     *
+     * <p>A client has no listening port, so it cannot be proved the way a service is. What proves it
+     * is the thing a client uniquely has: ModDevGradle passes each run's program arguments in an
+     * {@code @argfile}, so the forked game JVM carries {@code <run>RunProgramArgs} on its command
+     * line. A JVM carrying this run's token exists only after Gradle finished configuring,
+     * compiling and forking — which is precisely the interval in which a client failure used to be
+     * invisible. Before this, a Gradle build that failed to compile handed the scenario a dead
+     * wrapper, and the first log wait after it burned its entire timeout and then reported that the
+     * game had never said the thing it was asked for.
+     *
+     * <p>The wrapper's log is the fallback and the failure message. On a machine with no readable
+     * {@code /proc} the token scan cannot see anything, so a Minecraft lifecycle marker in the
+     * wrapper's own output stands in — and either way the failure quotes the log tail, because "the
+     * client never started" without the build output sends the reader to the wrong layer.
      *
      * @param task    {@code runClientHost}, {@code runClientJoin}, {@code runClientJoinTwo}, …
      * @param logName the file under {@link #logDir()} to capture into.
      */
     public ManagedProcess startClient(String task, String logName) {
-        return startGradle("client-" + task, ":neoforge-mod:" + task, logName);
+        String name = "client-" + task;
+        ManagedProcess process = startGradle(name, ":neoforge-mod:" + task, logName);
+        awaitGameJvm(name, runToken(task), logDir.resolve(logName), CLIENT_BOOT);
+        return process;
+    }
+
+    /**
+     * The {@code <run>RunProgramArgs} token of a ModDevGradle run task.
+     *
+     * <p>{@code runClientJoinTwo} → {@code clientJoinTwoRunProgramArgs}. Derived rather than passed
+     * in: a scenario that had to name the token beside the task could name the wrong one, and the
+     * consequence of the wrong token is a kill that reaches the dedicated server.
+     */
+    public static String runToken(String task) {
+        String run = task.startsWith("run") ? task.substring(3) : task;
+        if (run.isEmpty()) {
+            throw new HarnessException("'" + task + "' is not a ModDevGradle run task");
+        }
+        return Character.toLowerCase(run.charAt(0)) + run.substring(1) + "RunProgramArgs";
+    }
+
+    /** Evidence in a wrapper's own output that the game got as far as starting. */
+    private static final List<String> GAME_STARTED = List.of(
+            "ModLauncher running", "Setting user:", "LWJGL", "Loading Minecraft");
+
+    private void awaitGameJvm(String name, String token, Path log, Duration base) {
+        Duration timeout = topology.scaled(base);
+        long deadline = System.nanoTime() + timeout.toNanos();
+        LogWatcher wrapper = watch(log);
+        while (System.nanoTime() < deadline) {
+            requireStillStarting(name, "run token " + token);
+            if (ManagedProcess.tokenAlive(token)) {
+                return;
+            }
+            if (GAME_STARTED.stream().anyMatch(wrapper::contains)) {
+                return;
+            }
+            Topology.sleep(Duration.ofSeconds(2));
+        }
+        throw new HarnessException(name + " never forked a game JVM carrying '" + token
+                + "' within " + timeout.toSeconds() + "s" + logTail(name));
     }
 
     /**
@@ -501,12 +746,34 @@ public final class LiveStack implements AutoCloseable {
                         logDir.resolve("worker-" + role.cliName() + ".log").toString()),
                 List.of(paths.companionApp().toString()));
         started.push(process);
+        // A launcher that exits during startup is the same defect as a service that does, and the
+        // same rule applies: this stack does not hand back a process it has not seen survive. A
+        // Tauri window has no port and no readiness line, so what is provable is that it is still
+        // there a moment later — which is exactly what a missing WebKit runtime or a denied display
+        // fails. The settle is short because the alternative is not "wait longer", it is "start the
+        // scenario against a launcher that has already gone".
+        Topology.sleep(Duration.ofSeconds(3));
+        requireStillStarting("app-" + role.cliName(), "the companion launcher");
         return java.util.Optional.of(process);
     }
 
     private ManagedProcess startGradle(String name, String task, String logName) {
         ManagedProcess process = ManagedProcess.start(name, paths.root(), logDir.resolve(logName),
-                ManagedProcess.env("JAVA_TOOL_OPTIONS", ""),
+                ManagedProcess.env("JAVA_TOOL_OPTIONS", "",
+                        // Where a scripted joiner connects. The run tasks used to carry the literal
+                        // "127.0.0.1:25599", which is the PRODUCT's game port — correct only for as
+                        // long as the harness bound that port too. Since #266 the harness runs on
+                        // its own block, so the server comes up on topology.gamePort() while a
+                        // client still dialling 25599 takes "Connection refused" and sits on a
+                        // DisconnectedScreen until the stage times out, reporting "player B never
+                        // joined": a sentence about the product, for a stale address in a build
+                        // script.
+                        //
+                        // Set for EVERY Gradle run this stack starts, not only the client ones. The
+                        // variable is read at configuration time, and a server task that configured
+                        // the run tasks without it would leave the stale address behind for the
+                        // client task that follows.
+                        "NODERA_E2E_GAME_ADDRESS", "127.0.0.1:" + topology.gamePort()),
                 List.of(paths.root().resolve("gradlew").toString(), task, "--console=plain"));
         started.push(process);
         return process;

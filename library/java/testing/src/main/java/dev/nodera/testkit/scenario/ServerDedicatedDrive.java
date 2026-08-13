@@ -5,6 +5,7 @@ import dev.nodera.testkit.harness.LiveStack;
 import dev.nodera.testkit.harness.LogWatcher;
 import dev.nodera.testkit.harness.ManagedProcess;
 import dev.nodera.testkit.harness.PlayerRole;
+import dev.nodera.testkit.harness.PortHolder;
 import dev.nodera.testkit.suite.ScenarioContext;
 
 import java.io.IOException;
@@ -131,8 +132,9 @@ public final class ServerDedicatedDrive {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (isBound(port)) {
             if (System.nanoTime() > deadline) {
-                throw new HarnessException("port " + port + " is still held after "
-                        + timeout.toSeconds() + "s");
+                // Same sentence the preflight uses: whichever of the two refuses a run, the reader
+                // is told which process to act on rather than being sent hunting for a stale JVM.
+                throw new HarnessException(PortHolder.describeHeldPort(port, timeout));
             }
             sleep(Duration.ofSeconds(2));
         }

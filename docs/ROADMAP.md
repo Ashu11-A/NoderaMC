@@ -65,7 +65,10 @@ therefore publishes the **sum** and warns when the two differ.
 The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
 [`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
 figure** until its first task starts — counting an unstarted programme would move the denominator
-without moving the work.
+without moving the work. Its own ledger, [`server/PROGRESS.md`](server/PROGRESS.md), is the
+authority for that category: as of 2026-08-10 task 1 is complete and tasks 2, 3, 4, 9 and 10 are in
+progress — task 4 since the cross-Folia-region commit path landed
+([`server/Task.4.md`](server/Task.4.md) deliverable 6; L-64 narrowed, still open).
 
 ---
 
@@ -197,6 +200,27 @@ older issue or commit message is [frontend 14](frontend/Task.14.md).
 | Task | Title | Status | Depends on |
 |---|---|---|---|
 | [1](testing/Task.1.md) | One tool: shell suites become Java scenarios | ✅ | worker 1, minecraft 5, server 1, network 15 |
+
+**2026-08-10 — the harness now tells the truth about itself, which every other category's live
+evidence depends on.** A fully-skipped `nodera-test run` used to exit 0 and render green
+([#256](https://github.com/Ashu11-A/NoderaMC/issues/256)); `LiveStack` started a dedicated server and
+two Minecraft clients without ever checking either answered (row T-5, retired); and a wait that
+expired because a 14 GB box could not sustain the topology named the validation lane rather than the
+machine (row T-6). No completion figure moves — this is the instrument, not the product — but every
+live claim recorded before this date should be re-read knowing the tool could not distinguish "the
+suite passed" from "the suite skipped".
+
+**2026-08-10 — the full live matrix was dispatched, and it is not green.** Nineteen legs, twice,
+from `test/full-live-matrix-#187`: the first full-matrix `e2e-live` runs since 2026-07-29, because
+the plan job had died for want of a JDK for twelve consecutive nightlies and its matrix was a
+hand-kept thirteen before that. **3 passed, 16 failed** on the first run
+([31396175753](https://github.com/Ashu11-A/NoderaMC/actions/runs/31396175753)) — `endpoint`, `folia`
+and `plugins`, each executing for the first time on any machine. Thirteen of the sixteen failures
+were one bug: the staged dedicated server carried no companion pointer, fell back to the product's
+own control port and crashed in `ServerStartedEvent`. The per-leg cause and class is
+[`testing/TESTING.md`](testing/TESTING.md) §1.1. No completion figure moves and row **T-1** stays
+open — it asks for a green matrix, and what landed is the first honest measurement of how far from
+green it is.
 
 ### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
 

@@ -59,39 +59,71 @@ public record Requirements(boolean needsDisplay, boolean needsPaperJar, boolean 
     /**
      * Why this machine cannot host the scenario.
      *
-     * @return the reason to report as a skip, or empty when everything is available.
+     * <p>The KIND matters as much as the reason. A display, a phone and free memory are facts about
+     * the machine and produce a {@link SkipKind#CIRCUMSTANTIAL} skip. The endpoint plugin jar does
+     * not: the runner builds it before the queue starts, so a missing one means the harness did not
+     * produce its own artefact — {@link SkipKind#STRUCTURAL}, and never tolerated. The two used to
+     * be one string, which is how a suite that could not run anywhere read the same as one this box
+     * merely could not host.
+     *
+     * @return the skip to report, or empty when everything is available.
      */
-    public Optional<String> unmet(TestPaths paths) {
-        List<String> missing = new ArrayList<>();
+    public Optional<Skip> unmet(TestPaths paths) {
+        List<String> circumstantial = new ArrayList<>();
+        List<String> structural = new ArrayList<>();
         if (needsDisplay && System.getenv("DISPLAY") == null
                 && System.getenv("WAYLAND_DISPLAY") == null) {
-            missing.add("no DISPLAY/WAYLAND_DISPLAY (real Minecraft clients need a GUI session; "
-                    + "CI runs these under Xvfb)");
+            circumstantial.add("no DISPLAY/WAYLAND_DISPLAY (real Minecraft clients need a GUI "
+                    + "session; CI runs these under Xvfb)");
         }
         if (needsPaperJar && !Files.isRegularFile(paths.paperPluginJar())) {
-            missing.add("no endpoint plugin at " + paths.paperPluginJar()
-                    + " (./gradlew :paper-plugin:jar)");
+            structural.add("no endpoint plugin at " + paths.paperPluginJar()
+                    + " — the runner builds this itself (./gradlew :paper-plugin:jar), so its "
+                    + "absence is a harness fault and not a property of this machine");
         }
         if (needsDevice && System.getenv("ANDROID_SERIAL") == null) {
-            missing.add("no ANDROID_SERIAL — this scenario needs a device on wireless debugging");
+            circumstantial.add("no ANDROID_SERIAL — this scenario needs a device on wireless "
+                    + "debugging");
         }
         if (minimumFreeGb > 0) {
-            long freeGb = freeMemoryGb();
-            if (freeGb > 0 && freeGb < minimumFreeGb) {
-                missing.add("only " + freeGb + " GiB of RAM free, this scenario needs "
+            long freeMib = freeMemoryMib();
+            if (freeMib > 0 && roundedToGib(freeMib) < minimumFreeGb) {
+                circumstantial.add("only " + freeMib + " MiB of RAM free, this scenario needs "
                         + minimumFreeGb + " GiB");
             }
         }
-        return missing.isEmpty() ? Optional.empty() : Optional.of(String.join("; ", missing));
+        if (!structural.isEmpty()) {
+            List<String> all = new ArrayList<>(structural);
+            all.addAll(circumstantial);
+            return Optional.of(new Skip(SkipKind.STRUCTURAL, String.join("; ", all)));
+        }
+        if (!circumstantial.isEmpty()) {
+            return Optional.of(new Skip(SkipKind.CIRCUMSTANTIAL, String.join("; ", circumstantial)));
+        }
+        return Optional.empty();
     }
 
-    /** Free memory in GiB from {@code /proc/meminfo}, or 0 where that cannot be read. */
-    private static long freeMemoryGb() {
+    /**
+     * Free memory in GiB, rounded to nearest rather than truncated.
+     *
+     * <p>This used to divide by 1024 twice, which floors: 4.99 GiB free reported as 4, so a
+     * scenario asking for 5 skipped on a machine that had all but 10 MiB of what it wanted. On a
+     * box that hovers between 4 and 5 GiB during a busy session, that turned a floor of 5 into a
+     * floor of very nearly 6 — and every one of those skips is now red, so it turned them into
+     * failures. Rounding also fixes the message, which said "only 4 GiB free" about 4.99.
+     */
+    static long roundedToGib(long mib) {
+        return (mib + 512) / 1024;
+    }
+
+    /** Free memory in MiB from {@code /proc/meminfo}, or 0 where that cannot be read. */
+    static long freeMemoryMib() {
         try {
             for (String line : Files.readAllLines(java.nio.file.Path.of("/proc/meminfo"))) {
                 if (line.startsWith("MemAvailable:")) {
+                    // MemAvailable is reported in kB.
                     String[] parts = line.trim().split("\\s+");
-                    return Long.parseLong(parts[1]) / 1024 / 1024;
+                    return Long.parseLong(parts[1]) / 1024;
                 }
             }
         } catch (Exception notLinux) {

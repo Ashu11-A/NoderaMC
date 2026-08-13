@@ -50,6 +50,26 @@ val noderaRunJvmArgs: List<String> = buildList {
         ?.let { add("-Dnodera.spark.ticksOver=$it") }
 }
 
+// Where a quick-play client connects. The default is the conventional dev port, which is what an
+// interactive `scripts/dev.sh --play` still gets; the live harness overrides it, because it no
+// longer runs on the product's ports.
+//
+// This was a literal "127.0.0.1:25599" in four run tasks. 25599 is the PRODUCT's game port
+// (Topology.PRODUCTION_PORT_BASE + 99), and the harness used to bind exactly that — so one literal
+// happened to be right for both audiences at once. Moving the harness to its own 26500 block (#266),
+// so a developer with the companion app installed could run a suite at all, made it right for only
+// one of them: the harness's server came up on 26599 and every scripted joiner went on dialling
+// 25599, took "Connection refused", and sat on a DisconnectedScreen until the stage timed out. The
+// scenario then reports "player B never joined" — a sentence about the product, for a stale address
+// in a build script.
+//
+// An environment variable rather than a Gradle property because the harness starts these tasks as a
+// `gradlew` subprocess and already controls its environment; defaulted here rather than required so
+// the interactive path keeps working with nothing passed.
+val noderaQuickPlayAddress: String = providers.environmentVariable("NODERA_E2E_GAME_ADDRESS").orNull
+    ?.takeIf { it.isNotBlank() }
+    ?: "127.0.0.1:25599"
+
 // The L-45 exit's first half: `runClient`/`runServer` launch from Gradle. The mod under test is
 // this module's main source set; the harness (Xvfb log/screenshot assertions) drives these tasks.
 the<NeoForgeExtension>().apply {
@@ -73,7 +93,7 @@ the<NeoForgeExtension>().apply {
         gameDirectory.set(project.layout.projectDirectory.dir("run-join"))
         // Distinct offline username: with the continuity series running two dev clients at once, a
         // duplicate name/UUID login would kick the host player the moment the joiner connects.
-        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+        programArguments.addAll("--quickPlayMultiplayer", noderaQuickPlayAddress,
                 "--username", "JoinerDev")
     }
     // Scripted HOST half of the continuity series (scripts/e2e-continuity.sh): boots a client
@@ -90,7 +110,7 @@ the<NeoForgeExtension>().apply {
     runs.register("clientRejoin") {
         client()
         gameDirectory.set(project.layout.projectDirectory.dir("run-host"))
-        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+        programArguments.addAll("--quickPlayMultiplayer", noderaQuickPlayAddress,
                 "--username", "HostDev")
     }
     // Second scripted joiner (scripts/e2e-commands.sh / e2e-farlands.sh): a THIRD player slot so
@@ -99,7 +119,7 @@ the<NeoForgeExtension>().apply {
     runs.register("clientJoinTwo") {
         client()
         gameDirectory.set(project.layout.projectDirectory.dir("run-join2"))
-        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+        programArguments.addAll("--quickPlayMultiplayer", noderaQuickPlayAddress,
                 "--username", "JoinerTwo")
     }
     // Third scripted joiner (scripts/e2e-determinism.sh): the Phase-1 exit gate asks for THREE
@@ -109,7 +129,7 @@ the<NeoForgeExtension>().apply {
     runs.register("clientJoinThree") {
         client()
         gameDirectory.set(project.layout.projectDirectory.dir("run-join3"))
-        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+        programArguments.addAll("--quickPlayMultiplayer", noderaQuickPlayAddress,
                 "--username", "JoinerThree")
     }
     // Second interactive client for manual two-player testing (scripts/dev.sh --play): own game

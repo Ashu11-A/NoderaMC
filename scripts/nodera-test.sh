@@ -18,6 +18,9 @@
 # run produces a report instead of stdout somebody has to interpret.
 #
 #   scripts/nodera-test.sh list                    every scenario + what it proves
+#   scripts/nodera-test.sh list --ids              bare ids, one per line, for scripts
+#   scripts/nodera-test.sh list --ids --exclude-tag hardware
+#                                                  the set e2e-live builds its matrix from
 #   scripts/nodera-test.sh run                     the default queue (all but hardware)
 #   scripts/nodera-test.sh run continuity crash    a selection, in the order given
 #   scripts/nodera-test.sh run --tag server        everything carrying a tag
@@ -53,7 +56,9 @@ if [[ -x "$TOOL" && " $* " == *" --no-build "* ]]; then
 fi
 
 if (( needs_tool_build )); then
-    echo "nodera-test: building the tool (:testing:installDist)"
+    # Progress goes to stderr, not stdout: `list --ids` is parsed into the e2e-live job matrix,
+    # and a build note on stdout would arrive as a scenario id.
+    echo "nodera-test: building the tool (:testing:installDist)" >&2
     if ! ./gradlew :testing:installDist --console=plain -q; then
         echo "nodera-test: could not build the tool — see the Gradle output above" >&2
         exit 2

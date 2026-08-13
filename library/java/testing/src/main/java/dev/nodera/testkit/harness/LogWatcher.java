@@ -7,7 +7,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,7 +31,18 @@ import java.util.regex.Pattern;
  *   <li><b>A client parked on a screen quick-play never reaches.</b> {@link #awaitJoin} watches the
  *       client's own log for the blocked screens while waiting for the join evidence, turning a
  *       thirty-minute "never joined" into a one-line cause.</li>
+ *   <li><b>Blaming the lane for the machine.</b> {@link #awaitWithLagGuard} reads the host server's
+ *       own {@code Can't keep up!} line, so a wait that expired because the box could not sustain
+ *       the topology says so instead of naming the feature it was waiting for.</li>
  * </ol>
+ *
+ * <h2>Reading a window, not only waiting for a needle</h2>
+ *
+ * <p>Some assertions are about the ABSENCE of a pattern in a window — the re-key scenario's
+ * plaintext watch and the determinism soak's post-drive error audit — and an absence is not
+ * something a wait can prove. {@link #linesAfter}, {@link #lastMatchAfter}, {@link #matchesAfter}
+ * and {@link #auditErrorsAfter} are that half. They used to live in two scenario support classes,
+ * which is how one behaviour came to be described in three places.
  *
  * <p>Thread-context: one watcher per file; the polling methods block the calling thread.
  */
@@ -46,6 +59,52 @@ public final class LogWatcher {
     public static final Pattern BLOCKED_SCREENS =
             Pattern.compile("screen: (AccessibilityOnboardingScreen|TitleScreen|BanNotice)[A-Za-z]*");
 
+    /**
+     * Benign lines an abrupt client kill — or a machine with no sound card — always produces.
+     *
+     * <p>Anything else at {@code ERROR}/{@code FATAL} fails an audit. Mirrors
+     * {@code NODERA_BENIGN_ERRORS} in {@code scripts/lib/e2e-main.sh}.
+     *
+     * <p>The last two describe the MACHINE, not the product. Every real Minecraft client on a
+     * headless runner logs {@code Error while loading the narrator} and {@code Error starting
+     * SoundSystem} at {@code ERROR} within seconds of its window opening, because Xvfb provides no
+     * speech dispatcher and the container no audio device; vanilla then carries on without them.
+     * They were not here before 2026-08-13 for a simple reason — the one scenario that audits a
+     * CLIENT log rather than a server log (`churn`, whose host IS a client) had never been
+     * dispatched by any nightly, so no audit had ever read a client's first ten seconds on a
+     * headless box. `churn` failed run 31401507964 on exactly these two lines after all five of its
+     * join/leave cycles had passed.
+     */
+    public static final Pattern BENIGN_ERRORS = Pattern.compile(
+            "Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException"
+                    + "|Error while loading the narrator|Error starting SoundSystem");
+
+    /**
+     * Connection causes this harness caused itself, for the netty header's follow-up line.
+     *
+     * <p>Vanilla's "Exception caught in connection" header is benign exactly when its cause is the
+     * reset or close of a peer the harness killed; any other cause still counts, so the audit reads
+     * the following line rather than the header.
+     */
+    public static final Pattern BENIGN_NETTY = Pattern.compile(
+            "Connection reset|ClosedChannelException|closed by remote");
+
+    /**
+     * Vanilla's overload line — {@code Can't keep up! Is the server overloaded? Running 53012ms or
+     * 1066 ticks behind}. The capture is the tick count, which is the number worth reporting.
+     */
+    public static final Pattern SERVER_LAG =
+            Pattern.compile("Can't keep up!.{0,200}?(\\d{1,10}) ticks behind");
+
+    /**
+     * How far behind the host may fall before a wait's expiry is blamed on the machine.
+     *
+     * <p>Not zero. Chunk generation and a world save both produce a short overload on any box, and a
+     * guard that fired on those would convert every real lane bug into "blame the machine" — which
+     * is the failure mode opposite to the one it exists to fix, and the more expensive of the two.
+     */
+    public static final int LAG_TICKS_THRESHOLD = 200;
+
     private static final Duration POLL = Duration.ofSeconds(2);
 
     private final Path file;
@@ -54,6 +113,19 @@ public final class LogWatcher {
     public LogWatcher(Path file, Topology topology) {
         this.file = file;
         this.topology = topology;
+    }
+
+    /**
+     * A watcher for READING a file the stack did not start — a game directory's {@code latest.log},
+     * a staged config, a foreign server's output.
+     *
+     * <p>It carries the standard topology, so a wait taken on it is scaled by
+     * {@code NODERA_E2E_TIMEOUT_MULT} exactly like every other wait in the run. Prefer
+     * {@code stack.watch(path)} where a stack is in hand; this exists for the static helpers that
+     * are handed a bare path.
+     */
+    public static LogWatcher reader(Path file) {
+        return new LogWatcher(file, Topology.standard());
     }
 
     /** The file being watched. */
@@ -131,6 +203,20 @@ public final class LogWatcher {
      * @param because what to tell the reader when the guard fires.
      */
     public void awaitGuarded(String needle, Duration timeout, String guard, String because) {
+        awaitGuarded(needle, timeout, guard, because, null);
+    }
+
+    /**
+     * {@link #awaitGuarded} whose EXPIRY is also explained.
+     *
+     * <p>The guard answers "this can never arrive"; {@code hostLog} answers the other question a
+     * timeout raises — "was the machine the reason". Both together are what turn a wait into a
+     * message a reader can act on without opening four files.
+     *
+     * @param hostLog the host server's own log, or {@code null} to keep the plain expiry message.
+     */
+    public void awaitGuarded(String needle, Duration timeout, String guard, String because,
+                             Path hostLog) {
         long deadline = System.nanoTime() + topology.scaled(timeout).toNanos();
         while (System.nanoTime() < deadline) {
             List<String> lines = readLines();
@@ -142,8 +228,81 @@ public final class LogWatcher {
             }
             Topology.sleep(POLL);
         }
-        throw new HarnessException("waited " + topology.scaled(timeout).toSeconds() + "s for '"
-                + needle + "' in " + file + " — it never appeared");
+        throw expired(needle, timeout, hostLog, 0);
+    }
+
+    /**
+     * The failure a wait produces when it runs out: the machine's fault where the host says so, and
+     * the plain "it never appeared" otherwise.
+     */
+    private HarnessException expired(String needle, Duration timeout, Path hostLog, int mark) {
+        OptionalInt behind = hostLog == null ? OptionalInt.empty() : reader(hostLog).ticksBehind();
+        if (behind.isPresent() && behind.getAsInt() > LAG_TICKS_THRESHOLD) {
+            return new HarnessException("the host server fell " + behind.getAsInt()
+                    + " ticks behind (see " + hostLog + ") — the machine, not the lane, is why '"
+                    + needle + "' never appeared in " + file + " within "
+                    + topology.scaled(timeout).toSeconds() + "s");
+        }
+        return new HarnessException("waited " + topology.scaled(timeout).toSeconds() + "s for '"
+                + needle + "' in " + file + (mark > 0 ? " (after line " + mark + ")" : "")
+                + " — it never appeared");
+    }
+
+    /**
+     * Wait for {@code needle} — and if the wait expires, say whether the MACHINE is why.
+     *
+     * <p>The failure this exists for: an integrated server hosting two real Minecraft clients, three
+     * workers and two services on a box that cannot sustain that topology falls tens of seconds
+     * behind, vanilla logs {@code Can't keep up! … 1066 ticks behind}, the joiner's <i>vanilla</i>
+     * connection times out, and the wait for the lane's evidence then expires. The message that came
+     * out named the validation lane and never the machine, so three consecutive capacity failures
+     * read as one product defect. No harness code anywhere grepped for that line.
+     *
+     * <p>The guard is deliberately one-directional. It never turns a healthy run red, and it never
+     * turns a red run green: the wait fails either way, and all that changes is which layer the
+     * message sends the reader to. Below {@link #LAG_TICKS_THRESHOLD} the ordinary message stands,
+     * because a brief overload during chunk generation is not an explanation for anything.
+     *
+     * @param needle  the evidence being waited for.
+     * @param timeout the base timeout; the topology's multiplier is applied.
+     * @param hostLog the host server's own log — the file that carries the overload line. May be
+     *                {@code null} or absent, in which case this behaves exactly like
+     *                {@link #await}.
+     * @throws HarnessException naming the lag when the host was behind, and naming the needle
+     *                          otherwise.
+     */
+    public void awaitWithLagGuard(String needle, Duration timeout, Path hostLog) {
+        awaitWithLagGuard(needle, timeout, hostLog, 0);
+    }
+
+    /** {@link #awaitWithLagGuard(String, Duration, Path)} counting only lines after {@code mark}. */
+    public void awaitWithLagGuard(String needle, Duration timeout, Path hostLog, int mark) {
+        if (pollFor(needle, timeout, mark)) {
+            return;
+        }
+        throw expired(needle, timeout, hostLog, mark);
+    }
+
+    /**
+     * The worst {@code Can't keep up!} this file reports, in ticks.
+     *
+     * @return empty when the server never said it was behind.
+     */
+    public OptionalInt ticksBehind() {
+        int worst = -1;
+        for (String line : readLines()) {
+            Matcher matcher = SERVER_LAG.matcher(line);
+            if (matcher.find()) {
+                try {
+                    worst = Math.max(worst, Integer.parseInt(matcher.group(1)));
+                } catch (NumberFormatException tooLarge) {
+                    // A tick count that does not fit an int is still an overload; treat it as the
+                    // largest one rather than dropping the only evidence there is.
+                    worst = Integer.MAX_VALUE;
+                }
+            }
+        }
+        return worst < 0 ? OptionalInt.empty() : OptionalInt.of(worst);
     }
 
     /**
@@ -199,7 +358,22 @@ public final class LogWatcher {
      * @return the offending lines; empty means clean.
      */
     public List<String> auditErrors(Pattern benignErrors, Pattern benignNetty) {
-        List<String> lines = readLines();
+        return auditErrorsAfter(benignErrors, benignNetty, 0);
+    }
+
+    /**
+     * The non-benign {@code ERROR}/{@code FATAL} lines after {@code mark}, capped at six.
+     *
+     * <p>Every scenario that kills something audits only what happened afterwards: a soak audits
+     * what IT produced, not what the bring-up before it did.
+     *
+     * @param benignErrors a regex of error text that is expected in a healthy run.
+     * @param benignNetty  a regex of connection causes this harness caused itself.
+     * @param mark         a line count taken with {@link #lineCount()}.
+     * @return the offending lines; empty means clean.
+     */
+    public List<String> auditErrorsAfter(Pattern benignErrors, Pattern benignNetty, int mark) {
+        List<String> lines = linesAfter(mark);
         List<String> offenders = new ArrayList<>();
         for (int i = 0; i < lines.size() && offenders.size() < 6; i++) {
             String line = lines.get(i);
@@ -218,6 +392,49 @@ public final class LogWatcher {
             }
         }
         return offenders;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Windows: the reads a "wait for a needle" cannot express
+    // ---------------------------------------------------------------------------------------
+
+    /** Every line of the file, or an empty list when it cannot be read. */
+    public List<String> lines() {
+        return readLines();
+    }
+
+    /** The lines at or after a mark taken with {@link #lineCount()}. */
+    public List<String> linesAfter(int mark) {
+        List<String> lines = readLines();
+        return lines.subList(Math.min(Math.max(0, mark), lines.size()), lines.size());
+    }
+
+    /** @return {@code true} if {@code needle} appears at or after line {@code mark}. */
+    public boolean containsAfter(String needle, int mark) {
+        return linesAfter(mark).stream().anyMatch(line -> line.contains(needle));
+    }
+
+    /** {@link #containsAfter} ignoring case — the shell's {@code grep -i} assertions. */
+    public boolean containsAfterIgnoringCase(String needle, int mark) {
+        String lowered = needle.toLowerCase(Locale.ROOT);
+        return linesAfter(mark).stream()
+                .anyMatch(line -> line.toLowerCase(Locale.ROOT).contains(lowered));
+    }
+
+    /** The last line at or after {@code mark} containing {@code needle}. */
+    public Optional<String> lastMatchAfter(String needle, int mark) {
+        List<String> window = linesAfter(mark);
+        for (int i = window.size() - 1; i >= 0; i--) {
+            if (window.get(i).contains(needle)) {
+                return Optional.of(window.get(i));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Every line at or after {@code mark} containing {@code needle}, in file order. */
+    public List<String> matchesAfter(String needle, int mark) {
+        return linesAfter(mark).stream().filter(line -> line.contains(needle)).toList();
     }
 
     private List<String> readLines() {

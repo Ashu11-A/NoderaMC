@@ -28,6 +28,7 @@ import java.util.List;
  *
  * <pre>
  *   nodera-test list                       # every scenario, its tags and what it proves
+ *   nodera-test list --ids --exclude-tag hardware   # the same set, machine-readable
  *   nodera-test run                        # the default queue (everything but hardware)
  *   nodera-test run continuity crash       # a selection, in the order given
  *   nodera-test run --tag server           # everything carrying a tag
@@ -38,7 +39,22 @@ import java.util.List;
  *   --no-build      use what is already built (fast, and wrong if you just changed code)
  *   --keep-running  leave the stack up after the last scenario, to poke at it by hand
  *   --report DIR    where the report goes (default build/reports/nodera)
+ *   --allow-skips   accept scenarios this machine cannot host (never structural ones)
  * </pre>
+ *
+ * <h2>A skipped run is not a green run</h2>
+ *
+ * <p>The exit status used to be {@code anyFailed() ? 1 : 0}, and {@code SKIPPED} is not
+ * {@code failed} — so a live matrix in which every leg skipped exited 0 and rendered as a passing
+ * build. The unit gate had carried the opposite rule for months ("Nothing skipped into green" in
+ * {@code .github/workflows/build.yml}); the live lane, which is where the expensive evidence comes
+ * from, had no equivalent. The rule now lives in the TOOL rather than in a workflow step, because a
+ * workflow can forget it and a second workflow never had it.
+ *
+ * <p>{@code --allow-skips} is the operator's escape hatch for a box that genuinely cannot host a
+ * scenario — and it only covers {@link dev.nodera.testkit.suite.SkipKind#CIRCUMSTANTIAL} skips.
+ * A structural skip fails the run either way: it means the scenario could not have run anywhere,
+ * so there is nothing about the machine for an operator to accept.
  *
  * <p>Thread-context: a process entry point.
  */
@@ -70,19 +86,24 @@ public final class NoderaTestMain {
         boolean keepRunning = rest.remove("--keep-running");
         boolean full = rest.remove("--full");
         boolean noDebug = rest.remove("--no-debug");
+        boolean allowSkips = rest.remove("--allow-skips");
         Path reportDir = takeOption(rest, "--report")
                 .map(Path::of)
                 .orElse(paths.root().resolve("build/reports/nodera"));
         List<String> tags = new ArrayList<>();
         takeOption(rest, "--tag").ifPresent(tags::add);
+        boolean idsOnly = rest.remove("--ids");
+        String excludeTag = takeOption(rest, "--exclude-tag").orElse(null);
 
         return switch (command) {
-            case "list" -> list(registry);
-            case "run" -> runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir);
+            case "list" -> list(registry, idsOnly, excludeTag);
+            case "run" -> runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir,
+                    allowSkips);
             case "bench" -> bench(paths, full);
             case "structure" -> structure(paths, noDebug);
             case "all" -> {
-                int scenarios = runScenarios(paths, registry, rest, tags, build, keepRunning, reportDir);
+                int scenarios = runScenarios(paths, registry, rest, tags, build, keepRunning,
+                        reportDir, allowSkips);
                 int benchmarks = bench(paths, full);
                 int structure = structure(paths, noDebug);
                 yield Math.max(scenarios, Math.max(benchmarks, structure));
@@ -93,21 +114,51 @@ public final class NoderaTestMain {
         };
     }
 
-    private static int list(ScenarioRegistry registry) {
-        System.out.printf("%-18s %-34s %s%n", "SCENARIO", "TAGS", "WHAT A PASS PROVES");
-        for (Scenario scenario : registry.all()) {
-            System.out.printf("%-18s %-34s %s%n", scenario.id(),
-                    String.join(",", new java.util.TreeSet<>(scenario.tags())), scenario.title());
-        }
-        System.out.println();
-        System.out.println("Tags in use: " + String.join(", ", registry.tags()));
-        System.out.println("The default queue is everything not tagged 'hardware'.");
+    private static int list(ScenarioRegistry registry, boolean idsOnly, String excludeTag) {
+        listing(registry, idsOnly, excludeTag).forEach(System.out::println);
         return 0;
+    }
+
+    /**
+     * What {@code list} prints, as lines, so it can be asserted without capturing stdout.
+     *
+     * <p>{@code --ids} drops the table and prints one bare id per line, and {@code --exclude-tag}
+     * filters. Together they exist for one caller: the {@code e2e-live} workflow, which builds its
+     * job matrix from
+     * {@code nodera-test list --ids --exclude-tag hardware}. That workflow used to keep its own
+     * array of ids beside a check that validated the array against this tool — so a scenario added
+     * here was "known" to the check and still never dispatched, and the array had drifted six
+     * scenarios behind the registry. A machine-readable form of the list the tool already owns
+     * deletes the second table rather than re-synchronising it.
+     *
+     * <p>The human table is unchanged: it is what a person reading {@code list} wants, and no
+     * parser should have been reading it. The old workflow parsed it with
+     * {@code awk 'NR > 1 && NF {print $1}'}, which returned {@code Tags} and {@code The} from the
+     * footer alongside the scenario ids — and {@code SCENARIO} too whenever a build note occupied
+     * line 1, which on a cold CI runner it always did.
+     */
+    static List<String> listing(ScenarioRegistry registry, boolean idsOnly, String excludeTag) {
+        List<Scenario> scenarios = excludeTag == null
+                ? registry.all()
+                : registry.excludingTag(excludeTag);
+        if (idsOnly) {
+            return scenarios.stream().map(Scenario::id).toList();
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add(String.format("%-18s %-34s %s", "SCENARIO", "TAGS", "WHAT A PASS PROVES"));
+        for (Scenario scenario : scenarios) {
+            lines.add(String.format("%-18s %-34s %s", scenario.id(),
+                    String.join(",", new java.util.TreeSet<>(scenario.tags())), scenario.title()));
+        }
+        lines.add("");
+        lines.add("Tags in use: " + String.join(", ", registry.tags()));
+        lines.add("The default queue is everything not tagged 'hardware'.");
+        return lines;
     }
 
     private static int runScenarios(TestPaths paths, ScenarioRegistry registry, List<String> ids,
                                     List<String> tags, boolean build, boolean keepRunning,
-                                    Path reportDir) {
+                                    Path reportDir, boolean allowSkips) {
         List<Scenario> queue;
         if (!tags.isEmpty()) {
             queue = registry.withTag(tags.get(0));
@@ -137,7 +188,39 @@ public final class NoderaTestMain {
         }
         System.out.println();
         System.out.println("nodera-test: " + report.headline() + " — " + written);
-        return report.anyFailed() ? 1 : 0;
+        return verdict(report, allowSkips);
+    }
+
+    /**
+     * The exit status: what the run is allowed to say about itself.
+     *
+     * <p>Three separate reasons to be non-zero, each with its own sentence, because "exit 1" with no
+     * explanation is how a skipped matrix stayed invisible for as long as it did.
+     */
+    static int verdict(RunReport report, boolean allowSkips) {
+        int status = report.anyFailed() ? 1 : 0;
+        if (report.anyStructuralSkip()) {
+            System.err.println("nodera-test: a scenario was skipped for a reason this machine does "
+                    + "not explain — it could not have run anywhere, so this run measured nothing:");
+            System.err.println(report.skipSummary());
+            System.err.println("nodera-test: --allow-skips does NOT cover this. Build what the "
+                    + "scenario waits for, or fix the path it looks at.");
+            return 1;
+        }
+        if (report.anySkipped() && !allowSkips) {
+            System.err.println("nodera-test: " + report.skippedCount() + " scenario(s) did not run. "
+                    + "A skip asserts nothing and renders exactly like a pass:");
+            System.err.println(report.skipSummary());
+            System.err.println("nodera-test: run them on a machine that can host them, or pass "
+                    + "--allow-skips to accept these skips deliberately.");
+            return Math.max(status, 1);
+        }
+        if (report.anySkipped()) {
+            System.out.println("nodera-test: " + report.skippedCount()
+                    + " scenario(s) skipped, accepted by --allow-skips:");
+            System.out.println(report.skipSummary());
+        }
+        return status;
     }
 
     /**
@@ -201,8 +284,15 @@ public final class NoderaTestMain {
                   --no-build       use what is already built
                   --keep-running   leave the stack up after the run
                   --report DIR     where the report goes (default build/reports/nodera)
+                  --ids            list: bare ids, one per line, for scripts
+                  --exclude-tag T  list: leave out everything carrying the tag
+                  --allow-skips    accept scenarios this machine cannot host. A run with a
+                                   skipped scenario is RED without it, because a skip asserts
+                                   nothing and renders like a pass. Structural skips — an
+                                   artefact the harness itself should have built — fail either
+                                   way.
                 """);
-        return list(registry);
+        return list(registry, false, null);
     }
 
     private static java.util.Optional<String> takeOption(List<String> args, String name) {

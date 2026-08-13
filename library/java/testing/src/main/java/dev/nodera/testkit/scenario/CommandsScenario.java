@@ -2,6 +2,7 @@ package dev.nodera.testkit.scenario;
 
 import dev.nodera.testkit.harness.HarnessException;
 import dev.nodera.testkit.harness.LiveStack;
+import dev.nodera.testkit.harness.LogWatcher;
 import dev.nodera.testkit.mc.RconClient;
 import dev.nodera.testkit.suite.Requirements;
 import dev.nodera.testkit.suite.Scenario;
@@ -42,6 +43,13 @@ public final class CommandsScenario implements Scenario {
     /** {@code blocks outside the palette: N} — the one number a script can move by an exact amount. */
     private static final Pattern EXCLUDED =
             Pattern.compile("blocks outside the palette: (\\d+)");
+
+    /**
+     * The selftest's machine-readable summary, which lives in the SERVER LOG and not in the reply.
+     * {@code SelfTest} keeps this exact spelling untranslated for harnesses; the player's reply is a
+     * lang key over the same numbers and reads "Selftest complete: …".
+     */
+    private static final String SELFTEST_SUMMARY = "SELFTEST complete:";
 
     @Override
     public String id() {
@@ -111,18 +119,31 @@ public final class CommandsScenario implements Scenario {
 
         context.stage("K3", "/nodera selftest and /nodera selftest full complete with no syntax "
                 + "errors and no exceptions", () -> {
+            // THE COUNTS COME FROM THE LOG, NOT FROM THE REPLY. SelfTest emits two shapes on
+            // purpose (SelfTest.java:179-191, MC-GUI-5): the player's reply is
+            // Component.translatable and reads "Selftest complete: 62 ok, 0 zero, 0 syntax
+            // error(s), …", while the log keeps the machine-readable
+            // "SELFTEST complete: … syntaxErr=0 exception=0" precisely so a harness can grep it.
+            // This stage used to grep the RCON reply for the log's wording, so it failed on a
+            // selftest that had in fact completed with zero of everything (run 31401507964).
+            LogWatcher serverLog = context.log("server.log");
+
+            int mark = serverLog.lineCount();
             String selftest = rcon.require("nodera selftest");
             HostWorldSupport.transcript(context, "commands-console.log",
                     "=== console: /nodera selftest\n" + selftest + "\n");
-            context.checkContains(selftest, "SELFTEST complete:", "the selftest never completed");
-            context.checkContains(selftest, "syntaxErr=0", "the selftest hit syntax errors");
-            context.checkContains(selftest, "exception=0", "the selftest hit exceptions");
+            String summary = awaitSelftestSummary(context, serverLog, mark,
+                    "the selftest never completed");
+            context.checkContains(summary, "syntaxErr=0", "the selftest hit syntax errors");
+            context.checkContains(summary, "exception=0", "the selftest hit exceptions");
 
+            int fullMark = serverLog.lineCount();
             String full = rcon.require("nodera selftest full");
             HostWorldSupport.transcript(context, "commands-console.log",
                     "=== console: /nodera selftest full\n" + full + "\n");
-            context.checkContains(full, "SELFTEST complete:", "selftest full never completed");
-            context.checkContains(full, "exception=0", "selftest full hit exceptions");
+            String fullSummary = awaitSelftestSummary(context, serverLog, fullMark,
+                    "selftest full never completed");
+            context.checkContains(fullSummary, "exception=0", "selftest full hit exceptions");
 
             Path reports = stack.paths().gameDir("run").resolve("world").resolve("nodera-selftest");
             context.check(hasSelftestReport(reports),
@@ -130,6 +151,30 @@ public final class CommandsScenario implements Scenario {
         });
 
         context.stage("K4", "every artefact of the run is collected", stack::collectWorkerState);
+    }
+
+    /**
+     * The machine-readable {@code SELFTEST complete:} line the run just produced.
+     *
+     * <p>RCON returns as soon as the command's reply is sent, and {@code SelfTest} logs its summary
+     * on the same thread immediately before that reply — but the log file is a different stream, so
+     * the line can lag the reply by a flush. Waiting for it is not a guess about timing: the run is
+     * over by the time we look, so the only thing the wait absorbs is the write.
+     *
+     * @param mark    a {@link LogWatcher#lineCount()} taken before the command was sent, so an
+     *                earlier selftest in the same run cannot satisfy this one.
+     * @param because what to say if it never arrives.
+     * @return the summary line, or the empty string when it did not appear (the stage is already
+     *         failed by then, and returning empty lets the count checks report as well).
+     */
+    private static String awaitSelftestSummary(
+            ScenarioContext context, LogWatcher serverLog, int mark, String because) {
+        if (!serverLog.pollFor(SELFTEST_SUMMARY, Duration.ofSeconds(60), mark)) {
+            context.check(false, because + " — no '" + SELFTEST_SUMMARY + "' in "
+                    + serverLog.file() + " after line " + mark);
+            return "";
+        }
+        return serverLog.lastMatchAfter(SELFTEST_SUMMARY, mark).orElse("");
     }
 
     /**
@@ -155,11 +200,23 @@ public final class CommandsScenario implements Scenario {
         expect(context, run(context, rcon, player, "nodera worlds"), "worlds");
         expect(context, run(context, rcon, player, "nodera share status"), "Sharing: yes");
         expect(context, run(context, rcon, player, "nodera whois " + other), "whois for " + other);
-        expect(context, run(context, rcon, player, "nodera hud tab off"), "hud tab off");
-        expect(context, run(context, rcon, player, "nodera hud tab on"), "hud tab on");
-        expect(context, run(context, rcon, player, "nodera hud bars on"), "hud bars on");
-        expect(context, run(context, rcon, player, "nodera hud alerts on"), "hud alerts on");
-        expect(context, run(context, rcon, player, "nodera hud all on"), "hud all");
+        // The HUD reply is COMPOSED, and the needles below used to assume it was not. The command
+        // answers `nodera.cmd.hud.set` = "HUD %s %s", where the first argument is the surface's own
+        // translated phrase (`nodera.cmd.hud.surface.<name>`) and the second is `nodera.cmd.state.
+        // {on,off}` — see NoderaCommand.setHud. So the sub-command word is NOT what comes back:
+        // `hud tab` answers "HUD tab list", `hud bars` answers "HUD boss bars", `hud alerts`
+        // answers "HUD zone alerts". Four of these five needles were written against the
+        // pre-translation reply, which was assembled in English at the call site (#113 moved it),
+        // and `expect` is a case-insensitive CONTAINS — "HUD tab list off" does not contain
+        // "hud tab off", so each was a real failure waiting for the first live run of this leg.
+        // Only "hud all" survived, by being short enough to remain a prefix of "HUD all surfaces".
+        // Recorded as one block because they fail one at a time: fixing only the one issue #258
+        // names buys exactly one more live run before the next identical failure.
+        expect(context, run(context, rcon, player, "nodera hud tab off"), "HUD tab list off");
+        expect(context, run(context, rcon, player, "nodera hud tab on"), "HUD tab list on");
+        expect(context, run(context, rcon, player, "nodera hud bars on"), "HUD boss bars on");
+        expect(context, run(context, rcon, player, "nodera hud alerts on"), "HUD zone alerts on");
+        expect(context, run(context, rcon, player, "nodera hud all on"), "HUD all surfaces on");
         expect(context, run(context, rcon, player, "nodera debug sample-rate 20"),
                 "sample rate = 20");
         expect(context, run(context, rcon, player, "nodera debug verbose on"), "debug console ON");

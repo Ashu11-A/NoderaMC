@@ -22,8 +22,33 @@ substitute genuinely buys something.
 dev.nodera.testkit
 ├── LoopbackTransport      an in-JVM PeerTransport for multi-peer scenarios without sockets
 ├── FakeRegion             region/snapshot builders for engine and consensus tests
-└── FixtureWriter/Reader   golden canonical frames — emit from Java, compare byte-exactly
+├── FixtureWriter/Reader   golden canonical frames — emit from Java, compare byte-exactly
+├── harness/               the live stack: processes, ports, readiness, log evidence
+├── suite/ + report/       the scenario SPI, its outcomes, and the one run report
+└── scenario/             one class per acceptance scenario, composing the harness
 ```
+
+## The harness owns capabilities; a scenario owns policy
+
+Everything a scenario needs from the MACHINE lives in `harness/`, and a scenario support class may
+only compose it. That boundary is not tidiness. Five capabilities lived one layer up under
+`// HARNESS-GAP` markers, so one behaviour was described in two places and the error-audit rule was
+written out three times — a benign cause added to one copy fixed a third of the suites and left the
+rest.
+
+- `LiveStack` starts every process and **proves each one is answering before it hands it back**:
+  services by socket probe, workers by their control socket, the dedicated server by its game port
+  *and* an RCON round trip, a client by the existence of a game JVM carrying that run's
+  `<run>RunProgramArgs` token. Every failure names the process, its exit status and its log tail.
+  It also stages a client's `options.txt` and amends a world's `nodera-server.toml`.
+- `ManagedProcess` addresses processes it did NOT fork, by a token on their command line, reading
+  `/proc` directly because `ProcessHandle.info().commandLine()` truncates at 4096 bytes and the
+  token sits past it.
+- `LogWatcher` is the one assertion primitive: waits (with a mark, a guard, a blocked-screen watch,
+  and a host-lag explanation for an expiry) and window reads after a mark.
+- `Requirements` classifies why a scenario did not run. A missing display is the machine; a missing
+  artefact the runner builds is the harness. The tool exits non-zero on either, and only the first
+  can be accepted with `--allow-skips`.
 
 ## Why it is shaped this way
 
@@ -41,6 +66,21 @@ regeneration.
 JVMs, genuinely adversarial peers on the wire, and the real service binaries. Every helper added here
 is a small step away from that, so the bar for adding one is high.
 
+## The live harness binds its own port block, never the product's
+
+`dev.nodera.testkit.harness.Topology` gives a run a block of ports at `portBase + offset`, and the
+base defaults to **26500** — the product's 25500 block plus a thousand. It was the product's block
+until 2026-08-10, which meant a developer running the companion app (it binds 25610) could not run a
+single live scenario: the preflight refused every one of them, so the more complete somebody's
+install the less of the suite they could execute. `chosenBase()` probes the block at startup, steps
+200 up if anything is listening in it, and prints the block it settled on as the run's first line;
+`NODERA_E2E_PORT_BASE` pins it. `PortHolder` turns a genuinely held port into a diagnosis — which
+pid, which binary, and whether it is an installed Nodera to quit or a leftover from this checkout to
+kill. `HarnessPortPlanTest` reads the product's own constants, so the two tables cannot converge
+again. See [`docs/testing/Task.0.md`](../../../docs/testing/Task.0.md) §3.1 for the offset table.
+
+**A scenario that starts its own service must ask for `Topology.scenarioPort(i)`**, not a literal.
+
 ## Rules
 
 - Nothing here may be referenced from production code.
@@ -49,8 +89,8 @@ is a small step away from that, so the bar for adding one is high.
 
 ## Tests
 
-14 tests covering the helpers themselves — a broken test library produces false confidence everywhere
-else.
+92 tests covering the helpers themselves — a broken test library produces false confidence
+everywhere else, and this module is the one that decides what "the run passed" means.
 
 ```bash
 ./gradlew :testing:test

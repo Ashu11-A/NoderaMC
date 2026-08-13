@@ -176,11 +176,11 @@ public final class RekeyScenario implements Scenario {
     /**
      * The lines of {@code file} after a mark.
      *
-     * <p>R2b and R3 assert on the ABSENCE of a pattern in a window, which no wait can express; see
-     * {@link ServerLogs} for the harness gap that puts the reader there.
+     * <p>R2b and R3 assert on the ABSENCE of a pattern in a window, which no wait can express —
+     * {@link LogWatcher#linesAfter} is the harness's answer to that.
      */
     private static List<String> linesAfter(Path file, int mark) {
-        return ServerLogs.linesAfter(file, mark);
+        return LogWatcher.reader(file).linesAfter(mark);
     }
 
     private static void append(Path file, String line) {

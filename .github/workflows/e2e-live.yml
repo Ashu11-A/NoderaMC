@@ -42,33 +42,62 @@ jobs:
       suites: ${{ steps.pick.outputs.suites }}
     steps:
       - uses: actions/checkout@v4
+      # This job compiles Java. That is not obvious from reading it — the only thing it runs is
+      # `nodera-test.sh list` — but the script builds the tool it lists, and `:core` compiles at
+      # `--release 21`. Without a JDK 21 the runner's default compiler answers `error: release
+      # version 21 not supported`, and the whole workflow dies in ninety seconds having booted no
+      # suite at all. Twelve consecutive nightlies (2026-07-30 → 2026-08-10) failed exactly there.
+      # The suite job installs the same toolchain for the same reason; this job needed it first.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # Not strictly required, but without it the plan job cold-builds :core + :testing on every
+      # nightly to print a list of names it already knows how to derive.
+      - uses: gradle/actions/setup-gradle@v4
+      # `list` output is parsed into the matrix below, so the tool's own build must not share its
+      # stdout with it. Building it in its own step keeps the parsed lines to scenario ids only.
+      - name: Build the test tool
+        run: ./gradlew :testing:installDist --console=plain
       - id: pick
         env:
           REQUESTED: ${{ inputs.suites }}
-        # Each entry is one scenario id in the `nodera-test` tool (formerly one
-        # scripts/e2e-<suite>.sh). Scenarios that reuse the shared NoderaE2E world bake it
-        # themselves, so no entry depends on another. An unknown name is a hard error: a typo must
-        # not silently run nothing.
+        # Both lists come from the TOOL. There used to be one list here — an `all=(…)` array of
+        # thirteen ids — validated against the tool, and validating a stale list only proves it is
+        # stale in a legal way: every id in it existed, and the six scenarios added after it was
+        # written (telemetry, churn, ownership, endpoint, folia, plugins) were never dispatched by
+        # any nightly. `list --ids --exclude-tag hardware` is the tool's own answer to "what runs
+        # unattended", so the second table is gone rather than re-synchronised.
         #
-        # The names are validated against the TOOL rather than against a list kept here, so a
-        # scenario that is renamed or added cannot leave this workflow dispatching something that
-        # no longer exists. The old form of this check tested that a shell file existed and was
-        # executable — the executable bit in particular, because a full-file rewrite drops it, git
-        # records the mode, and the loss is invisible in a diff that shows no content change. A
-        # Java scenario has no mode to lose; what replaces that check is asking the tool.
+        # Each id is one scenario in the `nodera-test` tool (formerly one scripts/e2e-<suite>.sh).
+        # Scenarios that reuse the shared NoderaE2E world bake it themselves, so no entry depends
+        # on another and the matrix can be any subset in any order.
+        #
+        # `known` stays the WIDER set (hardware included): a dispatch may deliberately name a
+        # hardware scenario, and the suite job's own requirement check is what reports the missing
+        # device. An unknown name is still a hard error — a typo must not silently run nothing.
+        #
+        # The old check tested that a shell file existed and was executable — the executable bit in
+        # particular, because a full-file rewrite drops it, git records the mode, and the loss is
+        # invisible in a diff that shows no content change. A Java scenario has no mode to lose;
+        # what replaces that check is asking the tool.
         run: |
           set -euo pipefail
-          known=$(scripts/nodera-test.sh list | awk 'NR > 1 && NF { print $1 }')
-          all=(continuity crash pickup mobs pearl password rekey commands farlands \
-               ownership-follow mesh-soak determinism profile)
+          mapfile -t known < <(scripts/nodera-test.sh list --ids --no-build)
+          mapfile -t all   < <(scripts/nodera-test.sh list --ids --exclude-tag hardware --no-build)
+          # mapfile from a process substitution cannot fail the shell, so an unbuilt or broken tool
+          # would arrive here as an empty matrix and a green plan job that dispatched nothing.
+          (( ${#known[@]} && ${#all[@]} )) || {
+            echo "::error::the test tool listed no scenarios"; exit 1
+          }
           if [[ -z "${REQUESTED// /}" ]]; then
             picked=("${all[@]}")
           else
             IFS=',' read -ra picked <<< "${REQUESTED// /}"
           fi
           for s in "${picked[@]}"; do
-            grep -qx -- "$s" <<<"$known" || {
-              echo "::error::unknown scenario '$s'. Known: $(tr '\n' ' ' <<<"$known")"
+            printf '%s\n' "${known[@]}" | grep -qx -- "$s" || {
+              echo "::error::unknown scenario '$s'. Known: ${known[*]}"
               exit 1
             }
           done
@@ -109,10 +138,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
       - name: Build stack
+        # `nodera-telemetry` is here because the FIRST full-matrix dispatch (run 31396175753)
+        # failed the `telemetry` leg on `T0: no collector binary at target/release/nodera-telemetry`.
+        # That leg had never been dispatched by any nightly — the workflow's matrix was a hand-kept
+        # list of thirteen that omitted it — so nothing had ever asked this step for the collector,
+        # and the step built the two services it did know about. It is a harness fault rather than a
+        # property of the runner, which is exactly why it now FAILS the leg instead of skipping it
+        # (PR #259): a structural skip is red under every flag, and this is what that rule is for.
+        # Keep this list in step with what the scenarios resolve out of `target/release`.
         run: |
-          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry)
           ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
             -x test -x check
+      # The server-category scenarios need a Paper or Folia jar, and nothing in this repository
+      # ever staged one — so `ServerEndpointSupport.skipReason` fired on every machine, including
+      # this runner, and `endpoint`/`folia`/`plugins` had never actually run anywhere. That is a
+      # STRUCTURAL skip, which `docs/testing/Task.0.md` bans: requirements describe the MACHINE,
+      # and anything that can be fetched or built is fetched or built rather than waited for. The
+      # suites still download nothing themselves — one script, called here, so a local run and a CI
+      # run stay the same code path (server task 4; L-64's live half, L-66's exit).
+      - name: Stage the platform jar
+        if: matrix.suite == 'endpoint' || matrix.suite == 'folia' || matrix.suite == 'plugins'
+        run: |
+          case "${{ matrix.suite }}" in
+            folia)            scripts/stage-server-jars.sh folia ;;
+            endpoint|plugins) scripts/stage-server-jars.sh paper ;;
+          esac
+
       - name: ${{ matrix.suite }} under Xvfb
         env:
           # Only the determinism scenario reads it; empty leaves the scenario's own default.

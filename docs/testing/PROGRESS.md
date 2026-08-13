@@ -5,7 +5,7 @@
      note naming the EVIDENCE (a scenario id, a report path, a command), then reconcile
      ../ROADMAP.md and the root README. Never rewrite an old note — append a new one. -->
 
-**Category:** testing · **Last audit:** 2026-08-05 · Tasks completed: **1 / 1**
+**Category:** testing · **Last audit:** 2026-08-10 · Tasks completed: **1 / 1**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -21,6 +21,144 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The full live matrix ran, and sixteen of nineteen failures were three bugs
+
+The matrix was dispatched twice from `test/full-live-matrix-#187` with a blank `suites` input — the
+first full-matrix `e2e-live` runs since 2026-07-29, and the measurement the **T-1** row exists to
+demand. The per-leg table is [`TESTING.md`](TESTING.md) §1.1.
+
+The tree measured is deliberately not `main`. `main` cannot run a live scenario at all on a machine
+with Nodera installed, and its plan job dispatches nothing; measuring it would have produced a
+number about a tree nobody will ship. This branch is the merge of the four pull requests that fix
+that — #257 (`#142`), #259 (`#188`), #268 (`#266`) and #260 (`#179`) — with all three ratchet files
+**re-measured on the combined tree**, because each branch stamped its own against `main` and every
+one of them is too small for the union.
+
+**Run [31396175753](https://github.com/Ashu11-A/NoderaMC/actions/runs/31396175753): 3 passed, 16
+failed.** `endpoint`, `folia` and `plugins` passed — the first time any of the three has executed on
+any machine, which is what `scripts/stage-server-jars.sh` bought. Of the sixteen failures, thirteen
+were a single bug, one was a missing binary, one was a stale assertion class found by reading, and
+one was a CDN flake ([#272](https://github.com/Ashu11-A/NoderaMC/issues/272)).
+
+**The thirteen.** `stageDedicatedServer` wrote no `[companion]` block, so the mod fell back to
+`companion.controlEndpoint`'s default of `127.0.0.1:25610`, `CompanionGate.requireRunning` threw out
+of `ServerStartedEvent`, and — NeoForge's EventBus not isolating listener exceptions — the server
+crashed during startup. The harness had been getting away with it for as long as its own first
+worker sat on 25610; #266 moved the harness to its own block so a developer with the companion app
+could run a suite at all, and nothing replaced the coincidence. The failure did not look like this:
+depending on whether the RCON probe or the crash won the race, a leg reported either "the server
+never answered RCON ... the game port was open" or a twenty-one-minute wait for `sharing world`.
+Evidence: `DedicatedServerCompanionPointerTest`, whose two cases fail on the pre-fix writer.
+
+The second assertion in that test is the one that matters locally: on a developer box 25610 is the
+user's **installed** companion app, so the fallback does not fail there — it silently links the
+world under test to a daemon the harness does not control and calls the run green.
+
+**Read, not run.** `CommandsScenario` asserted four HUD replies the product stopped giving when #113
+moved the command surface to `Component.translatable`; issue
+[#258](https://github.com/Ashu11-A/NoderaMC/issues/258) names one of the four, and each costs a live
+run to rediscover. The tractable method is to resolve each needle through `CommandLang` →
+`en_us.json`; a text sweep of the scenarios is mostly false positives.
+
+Also: `e2e-live`'s Build stack step never built `nodera-telemetry` (that leg had never been
+dispatched, so nothing had ever asked for it), and `LiveStackLivenessTest` assembled a `Topology`
+with the pre-#266 component list — two branches, both merging cleanly, the compiler the only thing
+that noticed.
+
+**T-1 does not move.** The row asks for a green full matrix and this is not one. What changed is
+that its failures are now enumerated and attributed rather than unknown.
+
+
+### 2026-08-10 — The nightly live lane had been dead for twelve days, and short by six scenarios before that
+
+`e2e-live` last executed a suite on 2026-07-29. Every nightly from 2026-07-30 to 2026-08-10 failed
+in the `plan` job in about ninety seconds
+([run 31357132763](https://github.com/Ashu11-A/NoderaMC/actions/runs/31357132763)), with
+`Execution failed for task ':core:compileJava' … error: release version 21 not supported`. The job
+runs one command — `scripts/nodera-test.sh list` — and the script builds the tool it lists, so the
+job compiles Java; it had `actions/checkout` and nothing else. The `suite` job had installed Temurin
+21 since it was written. `plan` now does too, plus `gradle/actions/setup-gradle` so it stops
+cold-building `:core` nightly to print a list of names.
+Issue: [#142](https://github.com/Ashu11-A/NoderaMC/issues/142).
+
+The same job carried a second defect that a green plan job would have hidden. Its matrix was a
+hand-kept `all=(…)` array of thirteen ids, validated against the tool — which proves every id in the
+array exists and proves nothing about the ids missing from it. Six registered, listed, unattended
+scenarios had never been dispatched by any nightly: `telemetry`, `churn`, `ownership`, `endpoint`,
+`folia`, `plugins`. `nodera-test list` grew `--ids` (bare ids, one per line) and `--exclude-tag`, and
+the workflow now derives the matrix from `list --ids --exclude-tag hardware` — nineteen suites,
+equal to `ScenarioRegistry.defaultBatch()` by construction. `ScenarioRegistry.excludingTag` is the
+general form `defaultBatch()` now delegates to, and `nodera-test.sh`'s build note moved to stderr so
+the id list is parseable.
+
+Evidence: `NoderaTestListTest` (5 tests, new — `theRealRegistryYieldsEveryUnattendedScenarioToTheNightlyMatrix`
+names the six by hand rather than by a count) and `ScenarioToolTest` (11, +2), both green under
+`./gradlew :testing:test`; and the real command, `scripts/nodera-test.sh list --ids --exclude-tag
+hardware` → 19 ids, exit 0. This does not retire **T-1**: the row asks for a *green* full-matrix
+nightly, and this commit is what makes a full matrix exist to be green.
+### 2026-08-10 — The harness could not tell a pass from a skip, or a lane bug from a small machine
+
+Three defects in one commit, because they are one defect: the instrument was reporting things it had
+not measured, and roughly seventy open issues cite its output.
+
+**A fully-skipped live run exited 0.** `NoderaTestMain` returned `anyFailed() ? 1 : 0` and `SKIPPED`
+is not `failed`. The unit gate had the guard (`build.yml`'s "Nothing skipped into green"); the live
+lane did not. It is now in the tool: any skip is red without `--allow-skips`, and a **structural**
+skip is red with it. `Requirements.unmet` returns a classified `Skip` rather than a string —
+a missing display is the machine, a missing endpoint-plugin jar is the harness failing to build its
+own artefact, and those are not the same verdict. Evidence: `SkipGateTest` (six cases; three fail on
+the pre-fix `verdict` body). Issue [#256](https://github.com/Ashu11-A/NoderaMC/issues/256).
+
+**`LiveStack` started a dedicated server and two Minecraft clients and never checked either.** A
+Gradle build that failed to compile handed the scenario a dead wrapper, and the first log wait after
+it burned its whole timeout before reporting that the GAME had never said the thing it was asked
+for. The server is now proven on its game port and by an RCON round trip; a client by the existence
+of a game JVM carrying its own `<run>RunProgramArgs` token; the companion launcher by surviving its
+own startup. Evidence: `LiveStackLivenessTest`. Row **T-5 retired**.
+
+**Three `continuity` runs blamed the validation lane for a 14 GB box.** The host's integrated server
+fell 1066 ticks behind, the joiner's vanilla connection timed out, and S2c failed with `waited 180s
+for 'client validation lane active'`. Nothing in the harness had ever grepped for `Can't keep up!`.
+`LogWatcher.awaitWithLagGuard` does, above a 200-tick threshold, and it is applied at every
+multi-client wait plus the shared `awaitMemberNodes`. `continuity`'s RAM floor rose 6 → 8 GiB so
+that box refuses the run up front instead of failing forty minutes in. Evidence:
+`LogWatcherLagGuardTest`, whose negative cases are the important ones. Row **T-6 RETIRING**.
+
+Five `// HARNESS-GAP` capabilities moved into the harness with their callers rerouted and
+`ServerLogs` deleted (row **T-4 RETIRING**); the five remaining markers describe a different
+capability — starting a process `LiveStack` has no slot for — and became row **T-7**.
+### 2026-08-10 — The harness stopped binding the product's ports, so a developer can run it at all
+
+`Topology` handed every scenario the numbers a shipped Nodera binds — tracker 25600, rendezvous
+25601, worker control 25610+i, P2P 25620+i. On any machine with the companion app running, the
+preflight refused every scenario, so **the more complete somebody's install the less of the matrix
+they could execute**. The live report of 2026-08-07 (0 passed / 17 failed, every failure `port 25600
+is still held after 60s`) is that collision and not the stale test stack it was filed as.
+
+Every port is now `portBase + offset`; the base defaults to 26500, `Topology.chosenBase()` probes the
+whole block at startup and steps 200 up if anything is listening in it, and the block it settled on
+is the run's first line. `NODERA_E2E_PORT_BASE` pins it. `PortHolder` reads `/proc/net/tcp{,6}` and
+`/proc/<pid>/fd` so a genuinely held port names its holder and says whether it is an installed
+Nodera, a leftover from this checkout, or something unrelated — three different actions where the
+old message offered one wrong hint. `TelemetryScenario`'s own three literals moved onto
+`Topology.scenarioPort(i)`, inside the block the probe checks.
+
+Evidence, both runs made **with the user's installed companion app still holding 25610**:
+
+- failing-before — `NODERA_E2E_PORT_BASE=25500 scripts/nodera-test.sh run telemetry` →
+  `0 passed, 1 failed`, `port 25610 is still held after 60s by pid 742938 → … (an INSTALLED Nodera
+  (/usr/lib/Nodera/resources/nodera-headless/lib/peer-headless.jar), not a leftover test stack …)`,
+  exit 1;
+- passing-after — `scripts/nodera-test.sh run telemetry` → `nodera-test: port block 26500 (free)`,
+  T0–T6 all PASS, `1 passed, 0 failed, 0 skipped`, exit 0
+  (`build/reports/nodera-i266-after/TEST-REPORT.md`).
+
+`HarnessPortPlanTest` is what keeps it fixed: it reads `PeerNode.DEFAULT_CONTROL_PORT`,
+`PeerNode.DEFAULT_P2P_PORT` and `DefaultServices.DEVELOPMENT_*` rather than copies, so the two tables
+cannot converge again by either side moving. Also fixed here: `Requirements` truncated free RAM to
+whole GiB, so 4.99 GiB read as 4 and skipped a scenario asking for 5 — and a skip is red since
+[#259](https://github.com/Ashu11-A/NoderaMC/pull/259). ([#266](https://github.com/Ashu11-A/NoderaMC/issues/266))
 
 ### 2026-08-05 — Twenty-five integration tests stopped building their own mesh (Plan 11 phase 3)
 

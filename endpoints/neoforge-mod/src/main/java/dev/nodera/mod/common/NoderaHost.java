@@ -1081,10 +1081,33 @@ public final class NoderaHost {
      * committee on a half-read region would give every member a different base. Everyone agreeing
      * on nothing beats disagreeing about something.
      *
+     * <h2>Why one slow read stops the rest of the pass</h2>
+     *
+     * <p>This runs once per planned region, in a loop, and each call hands the SERVER THREAD a task
+     * and waits ten seconds for it. Giving up on the wait does not cancel the task: it is queued on
+     * the tick loop and will run to completion whatever this thread decides. So a pass that timed
+     * out and carried on was queueing a second extraction behind a first that was still running,
+     * and a third behind that — and {@code runAllTasks} drains the whole backlog inside ONE tick.
+     * Thirteen regions' worth of that is how the 2026-08-10 live matrix killed seven dedicated
+     * servers with {@code a single server tick took 60.00 seconds}, taking the scenarios that were
+     * about to join a second player down with them.
+     *
+     * <p>{@code overran} is therefore a one-way latch for the whole activation: the first read that
+     * does not come back in time ends base-reading for this pass, and every remaining region falls
+     * back to the all-air base every member derives identically — the documented behaviour above,
+     * and the same behaviour a non-resident region already gets. The backlog on the server thread
+     * can never exceed the one extraction this method is waiting on.
+     *
+     * @param overran set when a read did not answer in time; when it is already set, no further
+     *                read is queued.
      * @return the region's real state, or {@code null} when it cannot be read completely.
      */
     private static dev.nodera.core.state.RegionSnapshot baseFor(
-            MinecraftServer server, ServerLevel level, dev.nodera.core.region.RegionId region) {
+            MinecraftServer server, ServerLevel level, dev.nodera.core.region.RegionId region,
+            java.util.concurrent.atomic.AtomicBoolean overran) {
+        if (overran.get()) {
+            return null;
+        }
         try {
             java.util.concurrent.CompletableFuture<dev.nodera.mod.server.shadow.LiveSnapshotExtractor.Extraction> extracted =
                     new java.util.concurrent.CompletableFuture<>();
@@ -1106,6 +1129,12 @@ public final class NoderaHost {
                 return null;
             }
             return result.snapshot();
+        } catch (java.util.concurrent.TimeoutException slow) {
+            overran.set(true);
+            LOG.warn("reading {} to seat its committee did not answer in 10s; the extraction is "
+                            + "still on the server thread, so no further base is read this "
+                            + "activation — every member derives the same one instead", region);
+            return null;
         } catch (Exception unavailable) {
             LOG.warn("could not read {} to seat its committee ({}); no base named for it",
                     region, unavailable.toString());
@@ -1230,6 +1259,11 @@ public final class NoderaHost {
                 // seeded so the other members can fetch it, and named in their assignments below.
                 Map<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> bases =
                         new java.util.LinkedHashMap<>();
+                // One latch for the whole pass — see baseFor: a read that overruns leaves work on
+                // the server thread, and queueing the next one behind it is what trips the vanilla
+                // hang watchdog.
+                java.util.concurrent.atomic.AtomicBoolean baseReadOverran =
+                        new java.util.concurrent.atomic.AtomicBoolean();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive
                     // proposals, validator regions re-execute + vote (the committee model — the
@@ -1243,7 +1277,7 @@ public final class NoderaHost {
                     // falls back to deriving the same all-air one, and the old invariant holds
                     // exactly — everyone agreeing on nothing beats disagreeing about something.
                     dev.nodera.core.state.RegionSnapshot base =
-                            baseFor(server, level, planned.region());
+                            baseFor(server, level, planned.region(), baseReadOverran);
                     if (base != null) {
                         // Seeded BEFORE anyone is seated on it. A member told to activate on a base
                         // it cannot fetch has to refuse the seat, and the only reason it could not

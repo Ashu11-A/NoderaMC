@@ -369,8 +369,8 @@ public final class MobileContinuityScenario implements Scenario {
             Path config = HostWorldSupport.stagedWorld(ctx);
             // The drive is what makes M4 possible: it walks both players across region boundaries
             // instead of leaving them standing in spawn.
-            HostWorldSupport.setHostConfig(config, "debug", "regionDrive", "true");
-            HostWorldSupport.setHostConfig(config, "entity", "mobCaptureDimensions",
+            LiveStack.setHostConfig(config, "debug", "regionDrive", "true");
+            LiveStack.setHostConfig(config, "entity", "mobCaptureDimensions",
                     "[\"minecraft:overworld\"]");
             // Evidence must be produced by THIS run; a previous run's line would satisfy the wait.
             Files.deleteIfExists(stack.paths().gameLog("run-host"));
