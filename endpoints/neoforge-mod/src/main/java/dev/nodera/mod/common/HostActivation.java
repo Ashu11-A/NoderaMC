@@ -126,10 +126,16 @@ final class HostActivation {
      * world must not queue behind a relay reservation that has another eighty seconds to run, and it
      * must not let that reservation publish a game server for a world nobody is hosting any more.
      *
-     * @return the new generation.
+     * <p>It cancels; it does not clean up. The caller runs before the bring-up has necessarily
+     * created anything, so it cannot stop a socket that is not bound yet — the bring-up itself
+     * unwinds what it has already created, at the check after {@code startHost}.
+     *
+     * <p>Returns nothing on purpose. It used to hand back the new generation, which both production
+     * callers discarded; by this class's own standard — see {@link #begin}, whose boolean exists
+     * because it is read — a value no caller reads is dead code with a test holding it up.
      */
-    static long abandon() {
-        return ACTIVATION_GENERATION.incrementAndGet();
+    static void abandon() {
+        ACTIVATION_GENERATION.incrementAndGet();
     }
 
     /** @return whether the share this bring-up is building has been superseded or stopped. */
@@ -228,6 +234,32 @@ final class HostActivation {
                 LOG.warn("Nodera: host peer start threw for '{}' ({}); continuing in vanilla-only "
                         + "mode", world, e.getMessage());
                 route = null;
+            }
+
+            // The third abandonment check, and the only one that has to UNDO something.
+            //
+            // The two above it can simply return, because nothing outside this thread exists yet.
+            // `startHost` is where that stops being true: it binds the P2P socket, reserves the
+            // relay and announces to the tracker. Whoever cancelled the share ran *before* those
+            // existed — `deactivate` bumps the generation and then calls `stopHosting()`, which
+            // finds nothing, because at that moment there was nothing — so the canceller cannot
+            // clean them up and this thread is the only one that can.
+            //
+            // Falling through instead would arm the join gate, apply host permissions and emit a
+            // `worldShared` telemetry event for a share the player has stopped, and would leave the
+            // socket bound, the relay reserved and the world announced with no host runtime the UI
+            // knows about, so nothing would ever stop them. That is the leak ACTIVATION_IN_FLIGHT
+            // was added to prevent, arriving by the other door.
+            //
+            // The rule, for anything added below: whoever creates a network resource is responsible
+            // for stopping it when the share is abandoned.
+            if (abandoned(generation)) {
+                if (route != null) {
+                    LOG.info("Nodera: '{}' was unshared while its host peer was starting; stopping "
+                            + "the peer this bring-up had already bound", world);
+                    NoderaPeerService.get().stopHosting();
+                }
+                return;
             }
 
             // L-52: the password stops being a property of the archive alone. While a

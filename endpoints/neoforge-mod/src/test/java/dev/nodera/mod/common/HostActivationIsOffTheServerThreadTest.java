@@ -220,6 +220,44 @@ final class HostActivationIsOffTheServerThreadTest {
                 .contains("Thread.ofPlatform().name(\"nodera-host-notify\")");
     }
 
+    @Test
+    @DisplayName("a bring-up abandoned after startHost stops the peer it had already bound")
+    void anAbandonedBringUpUnwindsWhatItCreated() throws IOException {
+        // Structural, and deliberately so — stated here rather than left for a reader to work out.
+        //
+        // The rule is about a window between two calls on a thread the test cannot pause inside:
+        // `activationStall` runs before `ensureIdentity`, so it cannot hold the bring-up open
+        // *after* `startHost`, which is the only place this rule lives. Asserting it behaviourally
+        // would mean a second injected stall, and `NoderaPeerService` is a hard singleton with no
+        // seam — so the test would have to let a unit test really bind a socket and really dial
+        // this machine's relay set, which is exactly the networked, machine-dependent unit test
+        // this row exists to be rid of.
+        //
+        // So it is asserted the way the case above asserts its own structural half, and for the
+        // same reason: the failure guarded against is an edit that removes the unwind, and a
+        // source-order rule catches that edit at the moment it is made.
+        String activation = code("HostActivation.java");
+
+        assertThat(activation)
+                .as("the bring-up must check for abandonment AFTER startHost and stop the peer it"
+                        + " bound, before going on to arm the gate — deactivate bumps the generation"
+                        + " and then calls stopHosting(), which finds nothing because at that moment"
+                        + " there was nothing, so this thread is the only one that can")
+                .containsSubsequence(
+                        "startHost(",
+                        "if (abandoned(generation)) {",
+                        "stopHosting()",
+                        "armGateNow(");
+
+        // And the unwind has to end the bring-up: the `return` is what stops the gate being armed,
+        // the host permissions applied, and a `worldShared` telemetry event emitted for a share the
+        // player has stopped.
+        assertThat(between(activation, "startHost(", "armGateNow("))
+                .as("the abandoned path returns rather than falling through into the rest of the"
+                        + " share")
+                .contains("return;");
+    }
+
     /**
      * @param file a source file in {@code dev.nodera.mod.common}.
      * @return its source with comments removed — a `doesNotContain` over a file this heavily
