@@ -9,10 +9,8 @@ import dev.nodera.simulation.rules.FlatWorldRules;
 import dev.nodera.simulation.rules.VanillaPalette;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,10 +32,13 @@ import java.util.List;
  * region full of modded machinery reports a high excluded count rather than a wrong root. Callers
  * read {@link Extraction#excludedBlocks()} to decide whether a region is worth delegating at all.
  *
- * <p><b>Loaded chunks only.</b> Extraction never forces chunk generation: a chunk that is not
- * resident contributes an all-air column and is counted in {@link Extraction#missingChunks()}.
- * Loading a region's worth of chunks synchronously on the server thread is exactly the stall the
- * lane exists to avoid.
+ * <p><b>Loaded chunks only, and never a blocking read.</b> Extraction never forces chunk generation
+ * and never waits for one in flight: a chunk that is not resident <em>right now</em> contributes an
+ * all-air column and is counted in {@link Extraction#missingChunks()}. Loading a region's worth of
+ * chunks synchronously on the server thread is exactly the stall the lane exists to avoid — and
+ * "asking without loading" is not enough on its own, because vanilla's
+ * {@code getChunk(…, load = false)} still parks the caller in {@code managedBlock} when a holder's
+ * FULL future is pending. See the comment at the read site.
  *
  * @Thread-context server main thread only — it reads live chunk sections.
  */
@@ -81,15 +82,23 @@ public final class LiveSnapshotExtractor {
             for (int dz = 0; dz < NoderaConstants.REGION_SIZE_CHUNKS; dz++) {
                 int chunkX = region.originChunkX() + dx;
                 int chunkZ = region.originChunkZ() + dz;
-                ChunkAccess chunk = level.getChunkSource()
-                        .getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
-                if (!(chunk instanceof LevelChunk loaded)) {
+                // getChunkNow, NOT getChunk(…, load=false). Both promise "do not generate", but
+                // getChunk goes through ServerChunkCache.managedBlock even when load is false: if a
+                // holder exists whose FULL future is still pending, the SERVER THREAD parks inside
+                // the tick it is running, the tick never ends, and sixty seconds later the vanilla
+                // watchdog declares the server crashed and shuts it down. That is what killed seven
+                // of the nineteen live scenarios in run 31401507964 — every one of them with
+                // LiveSnapshotExtractor.extract on the watchdog's stack. getChunkNow reads the
+                // already-completed future or answers null, so a half-loaded region is reported as
+                // missing chunks, which is exactly what this class's contract says it does.
+                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+                if (chunk == null) {
                     missing++;
                     columns.add(new ChunkColumnState(
                             chunkX, chunkZ, new int[sectionCount], minY, sectionCount));
                     continue;
                 }
-                Column column = column(loaded, chunkX, chunkZ, minY, sectionCount);
+                Column column = column(chunk, chunkX, chunkZ, minY, sectionCount);
                 excluded += column.excluded();
                 dense += column.state().denseSections().size();
                 columns.add(column.state());

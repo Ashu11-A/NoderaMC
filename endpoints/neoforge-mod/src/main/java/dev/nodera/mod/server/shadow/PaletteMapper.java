@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.state.properties.Property;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The Minecraft-typed half of the palette binding (minecraft Task 2 deliverable 2): a live
@@ -21,9 +22,32 @@ import java.util.Optional;
  * split is what makes "did the palette grow past the capture lane?" a question the ordinary test
  * gate can answer.
  *
- * @Thread-context stateless; call from the server thread (block state reads are not synchronised).
+ * @Thread-context call from the server thread (block state reads are not synchronised). The only
+ *                 state it holds is a pure memo of {@link #idOf}, kept in a concurrent map so a
+ *                 reader on another thread is still safe.
  */
 public final class PaletteMapper {
+
+    /**
+     * One entry per distinct {@link BlockState} the game has ever handed us.
+     *
+     * <p>This is not a micro-optimisation, it is what makes region extraction survivable. A region
+     * is 64 chunks; a chunk column is up to 24 sections of 4096 blocks, so one extraction asks this
+     * question about six million blocks — and the uncached answer builds a {@link LinkedHashMap},
+     * walks the state's property collection and formats every value, per block. On the 2026-08-10
+     * live matrix that put {@code PaletteMapper.properties} on the vanilla watchdog's stack and
+     * killed the dedicated server mid-run: {@code a single server tick took 60.00 seconds}.
+     *
+     * <p>Caching is sound because the answer is a pure function of the state: block states are
+     * canonical, immutable singletons owned by the block's state definition, and
+     * {@link VanillaPalette} is a static table. The map therefore has one entry per state in the
+     * registry (tens of thousands at the very worst, and in practice the few hundred a world
+     * actually contains), and no invalidation rule — there is no input that can change an answer.
+     *
+     * <p>{@link BlockState} inherits identity equality, so this is an identity map in effect, which
+     * is exactly the comparison we want: two distinct instances of the same state cannot exist.
+     */
+    private static final Map<BlockState, Integer> ID_CACHE = new ConcurrentHashMap<>();
 
     private PaletteMapper() {
     }
@@ -36,6 +60,10 @@ public final class PaletteMapper {
         if (state == null) {
             return VanillaPalette.UNSUPPORTED;
         }
+        return ID_CACHE.computeIfAbsent(state, PaletteMapper::computeId);
+    }
+
+    private static int computeId(BlockState state) {
         ResourceLocation key = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         return VanillaPalette.idFor(key.toString(), properties(state));
     }
