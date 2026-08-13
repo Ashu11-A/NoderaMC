@@ -7,8 +7,8 @@
      NoderaRegionDeniedEvent, always. NoderaEndpoint must never add a throwing override to any Bukkit
      API. Keep this header accurate. -->
 
-**Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-65 · **Last audit:** 2026-07-28
+**Status:** 🚧 IN PROGRESS
+**Category:** server · **Owns:** L-65 · **Last audit:** 2026-08-10
 **Depends on:** [server 5](Task.5.md), [engine 7](../engine/Task.7.md)
 **Consumed by:** [server 9](Task.9.md)
 
@@ -22,8 +22,20 @@ plugins people actually run.
 
 ## Status detail
 
-Not started. Foreign-write certification is proven headlessly by the interference guard and has never
-been run against a real plugin ([L-65](LIMITATIONS.md)).
+**Deliverables 2, 3 and 4 landed on 2026-08-10; the corpus half of 7 came with them.** A plugin's
+write into a region this endpoint validates now reaches the interference guard — through Bukkit's
+events *and* through WorldEdit's own extent pipeline, which is the only way to see a `//set` — and a
+refusal is published to the whole server as `NoderaRegionDeniedEvent` rather than happening silently.
+Proven on a real Paper 1.21.1-133 with WorldEdit 7.3.9 and CoreProtect 23.2 installed: a `//set` over
+1,280 blocks reported **1,280 foreign block writes observed**.
+
+**What is NOT done, and it is the clause L-65 turns on.** Nothing on the plugin path *delegates* a
+region yet (tasks [2](Task.2.md) and [3](Task.3.md)), and an `EXTERNAL_MUTATION` certificate is
+signed by the node — which under `peer.mode: external` is a different process holding the key
+(L-71). So the endpoint can classify, gate, announce and record a foreign write; it cannot certify
+one. The bridge is wired with an empty delegation view and a certification sink that returns
+nothing, deliberately and visibly, and the `observed` counter in `ForeignWriteBridge.summary()` is
+the honest one today. **[L-65](LIMITATIONS.md) stays open.**
 
 ## Dependencies
 
@@ -35,12 +47,12 @@ been run against a real plugin ([L-65](LIMITATIONS.md)).
 | # | Deliverable | State |
 |---|---|---|
 | 1 | PC-1: an API-surface audit + an ArchUnit rule proving no throwing override is added | ⬜ |
-| 2 | PC-2: the event-priority discipline (`MONITOR` to observe, `LOWEST`/`HIGH` to gate) | ⬜ |
-| 3 | `NoderaRegionDeniedEvent` — every denial and every revert is visible to other plugins | ⬜ |
-| 4 | PC-3: foreign writes certified as `ExternalDelta` through the interference guard | ⬜ |
+| 2 | PC-2: the event-priority discipline (`MONITOR` to observe, `LOWEST`/`HIGH` to gate) | ✅ `BukkitForeignWrites` gates at `HIGH`, observes at `MONITOR`; the WorldEdit hook is innermost at `VERY_EARLY` for the same reason |
+| 3 | `NoderaRegionDeniedEvent` — every denial and every revert is visible to other plugins | ✅ fired on every refusal, from the one place a refusal can happen |
+| 4 | PC-3: foreign writes certified as `ExternalDelta` through the interference guard | 🚧 the feed is complete and live (Bukkit events + WorldEdit's extent); certification needs a delegated region — tasks 2/3 |
 | 5 | PC-4: `folia-supported: true` + the no-`BukkitScheduler` rule, already enforced by task 1 | ⬜ |
 | 6 | `NoderaEndpointAPI` published on the services manager (optional for plugins to use) | ⬜ |
-| 7 | The pinned compatibility corpus + `scripts/e2e-plugins.sh` | ⬜ |
+| 7 | The pinned compatibility corpus + `scripts/e2e-plugins.sh` | 🚧 `scripts/stage-plugin-corpus.sh` pins WorldEdit 7.3.9 + CoreProtect 23.2 and CI stages them; the suite is `PluginsScenario` C0–C5 |
 
 ## Design
 
@@ -143,30 +155,45 @@ testing less.
 
 ## Files
 
-- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/compat/{NoderaEndpointAPI,NoderaRegionDeniedEvent,ForeignWriteBridge,EventPriorityAudit}.java`
-- `scripts/e2e-plugins.sh`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/paper/compat/{ForeignWriteBridge,BukkitForeignWrites,WorldEditBulkWrites,NoderaRegionDeniedEvent}.java`
+  — the package is `..endpoint.paper.compat`, not `..endpoint.compat`: everything in this module
+  lives under `dev.nodera.endpoint.paper`. `NoderaEndpointAPI` and `EventPriorityAudit` are still
+  unwritten.
+- `scripts/stage-plugin-corpus.sh` — the corpus, pinned by version. (The suite itself is
+  `PluginsScenario`; `scripts/e2e-plugins.sh` was converted to Java with every other live suite.)
 
 ## Testing
 
 - `EventPriorityAuditTest` — every listener is registered at the priority its purpose allows; a
   `MONITOR` listener that cancels fails the build.
-- `ForeignWriteBridgeTest` — a foreign write becomes an `ExternalDelta`; one that races a committed
-  delta is reverted **and** fires `NoderaRegionDeniedEvent`; a write over the rate policy revokes the
-  region with a stated reason.
+- `ForeignWriteBridgeTest` ✅ (9) — a foreign write into a delegated region is recorded for
+  certification; one that races a committed delta is refused **and** reaches every plugin as
+  `NoderaRegionDeniedEvent` carrying the region, the block, the reason and the state the world keeps;
+  a bulk write folds every `flushThreshold`; a block outside the palette is neither certified nor
+  refused; `observed` counts every write the bridge is handed, which is the number a Bukkit-only
+  bridge gets wrong. *Still missing: a write over the rate policy revoking the region.*
 - `NoderaEndpointAPITest` — the API is read-only and returns live state.
 - ArchUnit — no throwing override of a Bukkit API type; no `BukkitScheduler` reference.
-- Live (`e2e-plugins.sh`): the corpus loads; a WorldEdit `//set` in a delegated region is certified;
-  CoreProtect still logs every block change; the log is clean. **This is L-65's exit.**
+- Live (`scripts/nodera-test.sh run plugins`): C0–C2 the corpus loads and co-exists; **C3** a
+  WorldEdit `//set` of 1,280 blocks is observed block-for-block by the bridge and lands in the world;
+  **C4** CoreProtect logged every one of them, proven by rolling them back; C5 a clean stop. C3 and
+  C4 **fail** when their subject is absent from the corpus — they do not note it. **L-65's exit adds
+  one word C3 cannot yet assert: *certified*.**
 
 ## Acceptance criteria
 
-1. ⬜ The corpus loads on an endpoint with zero errors, on Paper and on the Folia-ready subset.
-2. ⬜ A WorldEdit `//set` in a delegated region is certified as an `ExternalDelta`, not suppressed.
-3. ⬜ A revert always fires `NoderaRegionDeniedEvent`; nothing vanishes silently.
+1. 🚧 The corpus loads on an endpoint with zero errors, on Paper and on the Folia-ready subset.
+   Paper ✅ (WorldEdit 7.3.9 + CoreProtect 23.2, real 1.21.1-133); Folia unrun (L-66).
+2. 🚧 A WorldEdit `//set` in a delegated region is certified as an `ExternalDelta`, not suppressed.
+   **Not suppressed ✅ and observed ✅** — 1,280 of 1,280 blocks reached the guard; **certified ❌**,
+   because nothing delegates a region on this path (tasks 2/3).
+3. ✅ A revert always fires `NoderaRegionDeniedEvent`; nothing vanishes silently.
 4. ⬜ A `MONITOR` listener from another plugin still sees every event it saw before.
 5. ⬜ ArchUnit proves no throwing override and no `BukkitScheduler` reference.
 6. ⬜ `NoderaEndpointAPI` is discoverable through the services manager and is read-only.
 
 ## Limitations
 
-- **L-65** — foreign-write certification has never been exercised against a real plugin corpus.
+- **L-65** — narrowed 2026-08-10, still open. Foreign-write certification has now met a real plugin
+  corpus and the write reaches the guard; what has never happened is the *certification*, because no
+  region on this path is delegated. See the row's exit column for the clause-by-clause reading.

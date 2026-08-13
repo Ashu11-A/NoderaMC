@@ -8,3 +8,24 @@ folia-supported: true
 description: Nodera decentralized validation for a Paper or Folia endpoint.
 authors: [Nodera]
 website: https://github.com/Ashu11-A/NoderaMC
+
+# WorldEdit, optionally, and only WorldEdit.
+#
+# A `paper-plugin.yml` plugin gets its OWN classloader, so `Class.forName("com.sk89q.worldedit..")`
+# fails on a server that has WorldEdit installed unless the dependency is declared here with
+# `join-classpath`. Without this block `compat/WorldEditBulkWrites` could never install, `//set`
+# would stay invisible to Nodera, and the corpus stage would pass on the slow path alone — which is
+# the exact false green server task 8 exists to avoid.
+#
+#   required: false   a server without WorldEdit must still load this plugin
+#   load: BEFORE      WorldEdit's singleton exists before our onEnable subscribes to its event bus
+dependencies:
+  server:
+    WorldEdit:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    FastAsyncWorldEdit:
+      load: BEFORE
+      required: false
+      join-classpath: true

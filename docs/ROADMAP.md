@@ -65,7 +65,13 @@ therefore publishes the **sum** and warns when the two differ.
 The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
 [`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
 figure** until its first task starts — counting an unstarted programme would move the denominator
-without moving the work.
+without moving the work. Its own ledger, [`server/PROGRESS.md`](server/PROGRESS.md), is the
+authority for that category: as of 2026-08-10 task 1 is complete and tasks 2, 3, 4, 8, 9 and 10 are
+in progress — task 4 since the cross-Folia-region commit path landed
+([`server/Task.4.md`](server/Task.4.md) deliverable 6; L-64 narrowed, still open), and task 8 since
+the foreign-write bridge landed ([`server/Task.8.md`](server/Task.8.md) deliverables 2–4; L-65
+narrowed, still open — a WorldEdit `//set` now reaches the interference guard on a real server, and
+nothing on the plugin path can certify it yet).
 
 ---
 

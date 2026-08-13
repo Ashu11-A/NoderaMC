@@ -78,6 +78,13 @@ record DeadCodeAnalysis(
             "net.neoforged.bus.api.SubscribeEvent",
             "net.neoforged.fml.common.Mod",
             "net.neoforged.fml.common.EventBusSubscriber",
+            // Bukkit dispatches a Listener's handlers reflectively out of registerEvents, and
+            // WorldEdit's own event bus does the same for @Subscribe. That reflective call is the
+            // ONLY caller such a method will ever have, so without these the endpoint plugin's
+            // event handlers read as methods nothing in the tree references — which is true, and
+            // is not the same statement as "nothing calls them".
+            "org.bukkit.event.EventHandler",
+            "com.sk89q.worldedit.util.eventbus.Subscribe",
             // Mixins are wired by a JSON config and applied by a bytecode transformer, so nothing
             // in our tree ever names them.
             "org.spongepowered.asm.mixin.Mixin",

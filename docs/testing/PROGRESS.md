@@ -5,7 +5,7 @@
      note naming the EVIDENCE (a scenario id, a report path, a command), then reconcile
      ../ROADMAP.md and the root README. Never rewrite an old note — append a new one. -->
 
-**Category:** testing · **Last audit:** 2026-08-05 · Tasks completed: **1 / 1**
+**Category:** testing · **Last audit:** 2026-08-10 · Tasks completed: **1 / 1**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -21,6 +21,26 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — `ServerVanillaBot` could not join the version the whole `server` category pins (issue #176)
+
+Two packet shapes were wrong, and both were invisible because neither failure mentions a packet the
+suite sent:
+
+- `configuration()` sent a nine-field `client_information`. `particleStatus` was appended in 1.21.2;
+  on the pinned 1.21.1 Paper answers *"Failed to decode packet
+  'serverbound/minecraft:client_information'"* and closes the connection **after** a successful
+  login, so `BotRefused` fires and the run reads as "the server refused us".
+- `sendCommand()` sent the pre-1.20.5 signed `chat_command` (command, timestamp, salt, signature
+  array, acknowledged bitset). 1.20.5 split that packet and the unsigned form carries only the
+  command string; the remaining 21 bytes made Paper drop the connection mid-stage.
+
+Found by driving a real Paper 1.21.1-133 by hand while building server task 8's corpus stages — the
+packet table has no other reader, and `MINECRAFT_PROTOCOL` had never actually been exercised against
+a server. Every `server`-category stage that drives an unmodified client (P3, P4, P5, P7, P8 and the
+new `plugins` C3) depended on both fixes. Evidence: `nodera_builder joined the game` followed by
+`nodera_builder issued server command: //set glass` in the server log, where the same script
+previously produced `lost connection: Internal Exception: ... DecoderException`.
 
 ### 2026-08-05 — Twenty-five integration tests stopped building their own mesh (Plan 11 phase 3)
 

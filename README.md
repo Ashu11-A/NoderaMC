@@ -300,7 +300,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 850 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 114 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 134 | 🚧 |
-| `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
+| `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 44 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 79 | ✅ |
 | `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 296 | 🚧 |
 | `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines, release asset naming | 100 | ✅ |

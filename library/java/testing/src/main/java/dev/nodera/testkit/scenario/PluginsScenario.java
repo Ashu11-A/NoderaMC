@@ -1,6 +1,7 @@
 package dev.nodera.testkit.scenario;
 
 import dev.nodera.testkit.harness.LogWatcher;
+import dev.nodera.testkit.mc.RconClient;
 import dev.nodera.testkit.suite.Requirements;
 import dev.nodera.testkit.suite.Scenario;
 import dev.nodera.testkit.suite.ScenarioContext;
@@ -25,12 +26,32 @@ import java.util.stream.Stream;
  *       three plugins instead of seven is worse than one that says which four were missing
  *   C2  co-existence: every corpus plugin enables, Nodera enables, and neither leaves an exception
  *       in the log
+ *   C3  THE BULK PATH: a WorldEdit //set of a known volume reaches Nodera's foreign-write bridge,
+ *       block for block, and is not suppressed — the blocks are what the operator asked for
+ *   C4  CoreProtect still logged every one of those changes, proven by rolling them back
  * </pre>
  *
- * <p>What this does NOT assert yet: that a WorldEdit {@code //set} inside a delegated region is
- * CERTIFIED rather than suppressed. That is L-65, and it needs the validated lane the endpoint does
- * not host yet (server tasks 2-3). The stage lands with the capability, not ahead of it — an
- * assertion that cannot fail is not evidence.
+ * <h2>C3 exists because of one specific way this suite could lie</h2>
+ *
+ * <p><b>WorldEdit's {@code //set} fires no Bukkit block event at all.</b> A foreign-write bridge
+ * built on {@code BlockPlaceEvent} and friends sees a player placing one block by hand and sees
+ * <i>nothing</i> for the operation L-65's exit clause names. A stage that drove a {@code //set} and
+ * asserted "no error in the log" would pass against a bridge that observed zero blocks. So C3
+ * asserts a NUMBER: every block of a known volume, counted by the plugin, in the world the operator
+ * edited.
+ *
+ * <p><b>C3 and C4 fail when their subject is missing. They never note it.</b> The corpus used to be
+ * allowed to be empty, which made "the compatibility suite is green" and "the compatibility suite
+ * tested a server with no plugins on it" the same sentence. {@code scripts/stage-plugin-corpus.sh}
+ * stages the pinned members, and a missing one is now a failure that names the script.
+ *
+ * <h2>What C3 does NOT assert, and why the row stays open</h2>
+ *
+ * <p>Not that the write is <b>certified</b>. Certification needs a delegated region — a committee,
+ * a version chain, and a node key to sign an {@code EXTERNAL_MUTATION} certificate with — and
+ * nothing on the plugin path delegates one yet (server tasks 2 and 3). What C3 proves is the half
+ * that was previously unprovable in any form: the write REACHES the interference guard rather than
+ * bypassing Nodera entirely. L-65's exit clause is unmet and the register says so.
  *
  * <p>Thread-context: stateless; the runner calls {@link #run} on its own thread.
  */
@@ -41,6 +62,35 @@ public final class PluginsScenario implements Scenario {
 
     private static final Pattern ENDPOINT_EXCEPTION =
             Pattern.compile("\\[NoderaEndpoint\\].*Exception|Could not pass event.*NoderaEndpoint");
+
+    /**
+     * The plugin's own per-session report, which is C3's whole assertion.
+     *
+     * <p>Kept as one pattern beside the constant that produces it
+     * ({@code WorldEditBulkWrites.SESSION_PREFIX}); a reworded log message has silently turned three
+     * live suites into timeouts before.
+     */
+    private static final Pattern WORLDEDIT_SESSION = Pattern.compile(
+            "WorldEdit edit session in \\S+: (\\d+) foreign block write\\(s\\) observed");
+
+    /** The operator who runs the {@code //set}. A fresh name each run never lands on a dead body. */
+    private static final String BUILDER = "nodera_builder";
+
+    /**
+     * The volume the {@code //set} covers, in a flat world's empty air well above the surface.
+     *
+     * <p>{@code 16 × 5 × 16 = 1280} blocks — big enough that WorldEdit takes its bulk path (a
+     * handful of blocks would not distinguish it from the slow one) and small enough to finish
+     * inside a CI stage.
+     */
+    private static final int SET_X0 = 0;
+    private static final int SET_Y0 = -50;
+    private static final int SET_Z0 = 0;
+    private static final int SET_X1 = 15;
+    private static final int SET_Y1 = -46;
+    private static final int SET_Z1 = 15;
+    private static final int SET_BLOCKS =
+            (SET_X1 - SET_X0 + 1) * (SET_Y1 - SET_Y0 + 1) * (SET_Z1 - SET_Z0 + 1);
 
     @Override
     public String id() {
@@ -122,14 +172,135 @@ public final class PluginsScenario implements Scenario {
                                     + "did it load?");
                 }
 
+            });
+
+            // ---------------------------------------------------------------------------
+            // C3 — the bulk path: //set reaches Nodera, block for block, and is not suppressed
+            // ---------------------------------------------------------------------------
+            ctx.stage("C3", "a WorldEdit //set of " + SET_BLOCKS
+                    + " blocks reaches Nodera's foreign-write bridge", () -> {
+                ctx.check(staged(server, "worldedit"),
+                        "C3: WorldEdit is not in the corpus, so the one plugin whose writes bypass "
+                                + "Bukkit entirely was never driven. Stage it with "
+                                + "`scripts/stage-plugin-corpus.sh worldedit`. This is a failure, "
+                                + "not a note: L-65's exit clause names this plugin.");
+
+                RconClient rcon = ctx.stack().rcon();
+                // The builder must survive long enough to type three commands. A player killed on
+                // the way is held at the death screen and every command it sends is dropped, which
+                // presents as "WorldEdit did nothing" — observed on a real 1.21.1 Paper.
+                rcon.require("difficulty peaceful");
+                rcon.require("gamerule doMobSpawning false");
+                rcon.require("gamerule doImmediateRespawn true");
+                rcon.require("op " + BUILDER);
+
+                LogWatcher log = ctx.log("server.log");
+                int mark = log.lineCount();
+                try (ServerVanillaBot builder = new ServerVanillaBot("127.0.0.1",
+                        ctx.topology().gamePort(), BUILDER,
+                        ServerEndpointSupport.MINECRAFT_PROTOCOL,
+                        ctx.topology().scaled(Duration.ofSeconds(60)),
+                        ctx.stack().logDir().resolve("worldedit-builder.log"))) {
+                    // A WorldEdit command keeps its leading slash: chat `//set` is command `/set`.
+                    builder.run(List.of("wait:joined", "sleep:5",
+                            "cmd:/pos1 " + SET_X0 + "," + SET_Y0 + "," + SET_Z0, "sleep:2",
+                            "cmd:/pos2 " + SET_X1 + "," + SET_Y1 + "," + SET_Z1, "sleep:2",
+                            "cmd:/set stone", "sleep:15", "quit"));
+                }
+
+                long observed = observedByNodera(log.file(), mark);
+                ctx.check(observed >= SET_BLOCKS,
+                        "C3: Nodera observed " + observed + " of the " + SET_BLOCKS
+                                + " blocks the //set wrote. ZERO is the signature of a bridge built "
+                                + "on Bukkit events alone — //set fires none. Anything between is a "
+                                + "partially wrapped extent chain.");
+                ctx.note("C3: " + observed + " foreign block writes reached the interference guard "
+                        + "through WorldEdit's extent pipeline.");
+
+                // ...and the write LANDED. A bridge that certified by suppressing would also
+                // report a number.
+                rcon.require("execute if block " + SET_X0 + " " + SET_Y0 + " " + SET_Z0
+                        + " minecraft:stone run say NODERA-C3-SET-LANDED");
+                ctx.check(log.pollFor("NODERA-C3-SET-LANDED", Duration.ofSeconds(30), mark),
+                        "C3: the //set was observed but the world is not stone — the write was "
+                                + "suppressed or reverted, which is exactly what PC-3 forbids");
+
+                ctx.note("C3: NOT asserted — that the write was CERTIFIED into a version chain. "
+                        + "Nothing on the plugin path delegates a region yet (server tasks 2/3), so "
+                        + "there is no chain to certify into. L-65 stays open on that clause.");
+            });
+
+            // ---------------------------------------------------------------------------
+            // C4 — CoreProtect logged every one of those changes
+            // ---------------------------------------------------------------------------
+            ctx.stage("C4", "CoreProtect logged the whole //set, and can roll it back", () -> {
+                ctx.check(staged(server, "coreprotect"),
+                        "C4: CoreProtect is not in the corpus, so the MONITOR-priority logger "
+                                + "L-65's exit clause names was never run beside Nodera's. Stage it "
+                                + "with `scripts/stage-plugin-corpus.sh coreprotect`.");
+
+                LogWatcher log = ctx.log("server.log");
+                ctx.check(log.contains("WorldEdit logging successfully initialized"),
+                        "C4: CoreProtect did not hook WorldEdit, so it is not observing the same "
+                                + "extent chain Nodera is — the PC-2 collision this stage exists to "
+                                + "test never happened");
+
+                // The proof that it logged EVERY change is that its own record can undo them all.
+                // A lookup cannot be asserted over RCON: CoreProtect answers asynchronously, after
+                // the exchange has closed — the same platform fact §1.2.1 records for spark.
+                int mark = log.lineCount();
+                RconClient rcon = ctx.stack().rcon();
+                rcon.require("co rollback u:" + BUILDER + " t:1h r:#global");
+                boolean restored = false;
+                for (int attempt = 0; attempt < 20 && !restored; attempt++) {
+                    rcon.require("execute if block " + SET_X0 + " " + SET_Y0 + " " + SET_Z0
+                            + " minecraft:air run say NODERA-C4-ROLLED-BACK");
+                    restored = log.pollFor("NODERA-C4-ROLLED-BACK", Duration.ofSeconds(3), mark);
+                }
+                ctx.check(restored,
+                        "C4: CoreProtect could not roll the //set back to air, so it did not log "
+                                + "every change Nodera observed. Nodera's MONITOR listeners must "
+                                + "not have disturbed it — that is what PC-2 promises.");
+
+                ctx.check(log.lastCapture(ENDPOINT_EXCEPTION).isEmpty(),
+                        "C4: nodera-endpoint threw while the corpus was writing");
+            });
+
+            ctx.stage("C5", "the server stops cleanly with the corpus loaded", () -> {
+                LogWatcher log = ctx.log("server.log");
                 ctx.stack().rcon().send("stop");
                 if (!log.pollFor("Nodera endpoint stopped", Duration.ofSeconds(180), 0)) {
-                    ctx.note("C2: no clean disable line (the server may have exited first)");
+                    ctx.note("C5: no clean disable line (the server may have exited first)");
                 }
             });
 
             ctx.stack().collectArtefacts();
         }
+    }
+
+    /** Is a corpus member staged? Matched on the jar's file name, case-insensitively. */
+    private static boolean staged(ServerEndpointSupport server, String member) {
+        return server.corpusPresent().stream()
+                .anyMatch(jar -> jar.toLowerCase(Locale.ROOT).contains(member));
+    }
+
+    /**
+     * The largest per-session count the plugin reported after {@code mark}.
+     *
+     * <p>The largest, not the last: one {@code //set} produces more than one WorldEdit edit session
+     * — the operation's own, and an empty one for the selection — and only the one that carried the
+     * blocks answers the question C3 is asking.
+     */
+    private static long observedByNodera(Path serverLog, int mark) throws java.io.IOException {
+        List<String> lines = Files.readAllLines(serverLog);
+        long best = 0;
+        for (int i = Math.max(0, mark); i < lines.size(); i++) {
+            var match = WORLDEDIT_SESSION.matcher(lines.get(i));
+            if (match.find()) {
+                best = Math.max(best, Long.parseLong(match.group(1)));
+            }
+        }
+        return best;
     }
 
     /** {@code $NODERA_PLUGIN_CORPUS_DIR}, else {@code run/plugins}. */

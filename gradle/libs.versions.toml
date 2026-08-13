@@ -16,6 +16,12 @@ bouncycastle      = "1.84"
 rocksdb           = "9.7.3"
 # Paper API for the endpoint plugin (server task 1). Matches the Minecraft version the mod pins.
 paperApi            = "1.21.1-R0.1-SNAPSHOT"
+# WorldEdit's own API, for the ONE plugin whose bulk writes no Bukkit event can see (server task 8,
+# L-65). Compile-only, and pinned to the OLDEST WorldEdit that supports the Minecraft version the
+# mod pins: compiling against the oldest supported release is what stops us calling a method a real
+# server's WorldEdit does not have. It is also the version `scripts/stage-plugin-corpus.sh` stages,
+# so the compile surface and the tested corpus are one number.
+worldedit           = "7.3.9"
 
 [libraries]
 junit-jupiter       = { module = "org.junit.jupiter:junit-jupiter",       version.ref = "junit" }
@@ -34,6 +40,7 @@ jetbrains-annotations = { module = "org.jetbrains:annotations",           versio
 bouncycastle       = { module = "org.bouncycastle:bcprov-jdk18on",          version.ref = "bouncycastle" }
 rocksdbjni         = { module = "org.rocksdb:rocksdbjni",                   version.ref = "rocksdb" }
 paper-api          = { module = "io.papermc.paper:paper-api",               version.ref = "paperApi" }
+worldedit-core     = { module = "com.sk89q.worldedit:worldedit-core",       version.ref = "worldedit" }
 # JMH: the benchmark harness itself. The Gradle plugin resolves these versions for the `jmh`
 # source set; pinning them here keeps the harness on one version across the tree.
 jmh-core           = { module = "org.openjdk.jmh:jmh-core",                 version.ref = "jmhCore" }

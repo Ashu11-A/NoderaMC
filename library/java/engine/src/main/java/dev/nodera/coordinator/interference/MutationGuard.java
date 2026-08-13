@@ -177,6 +177,19 @@ public final class MutationGuard {
         return verdict(region, pos, prevStateId, newStateId);
     }
 
+    /**
+     * The mode this guard was built with.
+     *
+     * <p>Needed by a caller that must decide <b>before</b> a write happens rather than during it.
+     * The mod's mixin sits at the write itself, so {@link #verdict} answering "BLOCK" is enough
+     * there; a Bukkit listener does not — it gates at one event priority and observes at another
+     * (compatibility contract PC-2), and the gate has to know that STRICT will refuse without
+     * calling {@link #verdict}, which would record the write it is about to cancel.
+     */
+    public Mode mode() {
+        return mode;
+    }
+
     /** Writes that classified PASS because they came from inside the applier scope. */
     public long applierWrites() {
         return applierWrites;
