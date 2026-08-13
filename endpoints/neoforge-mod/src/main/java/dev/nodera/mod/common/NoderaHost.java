@@ -55,9 +55,12 @@ import java.util.Optional;
  * {@code distribution}/{@code storage-*}/{@code peer-runtime} modules; this class is where they plug
  * into a live server.
  *
- * <p>Thread context: {@link #activate}/{@link #deactivate}/{@link #reconfigure} must run on the
- * server thread ({@code MinecraftServer.execute(...)} from the client). {@link NoderaPeerService} is
- * internally synchronized.
+ * <p>Thread context: {@link #activate}/{@link #deactivate}/{@link #reconfigure} must be <b>called
+ * on</b> the server thread ({@code MinecraftServer.execute(...)} from the client), because each of
+ * them reads live Minecraft state. {@link #activate} does not <b>run</b> there: it takes the
+ * thread-affine readings it needs, hands the rest to {@code nodera-host-activate} and returns
+ * (MC-JOIN-3), so a relay that never answers costs a background thread rather than the world's
+ * loading screen. {@link NoderaPeerService} is internally synchronized.
  */
 public final class NoderaHost {
 
@@ -107,27 +110,6 @@ public final class NoderaHost {
 
     /** The hosted world's save root — where grants are persisted (issue #36 F5). */
     private static volatile Path hostedSaveRoot;
-
-    /**
-     * Rough on-disk size of a save, for the telemetry size bucket.
-     *
-     * <p>Best-effort and bounded: it walks the save tree, gives up on any I/O error, and the result
-     * is bucketed to whole megabytes before it leaves the machine. A precise byte count is a
-     * fingerprint; an order of magnitude is the fact worth having.
-     */
-    private static long saveSizeBytes(Path saveRoot) {
-        try (java.util.stream.Stream<Path> tree = java.nio.file.Files.walk(saveRoot, 4)) {
-            return tree.filter(java.nio.file.Files::isRegularFile).mapToLong(path -> {
-                try {
-                    return java.nio.file.Files.size(path);
-                } catch (java.io.IOException e) {
-                    return 0L;
-                }
-            }).sum();
-        } catch (java.io.IOException | RuntimeException e) {
-            return 0L;
-        }
-    }
 
     /** @return the hosted world's permission set, or null when not hosting. */
     public static dev.nodera.storage.WorldPermissions hostedPermissions() {
@@ -188,8 +170,24 @@ public final class NoderaHost {
      * already-shared world refreshes its {@link ShareOptions} (see {@link #reconfigure} for the
      * password-change caveat).
      *
+     * <p><b>Returns before the world is on the network.</b> Everything below the readings taken here
+     * is work with its own timeouts — a companion mint, a P2P bind, a relay reservation that
+     * iterates <i>every</i> configured endpoint, a tracker announce, a memory-hard KDF and a walk of
+     * the save tree — and it used to run inline on the thread that opens the world. On an integrated
+     * server that thread is the one behind the singleplayer loading screen, so a relay set that
+     * never answers was a world that took a minute and a half to load with nothing on screen saying
+     * why. The shape of the split is the join gate's, which has always done this correctly
+     * for the one step whose cost was obvious.
+     *
+     * <p>What stays here is what only the server thread may read or do: the level name and save
+     * path, the certified genesis (it digests <b>live chunk sections</b>), and the author's operator
+     * grant (it touches the player list). What comes back — publishing the game port, seeding the
+     * archive, opening the entity lane — returns through {@code server.execute(...)}, never by
+     * blocking.
+     *
      * @param server  the (integrated or dedicated) Minecraft server hosting the world.
      * @param options the chosen share options.
+     * @Thread-context server thread; returns without blocking on the network.
      */
     public static void activate(MinecraftServer server, ShareOptions options) {
         ShareOptions opts = options == null ? ShareOptions.playerDefault() : options;
@@ -199,6 +197,14 @@ public final class NoderaHost {
         // Task 30c: extract + self-certify the world's genesis on first share (persisted; reused on
         // every later activation). The signer is the host's persistent node identity — genesis stays
         // the one self-signed trust root (L-20; multi-party genesis is Task 16).
+        //
+        // This pair STAYS on the server thread, and the reason is `WorldGenesisService.ensure`:
+        // on first share it walks the players' field-of-view regions and reads every loaded
+        // `LevelChunkSection`'s block states through `getChunkNow`, which is a server-thread-only
+        // read of live world state. Moving it would trade a bounded local-disk cost for a race
+        // against the tick loop. The identity load is here because genesis needs its signer, and
+        // because neither of them touches the network — an unreachable relay set does not make them
+        // any slower, so neither is part of this row's exit clause.
         dev.nodera.core.identity.NodeIdentity hostIdentity = new PersistentIdentityStore(
                 saveRoot.resolve("nodera/server-identity.bin")).loadOrGenerate();
         Bytes genesisSeed;
@@ -211,124 +217,126 @@ public final class NoderaHost {
             genesisSeed = worldId(world);
         }
 
-        // Establish (or reuse) the world's signed identity + unique id (Task 33). The worker is the
-        // author (it holds the signing key); the record is persisted into the save folder so the
-        // world keeps its id + author + shared status across restarts. A fresh identity derives its
-        // worldId from the certified genesis root (30c); an existing record keeps its id.
-        WorldIdentity identity = ensureIdentity(saveRoot, world, opts, genesisSeed);
-        // The persisted record is consulted even when the mint failed. Falling straight through to
-        // `genesisSeed` announced a world that already had a name under a second, different one —
-        // and since the genesis root is re-derived, that second name changed again on the next
-        // launch. A save that has ever been named keeps that name whatever the worker is doing.
-        Bytes worldId = identity != null
-                ? identity.worldId()
-                : NoderaWorldStore.read(saveRoot).map(WorldIdentity::worldId).orElse(genesisSeed);
-
-        boolean already = NoderaPeerService.get().isHosting();
-        String route;
-        try {
-            route = NoderaPeerService.get().startHost(
-                    NoderaConfig.P2P_BIND_HOST.get(),
-                    NoderaConfig.P2P_PORT.get(),
-                    NoderaConfig.P2P_ADVERTISE_HOST.get(),
-                    opts, worldId, world, hostIdentity);
-        } catch (RuntimeException e) {
-            // Issue #39 defense-in-depth: startHost degrades internally (returns null on a bind
-            // failure), but never let any transport failure escape activate into the server tick
-            // loop. The game server + worker lane below still run so the world stays playable.
-            LOG.warn("Nodera: host peer start threw for '{}' ({}); continuing in vanilla-only mode",
-                    world, e.getMessage());
-            route = null;
-        }
-
-        // Open the actual Minecraft game server to the network — the piece that makes a shared
-        // world JOINABLE, not merely listed. An integrated server is published on a real TCP port
-        // (the "Open to LAN" mechanism pointed at the network); a dedicated server already listens.
-        // The endpoint travels to joiners as an "mc/host:port" route claim in the tracker announce.
-        String mcRoute = openGameServer(server);
-        NoderaPeerService.get().setGameRoute(mcRoute);
-
-        // Delegate the network hosting to the always-on worker when present (Task 32), so the world
-        // stays on the network even after the game closes. A missing worker falls back to the in-JVM
-        // host lane already started above.
-        notifyWorker(server, worldId, world, opts, mcRoute, null);
-
         // The sharing player is the world's operator (Task 33 permission model): the author is OWNER.
+        // Server thread only — it walks the player list and re-grants permissions. It depends on
+        // nothing the bring-up produces, so it happens now rather than a relay timeout later.
         grantHostOperator(server);
 
-        // L-49 admission: the world's permission model now gates the P2P mesh — a BANNED peer is
-        // refused at join and filtered from gossip ingest (PeerRuntime.JoinAdmission). The
-        // permission set starts author-only; grants applied to it take effect on the same gate.
-        if (identity != null) {
-            dev.nodera.storage.WorldPermissions permissions =
-                    new dev.nodera.storage.WorldPermissions(worldId, identity.authorNodeId(),
-                            identity.authorPublicKey());
-            // F5: reload persisted grants — apply() re-verifies every signature, so a tampered
-            // nodera-permissions.dat simply drops the forged grants instead of granting authority.
-            int loaded = 0;
-            for (dev.nodera.storage.WorldPermissionGrant g
-                    : dev.nodera.storage.WorldPermissionStore.read(saveRoot)) {
-                if (permissions.apply(g)) {
-                    loaded++;
+        HostActivation.begin(
+                new HostActivation.Request(saveRoot, world, opts, hostIdentity, genesisSeed,
+                        NoderaConfig.P2P_BIND_HOST.get(), NoderaConfig.P2P_PORT.get(),
+                        NoderaConfig.P2P_ADVERTISE_HOST.get(),
+                        NoderaPeerService.get().isHosting()),
+                server::execute,
+                outcome -> finishActivation(server, outcome));
+    }
+
+
+    /**
+     * The server-thread half of a share, posted from {@link HostActivation}.
+     *
+     * <p>Everything here needs the server thread and nothing here can block on a relay: publishing
+     * the game port calls {@code MinecraftServer.publishServer}, the archive seed flushes the save,
+     * and the entity-lane bootstrap reads player positions. The one call that <i>can</i> block — the
+     * worker's HOST verb — leaves again immediately on its own thread, mirroring what
+     * {@link #onServerStopping} already does with the same verb.
+     *
+     * <p>Self-catching: {@code MinecraftServer.execute} runs this inside the server's task queue, so
+     * an escaping exception is a crashed tick loop rather than a failed share.
+     */
+    private static void finishActivation(MinecraftServer server,
+                                         HostActivation.Outcome outcome) {
+        HostActivation.Request request = outcome.request();
+        ShareOptions opts = request.options();
+        String world = request.world();
+        try {
+            // Open the actual Minecraft game server to the network — the piece that makes a shared
+            // world JOINABLE, not merely listed. An integrated server is published on a real TCP
+            // port (the "Open to LAN" mechanism pointed at the network); a dedicated server already
+            // listens. The endpoint travels to joiners as an "mc/host:port" route claim in the
+            // tracker announce. When the host player is not in the world yet this parks itself in
+            // `gamePublishPending` and `tickGamePublish` completes it — the one deferred-completion
+            // channel this class has, reused rather than duplicated.
+            String mcRoute = openGameServer(server);
+            NoderaPeerService.get().setGameRoute(mcRoute);
+
+            // Delegate the network hosting to the always-on worker when present (Task 32), so the
+            // world stays on the network even after the game closes. `CompanionClient.host` allows
+            // itself ten seconds to read a reply plus a second and a half to connect, and this is a
+            // server tick — so it goes the way `onServerStopping` sends the same verb.
+            Bytes worldId = outcome.worldId();
+            int players = livePlayerCount(server, null);
+            Thread.ofPlatform().name("nodera-host-notify").daemon().start(() -> {
+                try {
+                    notifyWorker(server, worldId, world, opts, mcRoute, players);
+                } catch (RuntimeException | LinkageError e) {
+                    LOG.warn("Nodera: telling the worker about '{}' failed: {}", world, e.toString());
                 }
+            });
+
+            // Continuity lane: the world becomes durable the moment it is shared — pack the save and
+            // seed the archive to the always-on worker (final flush happens again on server stop).
+            WorldArchiver.seedAsync(server);
+
+            // The validated entity lane — the whole of what makes this a network of peers rather
+            // than one player's server with spectators. A bootstrap failure must never break sharing.
+            if (laneEnabled(opts)) {
+                try {
+                    activateEntityLaneFromWorld(server);
+                } catch (RuntimeException e) {
+                    LOG.warn("Nodera: entity lane bootstrap failed for '{}': {}", world,
+                            e.getMessage());
+                }
+            } else {
+                // Said out loud, because the silent version of this is indistinguishable from a
+                // broken network: no plan is broadcast, no client activates a region, nothing is
+                // ever co-signed, and every screen reports unassigned/unsigned regions with no
+                // cause given.
+                LOG.info("Nodera: '{}' runs WITHOUT deterministic region validation — {}. Players "
+                                + "trust the session they joined; content stays hash-verified",
+                        world, whyNoLane(opts));
             }
-            hostedPermissions = permissions;
-            hostedSaveRoot = saveRoot;
-            if (loaded > 0) {
-                LOG.info("Nodera: reloaded {} persisted permission grant(s)", loaded);
-            }
-            NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
-            if (host != null) {
-                host.runtime().setJoinAdmission(permissions::canJoin);
+        } catch (RuntimeException | LinkageError e) {
+            LOG.error("Nodera: finishing the share of '{}' failed: {}", world, e.toString());
+        }
+    }
+
+    /**
+     * L-49 admission: the world's permission model gates the P2P mesh — a BANNED peer is refused at
+     * join and filtered from gossip ingest ({@code PeerRuntime.JoinAdmission}). The permission set
+     * starts author-only; grants applied to it take effect on the same gate.
+     *
+     * <p>Off the server thread with the rest of the bring-up: it reads and signature-verifies every
+     * persisted grant, and it needs the host runtime that {@code startHost} has just built.
+     *
+     * @param saveRoot the world's save directory.
+     * @param worldId  the world's network id.
+     * @param identity the world's signed identity, or {@code null} when there is none to trust.
+     */
+    static void applyHostPermissions(Path saveRoot, Bytes worldId, WorldIdentity identity) {
+        if (identity == null) {
+            return;
+        }
+        dev.nodera.storage.WorldPermissions permissions =
+                new dev.nodera.storage.WorldPermissions(worldId, identity.authorNodeId(),
+                        identity.authorPublicKey());
+        // F5: reload persisted grants — apply() re-verifies every signature, so a tampered
+        // nodera-permissions.dat simply drops the forged grants instead of granting authority.
+        int loaded = 0;
+        for (dev.nodera.storage.WorldPermissionGrant g
+                : dev.nodera.storage.WorldPermissionStore.read(saveRoot)) {
+            if (permissions.apply(g)) {
+                loaded++;
             }
         }
-
-        // L-52: the password stops being a property of the archive alone. While a password-protected
-        // world is hosted, every joining connection must prove it knows the password in the
-        // configuration phase, before a player is created. Arming derives a memory-hard key, so it
-        // runs off the server thread; a plaintext world disarms (nothing to prove).
-        armJoinGate(worldId, opts, world);
-
-        // Continuity lane: the world becomes durable the moment it is shared — pack the save and
-        // seed the archive to the always-on worker (final flush happens again on server stop).
-        WorldArchiver.seedAsync(server);
-
-        // Telemetry: a share happened, whether it was password-protected, and roughly how big the
-        // world is. No name, no id, no seed — the event type cannot carry them.
-        ModTelemetry.worldShared(opts.password() != null && !opts.password().isBlank(),
-                saveSizeBytes(saveRoot), already ? "rehost" : "existing_world");
-
-        if (route == null) {
-            // Issue #39: the P2P mesh did not come up, but openGameServer + notifyWorker above still
-            // ran, so the world is playable over direct/LAN — just not on the Nodera network.
-            LOG.warn("Nodera: '{}' running in vanilla-only mode — the P2P mesh did not start; "
-                    + "direct/LAN joins still work. Retry Share once the port is free.", world);
-        } else if (already) {
-            LOG.info("Nodera: '{}' share options updated ({}) — route {}", world, opts, route);
-        } else {
-            LOG.info("Nodera: sharing world '{}' to the network at {} ({})", world, route, opts);
-            if (!opts.listedOnTracker()) {
-                LOG.info("Nodera: '{}' is invite-only (not announced to the tracker)", world);
-            }
+        hostedPermissions = permissions;
+        hostedSaveRoot = saveRoot;
+        if (loaded > 0) {
+            LOG.info("Nodera: reloaded {} persisted permission grant(s)", loaded);
         }
-        // Live lane (Task 9/19/23): genesis-from-current-world + self-cert, PieceManifest emission,
-        // per-piece encryption iff opts.encryptionEnabled(), and content seeding by the worker.
-
-        // The validated entity lane — the whole of what makes this a network of peers rather than
-        // one player's server with spectators. A bootstrap failure must never break sharing itself.
-        if (laneEnabled(opts)) {
-            try {
-                activateEntityLaneFromWorld(server);
-            } catch (RuntimeException e) {
-                LOG.warn("Nodera: entity lane bootstrap failed for '{}': {}", world, e.getMessage());
-            }
-        } else {
-            // Said out loud, because the silent version of this is indistinguishable from a broken
-            // network: no plan is broadcast, no client activates a region, nothing is ever
-            // co-signed, and every screen reports unassigned/unsigned regions with no cause given.
-            LOG.info("Nodera: '{}' runs WITHOUT deterministic region validation — {}. Players "
-                            + "trust the session they joined; content stays hash-verified",
-                    world, whyNoLane(opts));
+        NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
+        if (host != null) {
+            host.runtime().setJoinAdmission(permissions::canJoin);
         }
     }
 
@@ -379,101 +387,6 @@ public final class NoderaHost {
         return laneEnabled();
     }
 
-    /**
-     * Load or mint + persist the world's {@link WorldIdentity}. If a record already exists it is
-     * re-signed to reflect the current share state; otherwise the worker mints a fresh signed record
-     * (the worker is the author). A minimal fallback identity is used if no worker is reachable so the
-     * flow still functions offline.
-     */
-    private static WorldIdentity ensureIdentity(Path saveRoot, String world, ShareOptions opts,
-                                                Bytes seed) {
-        Optional<WorldIdentity> existing = NoderaWorldStore.read(saveRoot);
-        // Once a world has an id, that id is the world's name for life — it is pinned and re-signed,
-        // never re-derived. Derivation binds the genesis root, and the root is only stable while
-        // `nodera-genesis.dat` survives: lose it and it is re-certified from whichever chunks are
-        // loaded at the time, which mints a *different* id for the same save. Both then stay
-        // announced, each with its own administrator key, and the world is on the network twice.
-        // This is the machine that produced ten registry rows for four saves on the author's node.
-        //
-        // The seed is still sent, because a world being shared for the first time has no id yet and
-        // the worker derives from it.
-        Bytes pinnedWorldId = existing.map(WorldIdentity::worldId).orElse(null);
-        try {
-            // A rehosting peer is not the author: re-minting with the local worker's key would
-            // derive a DIFFERENT worldId (author is part of the derivation) and silently fork the
-            // world's identity on the tracker. Keep the author's record; only the author re-signs.
-            if (existing.isPresent() && CompanionLink.isPresent()) {
-                String workerNodeId = CompanionLink.client().identity()
-                        .map(id -> id.split("\\s+")[0]).orElse("");
-                if (!existing.get().authorNodeId().value().toString().equals(workerNodeId)) {
-                    return existing.get();
-                }
-            }
-            if (CompanionLink.isPresent()) {
-                // Reuse the existing record's manifest ref; the worker re-signs with the current state.
-                Bytes manifestRef = existing.map(WorldIdentity::manifestRef).orElse(Bytes.empty());
-                long createdAt = existing.map(WorldIdentity::createdAtEpoch)
-                        .orElse(System.currentTimeMillis());
-                Optional<Bytes> minted = CompanionLink.client().mintWorldIdentity(
-                        seed, createdAt, true, opts.listedOnTracker(), opts.encryptionEnabled(),
-                        manifestRef, pinnedWorldId);
-                if (minted.isPresent()) {
-                    WorldIdentity id = WorldIdentity.decode(
-                            new dev.nodera.core.crypto.CanonicalReader(minted.get()));
-                    NoderaWorldStore.write(saveRoot, id);
-                    return id;
-                }
-            }
-            // Offline fallback: keep any existing record (updating its flags is author-only, so we
-            // leave it as-is); nothing to persist without the worker's key.
-            return existing.orElse(null);
-        } catch (IOException | RuntimeException e) {
-            // Loud, because of what it costs when it repeats: with no `nodera-world.dat` on disk
-            // there is nothing to pin against, so the next share mints another id and the network
-            // gains another copy of this world. A world that cannot record its own identity is one
-            // launch away from being a duplicate.
-            LOG.error("Nodera: could not persist the world identity for '{}': {}. The save cannot "
-                    + "remember its network id, so re-sharing it will publish it as a NEW world. "
-                    + "Fix the save directory's permissions before sharing again.", world,
-                    e.getMessage());
-            return existing.orElse(null);
-        }
-    }
-
-    /**
-     * Arm (or disarm) the live-join password gate for the world being shared (L-52).
-     *
-     * <p>Off the server thread: arming derives the gate key with the same memory-hard KDF the
-     * content plane uses, which is deliberately expensive and has no business inside a tick. Until
-     * it completes the gate stays disarmed, so the only risk of the asynchrony is a join in the
-     * first fraction of a second after a share — and that joiner is the sharer's own client.
-     *
-     * @param worldId the world's id.
-     * @param opts    the share options carrying the password (blank ⇒ disarm).
-     * @param world   the world's display name, for the log line.
-     */
-    private static void armJoinGate(Bytes worldId, ShareOptions opts, String world) {
-        if (!opts.encryptionEnabled()) {
-            HostJoinGate.get().disarm();
-            return;
-        }
-        char[] password = opts.password().toCharArray();
-        Thread.ofPlatform().name("nodera-join-gate-arm").daemon().start(() -> {
-            try {
-                HostJoinGate.get().arm(worldId, password);
-                LOG.info("Nodera: '{}' is password-gated — joiners must supply the world password",
-                        world);
-            } catch (RuntimeException e) {
-                // Fail CLOSED: a gate that could not be armed must not leave a password-protected
-                // world open to anyone who resolves its route, so the world seals instead.
-                HostJoinGate.get().seal();
-                LOG.error("Nodera: could not arm the join password gate for '{}' ({}) — the world "
-                        + "is NOT joinable until you re-share it", world, e.toString());
-            } finally {
-                java.util.Arrays.fill(password, '\0');
-            }
-        });
-    }
 
     /**
      * Task 33 password authority: whether this installation's worker is the original author of the
@@ -649,12 +562,25 @@ public final class NoderaHost {
      */
     private static void notifyWorker(MinecraftServer server, Bytes worldId, String world,
                                      ShareOptions opts, String mcRoute, ServerPlayer leaving) {
+        notifyWorker(server, worldId, world, opts, mcRoute, livePlayerCount(server, leaving));
+    }
+
+    /**
+     * As above, from a caller that has already counted the players.
+     *
+     * <p>The count is a parameter rather than a read because the share path now reports from its own
+     * thread: {@link #livePlayerCount} walks {@code server.getPlayerList()}, which is the server
+     * thread's collection, so the number is taken where it is legal to take it and carried.
+     *
+     * @param players the live player count at the moment the caller measured it.
+     */
+    private static void notifyWorker(MinecraftServer server, Bytes worldId, String world,
+                                     ShareOptions opts, String mcRoute, int players) {
         if (!CompanionLink.isPresent()) {
             return;
         }
         Optional<String> refusal = CompanionLink.client()
-                .host(worldId.toHex(), world,
-                        shareOptionsJson(opts, mcRoute, livePlayerCount(server, leaving)));
+                .host(worldId.toHex(), world, shareOptionsJson(opts, mcRoute, players));
         if (refusal.isEmpty()) {
             lastHostRefusal.remove(world);
             return;
@@ -843,7 +769,8 @@ public final class NoderaHost {
                 // otherwise "joiners must use the new password" would be true of the archive and
                 // false of the game server, which is the exact split L-52 closed.
                 NoderaPeerService.get().updateHostOptions(options);
-                armJoinGate(currentId.worldId(), options, server.getWorldData().getLevelName());
+                HostActivation.armGateAsync(currentId.worldId(), options,
+                        server.getWorldData().getLevelName());
                 tellHost(server, "Nodera: password changed — joiners must use the new password.");
                 return;
             }
@@ -1631,6 +1558,9 @@ public final class NoderaHost {
     public static void onServerStopping(MinecraftServer server) {
         // Announced before anything is attempted, so a bootstrap already running can give up.
         stopping = true;
+        // Same courtesy for a share still being brought up: the world is closing, so its hand-back
+        // must not run against a server that is on its way out.
+        HostActivation.abandon();
         // The game endpoint dies with the game. Tell the worker so the world stays LISTED on the
         // network (the worker keeps announcing) but stops advertising a joinable game server.
         if (NoderaPeerService.get().isHosting() && CompanionLink.isPresent()) {
@@ -1662,6 +1592,9 @@ public final class NoderaHost {
      * @param server the hosting server.
      */
     public static void deactivate(MinecraftServer server) {
+        // Before anything else: a bring-up still dialling relays for this world must not come back
+        // and publish a game port for a world the player has just stopped sharing.
+        HostActivation.abandon();
         String world = server.getWorldData().getLevelName();
         if (NoderaPeerService.get().isHosting()) {
             LOG.info("Nodera: stopping sharing of world '{}'", world);

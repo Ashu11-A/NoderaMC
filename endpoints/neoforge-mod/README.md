@@ -23,7 +23,7 @@ that turns the proven headless stacks into a game.
 dev.nodera.mod
 ├── NoderaMod / NoderaClientMod   both-dist and Dist.CLIENT entrypoints
 ├── common/    NoderaConfig, ModNetworking, ModAttachments, adapters,
-│   └── entity/ NoderaPeerService, NoderaHost, NoderaWorldStore, WorldArchiver,
+│   └── entity/ NoderaPeerService, NoderaHost, HostActivation, WorldArchiver,
 │              NoderaContinuity, OperatorBridge, CompanionGate/Client/Link/Protocol
 ├── server/    ServerBootstrap + the live adapters that consume engine/network seams
 │   ├── entity/    entity capture, projection, LiveEntityLaneSession
@@ -57,6 +57,14 @@ compatibility contract. `LevelChunkMixin` is the **only** write choke point.
 listener exceptions: an uncaught exception in a handler reachable from a server event kills the
 integrated server. Two live crashes came from exactly this — a P2P bind failure and a per-entity lane
 failure — and both are now contained and degrade instead.
+
+**Nothing that can block runs on a thread that has to paint or tick.** Sharing a world is the
+worked example: `NoderaHost.activate` keeps only the readings the server thread alone may take — the
+certified genesis digests live chunk sections, `publishServer` and the operator grant touch vanilla
+state — and hands the mint, the P2P bind, the relay reservation, the tracker announce, the join
+gate's KDF and the save walk to `HostActivation`, which **cannot name a `MinecraftServer`**. That is
+the enforcement, not a convention: a class that cannot reach the server cannot read it from the wrong
+thread, and it can be loaded in a unit test, which a class that touches Minecraft cannot.
 
 **Cancel vanilla only where the commit is synchronous and local.** Cancelling against an *unconfirmed*
 network commit makes the player's action vanish while the network is still deciding. That rule is

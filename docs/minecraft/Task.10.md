@@ -7,7 +7,7 @@
      small it looks. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-07-28
+**Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-08-10
 **Depends on:** [minecraft 6](Task.6.md), [minecraft 7](Task.7.md), [worker 8](../peer/Task.8.md)
 **Consumed by:** [minecraft 11](Task.11.md)
 
@@ -80,7 +80,7 @@ loading screen that never resolves.
 | 2 | The world list filters on it; the join button gates on it | ⬜ |
 | 3 | `buildEntries` reports the health it can prove, not `HEALTHY` unconditionally | ⬜ |
 | 4 | Peer bring-up moves off the client render thread (`onServerSessionInfo`) | ⬜ |
-| 5 | Host activation moves off the server main thread (`NoderaHost.activate`) | ⬜ |
+| 5 | Host activation moves off the server main thread (`NoderaHost.activate`) | 🚧 the split landed 2026-08-10 (`HostActivation`); the black-holed world load is the exit and is blocked on [#266](https://github.com/Ashu11-A/NoderaMC/issues/266) + [#267](https://github.com/Ashu11-A/NoderaMC/issues/267) |
 | 6 | Every waiting screen has a working escape and a deadline | ✅ (`RehostScreen`) |
 | 7 | The capture lane is on by default, with a species/dimension policy that does not revoke | 🚧 the *does not revoke* half landed 2026-07-29 (#236); the defaults and the live run remain |
 | 8 | `NoderaLanePlanPayload` carries residents, so both sides plan the same committee | ⬜ |
@@ -98,6 +98,42 @@ render thread while the player looks at "Joining world…". The host side pays t
 server thread during world load, plus a `Files.walk` of the whole save.
 
 The fix is not shorter timeouts. It is that none of this belongs on a thread that has to paint.
+
+### The host half, and why it is a split rather than a move (deliverable 5, 2026-08-10)
+
+`NoderaHost.activate` cannot simply be moved: three of its steps are only legal on the server thread,
+and one of them is expensive. `WorldGenesisService.ensure` walks the players' field-of-view regions
+and reads every loaded `LevelChunkSection` through `getChunkNow` — a server-thread-only read of live
+world state, and the host identity is loaded beside it because it is genesis's signer. `publishServer`
+is vanilla's own publish path and dereferences the local player. `grantHostOperator` walks the player
+list. Those four stay, and the register's exit clause is untouched by them: none of them speaks to
+the network, so a relay set pointed at a black hole does not make any of them slower.
+
+Everything that *is* relay- or socket-bound moved to **`HostActivation`**, a Minecraft-free class that
+cannot name a `MinecraftServer` at all. That is the load-bearing part of the design rather than an
+aesthetic one: a class that cannot name the server cannot read the level name, the save path or the
+player list from the wrong thread, so the snapshot it is handed is the only input it has. It is also
+what makes the claim testable — Minecraft classes are not on this module's test runtime classpath, so
+a class that touches them cannot be loaded in a unit test at all, and a claim about a thread has to be
+proven by watching one.
+
+Three decisions worth recording:
+
+- **The join gate is armed before the game port is opened.** It used to be the other way round —
+  `openGameServer` ran at activation step 8 and `armJoinGate` spawned its KDF at step 13 — so a
+  password-protected world answered dials with `NOT_GATED` for as long as the derivation took.
+  Arming now happens synchronously inside the bring-up (which is not the server thread, which is why
+  it was async in the first place), and the publish is posted afterwards.
+- **Cancellation is by generation, not by a lock.** `deactivate` and `onServerStopping` bump a counter
+  and return; a bring-up still iterating relays notices at its next checkpoint and hands nothing back.
+  A lock would have moved the ninety seconds from world load to world close.
+- **The hand-back is in a `finally`.** "Keep the server, drop the feature" is this file's oldest rule
+  (issue #39): a world whose mesh refused to start is still a world, so its game port is published and
+  its archive seeded whatever the bring-up did.
+
+The one call that can block and is not on either list is the worker's HOST verb, which needs the game
+route the server thread has just produced. It leaves again immediately on `nodera-host-notify`,
+mirroring what `onServerStopping` already does with the same verb.
 
 `RehostScreen` compounded it, and was the reported symptom: `init()` added a Back button only when
 `failure != null`, `shouldCloseOnEsc()` agreed, and `render()` drew a hardcoded "Migrating world…"
@@ -132,6 +168,7 @@ rather than a change of which mob kills the region first. The defaults themselve
 | `.../client/multiplayer/MultiplayerWorldFeed.java` | the merge point; the gate goes here |
 | `.../client/multiplayer/NoderaMultiplayerScreen.java` | join-button enablement |
 | `.../common/NoderaHost.java` | host activation, ownership planning |
+| `.../common/HostActivation.java` | the Minecraft-free half of a share: everything that must not run on the server thread |
 | `.../common/NoderaPeerService.java` | transport composition, announce |
 | `.../common/ModNetworking.java` | session payload handling |
 | `.../client/multiplayer/NoderaContinuity.java` | rehost screen and its deadline |
@@ -147,6 +184,8 @@ rather than a change of which mob kills the region first. The defaults themselve
 | A live run with the lane on and a cow in the region | deliverable 7 |
 | `MobsScenario` G2b (rewritten 2026-08-06, **not yet run live**) | deliverable 7's refusal half: an unmodelled species is left to vanilla and the region keeps validating |
 | `ClientJoinPasswordsGateMarkerTest` (3, green) | deliverable 6 — a refused join is distinguishable from a lost host, including when the password was merely wrong |
+| `HostActivationIsOffTheServerThreadTest` (3, green) | deliverable 5 — the slow half of a share runs on `nodera-host-activate` while the caller has already returned; latch-based, never timed |
+| `HostActivationCompletionRunsOnTheServerThreadTest` (2, green) | deliverable 5 — what needs the server thread gets there by being posted, including when the bring-up failed, and an abandoned share hands nothing back |
 
 ## Acceptance criteria
 
@@ -155,6 +194,8 @@ rather than a change of which mob kills the region first. The defaults themselve
 - [x] Every screen a player can reach while waiting can be left.
 - [ ] A join refused at the password gate reaches the password prompt (headless proof green; live
       re-run outstanding).
+- [ ] World load time is unaffected by an unreachable relay set (the split landed and is proven
+      headlessly; the live world load is blocked on #266 + #267).
 - [ ] A default install captures block edits.
 - [ ] A region survives a passive mob.
 
