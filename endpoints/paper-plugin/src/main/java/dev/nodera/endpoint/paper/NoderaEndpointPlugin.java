@@ -1,8 +1,12 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.endpoint.paper.entity.BukkitProjections;
+import dev.nodera.endpoint.paper.entity.ProjectionListener;
+import dev.nodera.endpoint.paper.entity.ProjectionPinner;
 import dev.nodera.peer.control.CompanionClient;
 import dev.nodera.core.region.RegionAlignment;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -26,6 +30,7 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
     private EndpointPlatform platform = EndpointPlatform.UNKNOWN;
     private EndpointConfig config;
     private EndpointPeerLink peerLink;
+    private ProjectionPinner projectionPinner;
 
     @Override
     public void onEnable() {
@@ -70,6 +75,82 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
                 + " · " + config.trackers().size() + " tracker(s)");
 
         linkPeer();
+        startProjectionPinning();
+    }
+
+    /**
+     * Install the validated-item projection pin (server task 5 deliverable 6, [L-69]).
+     *
+     * <p><b>What is complete and what is not, said here rather than discovered later.</b> The pin
+     * itself is complete: a projection registered with it does not despawn, does not drift past
+     * {@link ProjectionPinner#DRIFT_TOLERANCE_BLOCKS}, cannot be credited by any vanilla actor, and
+     * can be credited exactly once through the lane. Its INPUT is not: nothing on the endpoint path
+     * delegates a region yet — that is server tasks 2 and 3 — so {@link #regionIsDelegated} answers
+     * {@code false} for every location and no item on this server is validated, therefore none is
+     * pinned. A server running this build behaves exactly as one without the plugin, which is the
+     * only honest behaviour while there is no validated lane to be honest about.
+     *
+     * <p>It is wired now, rather than with tasks 2 and 3, because the pin is the half that has no
+     * dependency on them and because a mechanism landed beside its own test is a mechanism somebody
+     * can review. What it must not do is pin anything speculatively: an endpoint that stopped items
+     * despawning on a world with no validated lane would be a data-shaped bug in every operator's
+     * world, dressed as a feature.
+     */
+    private void startProjectionPinning() {
+        if (!config.entityCapture()) {
+            getLogger().info("lane.entity-capture is off — items are vanilla's entirely, and"
+                    + " nothing is pinned");
+            return;
+        }
+        projectionPinner = new ProjectionPinner(
+                BukkitProjections.regionTicker(this),
+                this::creditThroughValidatedLane,
+                getLogger()::warning);
+        getServer().getPluginManager().registerEvents(
+                new ProjectionListener(projectionPinner, this::regionIsDelegated,
+                        getLogger()::warning), this);
+        getLogger().info("validated-item projection pinning installed (L-69): lifetime reset,"
+                + " velocity zeroed, drift band " + ProjectionPinner.DRIFT_TOLERANCE_BLOCKS
+                + " blocks, and the validated lane is the only thing that may credit an item");
+        getLogger().info("no region on this endpoint is delegated yet (server tasks 2 and 3), so"
+                + " no item is validated and nothing is pinned — the world ticks exactly as"
+                + " vanilla until a region is delegated");
+    }
+
+    /**
+     * Whether the Nodera region covering {@code where} is delegated to this endpoint's validated
+     * lane.
+     *
+     * <p>Always {@code false} today. The endpoint's delegation path is server tasks 2 and 3 (the
+     * in-process peer and the custody/assignment view); until one of them hands this plugin a live
+     * assignment there is no region whose items are validated, and a predicate that guessed would
+     * pin items the network has never certified.
+     *
+     * @param where the location of a candidate projection.
+     */
+    private boolean regionIsDelegated(Location where) {
+        if (where == null) {
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * Hand a pickup intent to the validated lane, which is the only thing that may credit an item.
+     *
+     * <p>Always refuses today, for the same reason {@link #regionIsDelegated} always says no: there
+     * is no validated lane on this endpoint yet. A refusal leaves the projection where it is rather
+     * than crediting locally, which is the correct failure — crediting locally is precisely the
+     * double-credit L-69's exit clause forbids.
+     *
+     * @param item  the projection's entity id.
+     * @param taker the player who reached it.
+     * @return whether the lane took the intent.
+     */
+    private boolean creditThroughValidatedLane(java.util.UUID item, java.util.UUID taker) {
+        getLogger().fine("a pickup of " + item + " by " + taker
+                + " had no validated lane to credit through (server tasks 2 and 3)");
+        return false;
     }
 
     /**
@@ -119,6 +200,13 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (projectionPinner != null) {
+            // The counts go out before the pin is dropped: "0 pinned" after close() is what every
+            // run would print, and a summary that is the same whatever happened is not a summary.
+            getLogger().info("projection pin: " + projectionPinner.summary());
+            projectionPinner.close();
+            projectionPinner = null;
+        }
         if (peerLink != null) {
             peerLink.close();
             peerLink = null;

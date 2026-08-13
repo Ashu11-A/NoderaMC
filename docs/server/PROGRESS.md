@@ -6,7 +6,7 @@
      root README bar. Live observations count as evidence ONLY when they name the log line or
      artifact that showed them. Never rewrite an old note. -->
 
-**Category:** server · **Last audit:** 2026-07-28 · Tasks completed: **1 / 10**
+**Category:** server · **Last audit:** 2026-08-10 · Tasks completed: **1 / 10**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 [`REFERENCE.md`](REFERENCE.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
@@ -23,16 +23,81 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 | [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` parsed/validated/enforced (`EndpointConfig`, 9 tests); **external worker link shipped** (`EndpointPeerLink` + `ControlClient`, E4 green). **L-71 retired 2026-07-26**. The in-process `PeerRuntime` remains; `embedded` does nothing (follow-on scope) |
 | [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS — **custody half blocked** | **L-63 retired 2026-07-26** (multi-view planning) still holds. **L-62 retired 2026-07-28 and REOPENED 2026-08-06**: `CustodyDigest`, `CustodyAudit` and both their suites were deleted 2026-08-06 (`0b02aa5`, #210) as unreachable, taking the row's exit test with them, so deliverables 2 and 4 are **withdrawn** and 3 ("the digest on the announce") is **blocked on a class that no longer exists** — do not pick it up before reading the decision note in [`Task.3.md`](Task.3.md). Actionable remainder: the custody tiebreak, `NoderaFoliaRegionMap` |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
-| [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
+| [5](Task.5.md) | Entity, mob, and event capture lane | 🚧 IN PROGRESS | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin. **Deliverable 6 landed 2026-08-10** (`ProjectionPinner` + adapter + listener, wired from `onEnable`, `ProjectionPinnerTest` 12) — its INPUT is missing, because nothing delegates a region (tasks 2/3). **Deliverable 7 was measured rather than built**: the mechanism is `:engine`'s interference guard, and the two thresholds L-67's exit clause is stated in are derived in [`Task.5.md`](Task.5.md) §Design. Neither row retires |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED | Owns L-70. Admission is `registryFingerprint` equality |
 | [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED | Owns L-65. PC-1…PC-4 make "100 %" falsifiable |
-| [9](Task.9.md) | Live acceptance: mixed-client suites + CI | 🚧 IN PROGRESS | The three suites + launcher + CI matrix are **committed and green for the built subset** (enable, ALIGN-1, external link). Headline stages (P5, F3/F6, WorldEdit cert.) skip on open rows |
+| [9](Task.9.md) | Live acceptance: mixed-client suites + CI | 🚧 IN PROGRESS | The three suites + launcher + CI matrix are **committed and green for the built subset** (enable, ALIGN-1, external link). **Correction 2026-08-10:** the headline stages did not "skip on open rows" — they did not exist. `endpoint` had E0–E4, `folia` F0–F2, `plugins` C0–C2 and nothing else. **P6** and **F5** are the first two written (#180, #177) and they FAIL at their delegation gate, on purpose |
 | [10](Task.10.md) | Endpoint telemetry + the tenant boundary | 🚧 IN PROGRESS | **L-79 retired 2026-07-26**: `TenantBoundary` + floor landed and tested; the reporter itself remains, and must emit through it |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-10 — The projection pin exists; L-67's two thresholds exist; neither row retires
+
+Two rows, one commit, because both are server task 5 and both turned out to be blocked on the same
+missing thing.
+
+**L-69 (#180) — the pin is built.** `ProjectionPinner` (Minecraft-free), `BukkitProjections` (the
+`Item` adapter and the `RegionScheduler` dispatch) and `ProjectionListener` (`ItemSpawnEvent`,
+`EntityPickupItemEvent`) are wired from `NoderaEndpointPlugin.onEnable`, and `ProjectionPinnerTest`
+drives 72,000 simulated ticks — an hour, twelve vanilla despawn ages — against a fake item that keeps
+moving after every velocity write. Evidence: `ProjectionPinnerTest` 12 tests, `./gradlew
+:paper-plugin:test` green.
+
+Two things the design as written here would have got wrong, both found by writing the test rather
+than by reading:
+
+- *"pickup delay held at maximum, pickup routed through `EntityPickupItemEvent`"* — that event does
+  not fire while `pickupDelay > 0`, so a maximal delay makes L-69's own exit clause ("picking it up
+  credits exactly once") unreachable: the item would never be picked up at all. The intent is
+  detected on the region tick instead, from a player inside one block, and the event handler's job is
+  to **cancel** the vanilla credit — which is what makes exactly-once survive a plugin that zeroes
+  the delay behind us.
+- *"zeroed velocity re-applied on the region tick"* does not bound drift. The platform integrates the
+  entity **before** the region task runs, and gravity replaces the velocity on the next tick.
+  Re-applying position every tick would bound it and would be client-visible jitter, so the pin uses
+  a 0.5-block hysteresis band and the observable bound is 1.0 block — the number `endpoint` P6
+  asserts.
+
+**L-67 (#177) — the two thresholds now exist, and they refuse the clause.** "The resync count under
+threshold" and "no region revoked for interference rate" named two numbers and stated neither, which
+makes an exit test unanswerable. Both were already in production code and are now recorded in
+[`Task.5.md`](Task.5.md) §Design: resync ≤ **100 bps** (`EntityLaneSoakMetrics.MAX_RESYNC_RATE_BPS`,
+1% of commit outcomes) and revocation strictly above **60** foreign writes per **1200**-tick window
+(`NoderaConstants.INTERFERENCE_REVOKE_RATE`, compared at `DelegabilityPolicy:163`).
+
+The derivation is the finding. One two-tick repeater clock — ordinary, not a stress test — is 600
+edges a window, and on an endpoint every one is a foreign write because there is no mixin to cancel
+the scheduled tick. That is ten times the revocation bound, so F5's two halves cannot both hold: the
+load its first clause demands revokes the region its second clause requires to survive. The same
+clock costs **zero** on the modded host. Evidence: `InterferenceThroughputTest` (`:engine`, 4 tests),
+which also pins the property that makes the approximation survivable at all — the certificate rate
+follows `InterferenceCommitter.setCommitIntervalTicks` and not the write volume, so sixty-four times
+the load costs the same number of certificates. Resolving it is a **decision**, framed with three
+options in `Task.5.md` §Design; making the revocation rate source-aware is the recommendation.
+
+**Neither row retires, and the reason is the same for both.** Every clause in both exit tests says "a
+**delegated** region", and nothing on the endpoint path delegates one — server tasks 2 and 3. So
+`endpoint` **P6** and `folia` **F5** were written and both **fail at their first assertion**
+(`ServerEndpointSupport.requireDelegatedRegion`), rather than measuring vanilla and reporting it as
+the validated lane. They fail rather than skip because a delegated region is an artefact the
+harness's own topology should produce, which makes a skip structural — red under every flag since PR
+#259 — so failing is the same colour and says more. Expect the `endpoint` and `folia` legs of
+`e2e-live` to be red until tasks 2/3 land.
+
+**A correction that outlives this commit:** [`TESTING.md`](TESTING.md) claimed the mixed-client
+stages "report SKIPPED naming the open row that blocks each". They did not exist. Five rows (L-65,
+L-67, L-68, L-69, L-70) named stages that were in no form on this tree, which means those rows were
+**unmeasurable** rather than unmet — a different statement about the project. §1.3 and §1.4 now say
+per stage which exist.
+
+**And one recorded decision:** L-66/#182 (Folia publishes no build of the pinned Minecraft version)
+blocks L-67's closing condition, so a recommendation is now framed in [`Task.1.md`](Task.1.md) — drop
+the mixed-client Folia requirement, keep Folia at the platform level, and give the residue its own
+row with a re-check trigger. It is framed, not taken: moving a version pin is the owner's call. It
+lives in the task file because a decision recorded only in an issue comment evaporates.
 
 ### 2026-08-06 — L-62 REOPENED: the exit test that retired it no longer exists
 

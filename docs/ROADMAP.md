@@ -62,10 +62,13 @@ transcription of them, and a transcription is what goes stale — it read 49/80 
 to 51/82 for two merges before anything printed the disagreement. `web/scripts/build-status.mjs`
 therefore publishes the **sum** and warns when the two differ.
 
-The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
-[`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
-figure** until its first task starts — counting an unstarted programme would move the denominator
-without moving the work.
+The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, **1 done**, 5 in progress)
+is scoped in [`plans/Plan.5.md`](plans/Plan.5.md) and is still **excluded from this table and from
+the completion figure** — counting a programme in flight would move the denominator faster than the
+work, and the figure has never been recomputed mid-programme. The exclusion is now a deliberate
+carve-out rather than the "until its first task starts" it used to claim: task 1 completed on
+2026-07-26 and tasks 2, 3, 5, 9 and 10 are in progress. Category status lives in
+[`server/PROGRESS.md`](server/PROGRESS.md) §1, which is authoritative for it.
 
 ---
 
