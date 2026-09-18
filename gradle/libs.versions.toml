@@ -12,7 +12,7 @@ jmh               = "0.7.2"       # me.champeau.jmh Gradle plugin (the :peer ben
 jmhCore           = "1.37"        # the JMH runtime/annotations the plugin resolves
 asm               = "9.7.1"       # bytecode reader for the structural code report (:worker)
 jetbrainsAnnotations = "26.0.1"
-bouncycastle      = "1.84"
+bouncycastle      = "1.85"
 rocksdb           = "9.7.3"
 # Paper API for the endpoint plugin (server task 1). Matches the Minecraft version the mod pins.
 paperApi            = "1.21.1-R0.1-SNAPSHOT"
